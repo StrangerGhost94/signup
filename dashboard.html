@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="card">
+    <h1>You're logged in 🎉</h1>
+    <p id="welcome" style="margin-bottom:1.5rem;color:#555;"></p>
+    <button id="logoutBtn">Log Out</button>
+  </div>
+
+  <script>
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) {
+        window.location.href = '/login.html';
+        return;
+      }
+      const data = await res.json();
+      document.getElementById('welcome').textContent = `Signed in as ${data.email}`;
+    })();
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    });
+  </script>
+</body>
+</html>
