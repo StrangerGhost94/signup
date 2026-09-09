@@ -2,30 +2,44 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Find a Handyman</title>
+<title>Find a handyman — Handy</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="dash-wrap">
     <header class="dash-header">
-      <h1>Find a Handyman</h1>
       <div>
-        <span id="welcome" style="color:#555;margin-right:1rem;"></span>
-        <button id="logoutBtn" class="small-btn">Log Out</button>
+        <span class="wordmark">HANDY</span>
+        <h1>Find a handyman</h1>
+      </div>
+      <div class="dash-user">
+        <span id="welcome"></span>
+        <button id="logoutBtn" class="small-btn logout-btn">Log out</button>
       </div>
     </header>
 
     <div class="search-bar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <input type="text" id="searchInput" placeholder="Search by name, skill, or location...">
     </div>
 
     <div class="filters" id="filters"></div>
 
     <div class="worker-grid" id="workerGrid"></div>
-    <p id="noResults" style="display:none;color:#888;text-align:center;">No handymen found. Try a different search.</p>
+    <p id="noResults" style="display:none;">No handymen found. Try a different search.</p>
   </div>
 
   <script>
+    const CATEGORY_COLORS = {
+      'Plumbing': '#2F6169',
+      'Electrical': '#B9791C',
+      'Carpentry': '#8B5E34',
+      'Painting': '#A24E67',
+      'Cleaning': '#3F7D63',
+      'Gardening': '#5C8A3A',
+      'Moving': '#5A5F73'
+    };
+
     let activeCategory = '';
 
     async function checkAuth() {
@@ -43,15 +57,16 @@
       const filtersEl = document.getElementById('filters');
 
       const allBtn = document.createElement('button');
-      allBtn.textContent = 'All';
       allBtn.className = 'filter-btn active';
+      allBtn.innerHTML = '<span class="dot"></span>All';
       allBtn.onclick = () => selectCategory('', allBtn);
       filtersEl.appendChild(allBtn);
 
       data.categories.forEach(cat => {
         const btn = document.createElement('button');
-        btn.textContent = cat;
         btn.className = 'filter-btn';
+        const color = CATEGORY_COLORS[cat] || '#2F6169';
+        btn.innerHTML = `<span class="dot" style="background:${color}"></span>${cat}`;
         btn.onclick = () => selectCategory(cat, btn);
         filtersEl.appendChild(btn);
       });
@@ -59,7 +74,14 @@
 
     function selectCategory(cat, btnEl) {
       activeCategory = cat;
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.filter-btn').forEach(b => {
+        b.classList.remove('active');
+        const dot = b.querySelector('.dot');
+        if (dot && b !== btnEl) {
+          const originalColor = dot.style.background;
+          // restore non-active dot color (already set inline, just remove active override)
+        }
+      });
       btnEl.classList.add('active');
       loadWorkers();
     }
@@ -87,15 +109,20 @@
       noResults.style.display = 'none';
 
       workers.forEach(w => {
+        const color = CATEGORY_COLORS[w.category] || '#2F6169';
         const card = document.createElement('div');
         card.className = 'worker-card';
+        card.style.setProperty('--cat-color', color);
         card.innerHTML = `
           <div class="worker-top">
             <strong>${w.name}</strong>
             <span class="rating">★ ${w.rating}</span>
           </div>
           <span class="tag">${w.category}</span>
-          <p class="location">📍 ${w.location}</p>
+          <p class="location">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+            ${w.location}
+          </p>
           <p class="bio">${w.bio}</p>
           <a href="tel:${w.phone}"><button class="small-btn contact-btn">Contact ${w.phone}</button></a>
         `;

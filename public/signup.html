@@ -2,19 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Sign Up</title>
+<title>Sign up — Handy</title>
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="auth-page">
   <div class="card">
-    <h1>Create an account</h1>
-    <div class="error" id="error"></div>
-    <form id="signupForm">
-      <input type="email" id="email" placeholder="Email" required>
-      <input type="password" id="password" placeholder="Password (min 6 chars)" required>
-      <button type="submit">Sign Up</button>
-    </form>
-    <p class="switch">Already have an account? <a href="/login.html">Log in</a></p>
+    <div class="card-accent"></div>
+    <div class="card-body">
+      <span class="wordmark">HANDY</span>
+      <h1>Create your account</h1>
+      <p class="subtext">Start finding trusted help near you.</p>
+      <div class="error" id="error"></div>
+      <form id="signupForm">
+        <input type="email" id="email" placeholder="Email" required>
+        <input type="password" id="password" placeholder="Password (min 6 characters)" required>
+        <button type="submit" class="btn-primary">Sign up</button>
+      </form>
+      <p class="switch">Already have an account? <a href="/login.html">Log in</a></p>
+    </div>
   </div>
 
   <script>
