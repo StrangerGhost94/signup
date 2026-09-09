@@ -11,6 +11,7 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', 1);
 
 // --- Database ---
+console.log('DATABASE_URL is set:', !!process.env.DATABASE_URL);
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
