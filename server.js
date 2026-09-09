@@ -2,15 +2,32 @@ const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// In-memory "database" — resets on every restart/deploy.
-// Good enough for a starter project; swap for a real DB later.
-const users = [];
+// Trust Railway's reverse proxy so secure cookies work correctly.
+app.set('trust proxy', 1);
 
-// Seed data for handyman workers. Swap for a real DB later.
+// --- Database ---
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
+
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+}
+
+// Seed data for handyman workers. Static reference data, fine to keep in memory.
 const workers = [
   { id: 1, name: 'James Okello', category: 'Plumbing', location: 'Kampala Central', rating: 4.8, phone: '+256701111111', bio: 'Pipe repairs, leak fixes, bathroom installs. 8 years experience.' },
   { id: 2, name: 'Sarah Nambi', category: 'Electrical', location: 'Ntinda', rating: 4.9, phone: '+256702222222', bio: 'Wiring, sockets, fault diagnosis. Licensed electrician.' },
@@ -31,7 +48,11 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 1000 * 60 * 60 * 24 } // 1 day
+  cookie: {
+    maxAge: 1000 * 60 * 60 * 24, // 1 day
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  }
 }));
 
 function requireLogin(req, res, next) {
@@ -41,43 +62,69 @@ function requireLogin(req, res, next) {
   next();
 }
 
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isStrongPassword(pw) {
+  return typeof pw === 'string' && pw.length >= 8 && /[A-Za-z]/.test(pw) && /[0-9]/.test(pw);
+}
+
 // --- Auth routes ---
 
 app.post('/api/signup', async (req, res) => {
-  const { email, password } = req.body;
+  const email = normalizeEmail(req.body.email);
+  const password = req.body.password;
 
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required.' });
+  if (!email || !EMAIL_RE.test(email)) {
+    return res.status(400).json({ error: 'Enter a valid email address.' });
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
-  }
-  if (users.find(u => u.email === email)) {
-    return res.status(409).json({ error: 'An account with that email already exists.' });
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters and include a letter and a number.' });
   }
 
-  const passwordHash = await bcrypt.hash(password, 10);
-  users.push({ email, passwordHash });
+  try {
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'An account with that email already exists. Try logging in instead.' });
+    }
 
-  req.session.userEmail = email;
-  res.json({ message: 'Account created.', email });
+    const passwordHash = await bcrypt.hash(password, 10);
+    await pool.query('INSERT INTO users (email, password_hash) VALUES ($1, $2)', [email, passwordHash]);
+
+    req.session.userEmail = email;
+    res.json({ message: 'Account created.', email });
+  } catch (err) {
+    console.error('Signup error:', err);
+    res.status(500).json({ error: 'Something went wrong creating your account. Please try again.' });
+  }
 });
 
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-  const user = users.find(u => u.email === email);
+  const email = normalizeEmail(req.body.email);
+  const password = req.body.password;
 
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid email or password.' });
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const user = result.rows[0];
+
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    req.session.userEmail = email;
+    res.json({ message: 'Logged in.', email });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Something went wrong logging in. Please try again.' });
   }
-
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
-    return res.status(401).json({ error: 'Invalid email or password.' });
-  }
-
-  req.session.userEmail = email;
-  res.json({ message: 'Logged in.', email });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -120,6 +167,13 @@ app.get('/api/workers', requireLogin, (req, res) => {
   res.json({ workers: results });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
+  });
