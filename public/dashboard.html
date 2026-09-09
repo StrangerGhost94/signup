@@ -2,31 +2,125 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Dashboard</title>
+<title>Find a Handyman</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="card">
-    <h1>You're logged in 🎉</h1>
-    <p id="welcome" style="margin-bottom:1.5rem;color:#555;"></p>
-    <button id="logoutBtn">Log Out</button>
+  <div class="dash-wrap">
+    <header class="dash-header">
+      <h1>Find a Handyman</h1>
+      <div>
+        <span id="welcome" style="color:#555;margin-right:1rem;"></span>
+        <button id="logoutBtn" class="small-btn">Log Out</button>
+      </div>
+    </header>
+
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search by name, skill, or location...">
+    </div>
+
+    <div class="filters" id="filters"></div>
+
+    <div class="worker-grid" id="workerGrid"></div>
+    <p id="noResults" style="display:none;color:#888;text-align:center;">No handymen found. Try a different search.</p>
   </div>
 
   <script>
-    (async () => {
+    let activeCategory = '';
+
+    async function checkAuth() {
       const res = await fetch('/api/me');
       if (!res.ok) {
         window.location.href = '/login.html';
+        return null;
+      }
+      return res.json();
+    }
+
+    async function loadCategories() {
+      const res = await fetch('/api/categories');
+      const data = await res.json();
+      const filtersEl = document.getElementById('filters');
+
+      const allBtn = document.createElement('button');
+      allBtn.textContent = 'All';
+      allBtn.className = 'filter-btn active';
+      allBtn.onclick = () => selectCategory('', allBtn);
+      filtersEl.appendChild(allBtn);
+
+      data.categories.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.textContent = cat;
+        btn.className = 'filter-btn';
+        btn.onclick = () => selectCategory(cat, btn);
+        filtersEl.appendChild(btn);
+      });
+    }
+
+    function selectCategory(cat, btnEl) {
+      activeCategory = cat;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btnEl.classList.add('active');
+      loadWorkers();
+    }
+
+    async function loadWorkers() {
+      const search = document.getElementById('searchInput').value;
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (activeCategory) params.set('category', activeCategory);
+
+      const res = await fetch('/api/workers?' + params.toString());
+      const data = await res.json();
+      renderWorkers(data.workers);
+    }
+
+    function renderWorkers(workers) {
+      const grid = document.getElementById('workerGrid');
+      const noResults = document.getElementById('noResults');
+      grid.innerHTML = '';
+
+      if (workers.length === 0) {
+        noResults.style.display = 'block';
         return;
       }
-      const data = await res.json();
-      document.getElementById('welcome').textContent = `Signed in as ${data.email}`;
-    })();
+      noResults.style.display = 'none';
+
+      workers.forEach(w => {
+        const card = document.createElement('div');
+        card.className = 'worker-card';
+        card.innerHTML = `
+          <div class="worker-top">
+            <strong>${w.name}</strong>
+            <span class="rating">★ ${w.rating}</span>
+          </div>
+          <span class="tag">${w.category}</span>
+          <p class="location">📍 ${w.location}</p>
+          <p class="bio">${w.bio}</p>
+          <a href="tel:${w.phone}"><button class="small-btn contact-btn">Contact ${w.phone}</button></a>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    let debounceTimer;
+    document.getElementById('searchInput').addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(loadWorkers, 250);
+    });
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {
       await fetch('/api/logout', { method: 'POST' });
       window.location.href = '/login.html';
     });
+
+    (async () => {
+      const me = await checkAuth();
+      if (!me) return;
+      document.getElementById('welcome').textContent = `Signed in as ${me.email}`;
+      await loadCategories();
+      await loadWorkers();
+    })();
   </script>
 </body>
 </html>
