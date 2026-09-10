@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Describe the job — HandyLink</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="form-page">
+    <a href="/dashboard.html" class="back-link">← Back</a>
+    <span class="brand" id="categoryLabel" style="display:block; margin-bottom:0.4rem;"></span>
+    <h1>What needs to be fixed?</h1>
+
+    <div class="error" id="error"></div>
+
+    <form id="requestForm">
+      <textarea id="description" rows="4" placeholder="e.g. My bathroom tap is leaking and water is coming from underneath." required></textarea>
+
+      <label style="display:block; font-weight:700; font-size:0.9rem; margin-bottom:0.6rem;">How urgent is this?</label>
+      <div class="urgency-grid" id="urgencyGrid"></div>
+
+      <input type="text" id="location" placeholder="Where is the job? (e.g. Ntinda, Kampala)" required>
+      <textarea id="locationNotes" rows="2" placeholder="Additional directions (optional) — e.g. Apartment 4B, second floor"></textarea>
+
+      <button type="submit">Find pros</button>
+    </form>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const category = params.get('category') || 'Other';
+    let selectedUrgency = 'today';
+
+    document.getElementById('categoryLabel').innerHTML =
+      `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(category)}" stroke-width="2" style="width:1.15em;height:1.15em;">${categoryIcon(category)}</svg> ${category}`;
+
+    const urgencyGrid = document.getElementById('urgencyGrid');
+    URGENCY_OPTIONS.forEach(opt => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'urgency-btn' + (opt.value === selectedUrgency ? ' active' : '');
+      btn.style.borderColor = opt.value === selectedUrgency ? opt.color : '';
+      btn.style.color = opt.value === selectedUrgency ? opt.color : '';
+      btn.innerHTML = `<strong>${opt.label}</strong><span>${opt.sub}</span>`;
+      btn.onclick = () => {
+        selectedUrgency = opt.value;
+        document.querySelectorAll('.urgency-btn').forEach(b => {
+          b.classList.remove('active');
+          b.style.borderColor = '';
+          b.style.color = '';
+        });
+        btn.classList.add('active');
+        btn.style.borderColor = opt.color;
+        btn.style.color = opt.color;
+      };
+      urgencyGrid.appendChild(btn);
+    });
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'client') { window.location.href = '/provider-dashboard.html'; return; }
+    })();
+
+    document.getElementById('requestForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = '';
+
+      const description = document.getElementById('description').value.trim();
+      const location = document.getElementById('location').value.trim();
+      if (!description || !location) {
+        errorEl.textContent = 'Please describe the job and where it is.';
+        return;
+      }
+
+      sessionStorage.setItem('pendingJob', JSON.stringify({
+        category,
+        description,
+        urgency: selectedUrgency,
+        location,
+        locationNotes: document.getElementById('locationNotes').value.trim()
+      }));
+
+      window.location.href = `/matches.html?category=${encodeURIComponent(category)}`;
+    });
+  </script>
+</body>
+</html>

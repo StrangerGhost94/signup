@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choose a pro — HandyLink</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap">
+    <a href="/request.html" class="back-link" style="color:var(--ink-soft); font-size:0.88rem; font-weight:600; display:inline-block; margin-bottom:1rem;" id="backLink">← Back</a>
+    <h1 id="pageTitle" style="font-size:1.35rem; margin:0 0 0.75rem;"></h1>
+
+    <div class="estimate-banner" id="estimateBanner"></div>
+
+    <p class="status-line" id="statusLine"></p>
+    <div class="worker-grid" id="workerGrid"></div>
+  </div>
+
+  <div class="modal-overlay" id="confirmModal" style="display:none;">
+    <div class="modal-box">
+      <h2>Confirm booking</h2>
+      <div id="confirmSummary"></div>
+      <div class="error" id="confirmError"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelBooking">Cancel</button>
+        <button type="button" id="confirmBooking">Confirm booking</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const category = params.get('category');
+    const pendingJob = JSON.parse(sessionStorage.getItem('pendingJob') || 'null');
+
+    if (!pendingJob || pendingJob.category !== category) {
+      window.location.href = `/request.html?category=${encodeURIComponent(category || '')}`;
+    }
+
+    document.getElementById('backLink').href = `/request.html?category=${encodeURIComponent(category)}`;
+    document.getElementById('pageTitle').textContent = `${category} pros near you`;
+
+    const estimate = CATEGORY_ESTIMATES[category] || '20,000 – 100,000';
+    document.getElementById('estimateBanner').innerHTML = `
+      <span class="amount">UGX ${estimate}</span>
+      <p>Estimated cost based on similar ${category.toLowerCase()} jobs. Final price is confirmed with the pro directly.</p>
+    `;
+
+    let chosenProvider = null;
+
+    async function loadMatches() {
+      document.getElementById('statusLine').textContent = 'Finding pros…';
+      const res = await fetch('/api/workers?category=' + encodeURIComponent(category));
+      const data = await res.json();
+      renderMatches(data.workers);
+    }
+
+    function renderMatches(workers) {
+      const grid = document.getElementById('workerGrid');
+      const statusLine = document.getElementById('statusLine');
+      grid.innerHTML = '';
+
+      if (workers.length === 0) {
+        statusLine.textContent = '';
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><strong>No pros in this category yet</strong>Try a different category or check back soon.</div>`;
+        return;
+      }
+
+      statusLine.textContent = `${workers.length} pro${workers.length === 1 ? '' : 's'} available`;
+
+      workers.forEach(w => {
+        const color = categoryColor(w.category);
+        const card = document.createElement('div');
+        card.className = 'worker-card';
+        card.style.setProperty('--cat-color', color);
+        card.innerHTML = `
+          <div class="worker-head">
+            <div class="avatar">${initials(w.name)}</div>
+            <div class="worker-name-block">
+              <strong>${w.name}</strong>
+              <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(w.category)}</svg>${w.category}</span>
+            </div>
+            <span class="rating"><span class="star">★</span> ${w.rating}</span>
+          </div>
+          <p class="location">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+            ${w.location}
+          </p>
+          <p class="bio">${w.bio}</p>
+          <button class="small-btn" data-id="${w.id}" data-name="${w.name}">Book ${w.name.split(' ')[0]}</button>
+        `;
+        card.querySelector('button').addEventListener('click', () => openConfirm(w));
+        grid.appendChild(card);
+      });
+    }
+
+    function openConfirm(provider) {
+      chosenProvider = provider;
+      const urgencyMeta = URGENCY_OPTIONS.find(u => u.value === pendingJob.urgency);
+      document.getElementById('confirmSummary').innerHTML = `
+        <div class="modal-row"><span>Pro</span><span>${provider.name}</span></div>
+        <div class="modal-row"><span>Category</span><span>${category}</span></div>
+        <div class="modal-row"><span>When</span><span>${urgencyMeta ? urgencyMeta.label : pendingJob.urgency}</span></div>
+        <div class="modal-row"><span>Location</span><span>${pendingJob.location}</span></div>
+        <div class="modal-row"><span>Estimate</span><span>UGX ${estimate}</span></div>
+      `;
+      document.getElementById('confirmError').textContent = '';
+      document.getElementById('confirmModal').style.display = 'flex';
+    }
+
+    document.getElementById('cancelBooking').addEventListener('click', () => {
+      document.getElementById('confirmModal').style.display = 'none';
+    });
+
+    document.getElementById('confirmBooking').addEventListener('click', async () => {
+      const errorEl = document.getElementById('confirmError');
+      errorEl.textContent = '';
+
+      const res = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerId: chosenProvider.id,
+          category,
+          description: pendingJob.description,
+          urgency: pendingJob.urgency,
+          location: pendingJob.location,
+          locationNotes: pendingJob.locationNotes
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errorEl.textContent = data.error;
+        return;
+      }
+
+      sessionStorage.removeItem('pendingJob');
+      window.location.href = '/dashboard.html?booked=1';
+    });
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'client') { window.location.href = '/provider-dashboard.html'; return; }
+      await loadMatches();
+    })();
+  </script>
+</body>
+</html>

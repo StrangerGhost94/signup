@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HandyLink</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap">
+    <header class="dash-header">
+      <span class="brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
+        HandyLink
+      </span>
+      <div class="dash-user">
+        <span id="welcome"></span>
+        <button id="logoutBtn" class="small-btn logout-btn">Log out</button>
+      </div>
+    </header>
+
+    <h1 style="font-size:1.4rem; font-weight:800; margin:0 0 1rem;">What do you need help with?</h1>
+    <div class="home-cat-grid" id="homeCatGrid"></div>
+
+    <div id="bookingsSection" style="display:none;">
+      <h2 class="section-title">Your bookings</h2>
+      <div id="bookingsList"></div>
+    </div>
+
+    <button type="button" class="browse-toggle" id="browseToggle">Or browse all pros</button>
+
+    <div id="browseSection" style="display:none;">
+      <div class="search-bar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="text" id="searchInput" placeholder="Search by name, skill, or location...">
+      </div>
+      <div class="filters" id="filters"></div>
+      <p class="status-line" id="statusLine"></p>
+      <div class="worker-grid" id="workerGrid"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="rateModal" style="display:none;">
+    <div class="modal-box">
+      <h2>How was it?</h2>
+      <div class="star-picker" id="starPicker">
+        <button type="button" data-v="1">★</button>
+        <button type="button" data-v="2">★</button>
+        <button type="button" data-v="3">★</button>
+        <button type="button" data-v="4">★</button>
+        <button type="button" data-v="5">★</button>
+      </div>
+      <textarea id="reviewComment" rows="3" placeholder="Tell us about your experience (optional)"></textarea>
+      <div class="error" id="rateError"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelRate">Cancel</button>
+        <button type="button" id="submitRate">Submit review</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    let activeCategory = '';
+    let ratingJobId = null;
+    let selectedStars = 0;
+
+    async function checkAuth() {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return null; }
+      const me = await res.json();
+      if (me.role === 'provider') { window.location.href = '/provider-dashboard.html'; return null; }
+      return me;
+    }
+
+    function buildCategoryGrid() {
+      const grid = document.getElementById('homeCatGrid');
+      Object.keys(CATEGORY_COLORS).forEach(cat => {
+        const tile = document.createElement('button');
+        tile.type = 'button';
+        tile.className = 'home-cat-tile';
+        tile.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="1.8">${categoryIcon(cat)}</svg><span>${cat}</span>`;
+        tile.onclick = () => window.location.href = `/request.html?category=${encodeURIComponent(cat)}`;
+        grid.appendChild(tile);
+      });
+    }
+
+    async function loadBookings() {
+      const res = await fetch('/api/bookings/mine');
+      if (!res.ok) return;
+      const data = await res.json();
+      const section = document.getElementById('bookingsSection');
+      const list = document.getElementById('bookingsList');
+      list.innerHTML = '';
+
+      if (data.bookings.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = 'block';
+
+      data.bookings.forEach(b => {
+        const meta = STATUS_META[b.status] || STATUS_META.requested;
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <div class="job-top">
+            <div>
+              <strong>${b.category} — ${b.provider_name}</strong>
+              <p class="job-meta">${new Date(b.created_at).toLocaleDateString()} · ${b.location}</p>
+            </div>
+            <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
+          </div>
+          <p class="job-desc">${b.description}</p>
+          <div class="job-actions">
+            ${b.status === 'accepted' ? `<a href="tel:${b.provider_phone}"><button class="small-btn contact-btn">Call ${b.provider_name.split(' ')[0]}</button></a>` : ''}
+            ${b.status === 'completed' && !b.reviewed ? `<button class="small-btn" data-job="${b.id}" onclick="openRateModal(${b.id})">Rate this job</button>` : ''}
+            ${b.status === 'completed' && b.reviewed ? `<span class="job-meta">You reviewed this job</span>` : ''}
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    window.openRateModal = function (jobId) {
+      ratingJobId = jobId;
+      selectedStars = 0;
+      document.querySelectorAll('#starPicker button').forEach(b => b.classList.remove('selected'));
+      document.getElementById('reviewComment').value = '';
+      document.getElementById('rateError').textContent = '';
+      document.getElementById('rateModal').style.display = 'flex';
+    };
+
+    document.querySelectorAll('#starPicker button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedStars = parseInt(btn.dataset.v, 10);
+        document.querySelectorAll('#starPicker button').forEach(b => {
+          b.classList.toggle('selected', parseInt(b.dataset.v, 10) <= selectedStars);
+        });
+      });
+    });
+
+    document.getElementById('cancelRate').addEventListener('click', () => {
+      document.getElementById('rateModal').style.display = 'none';
+    });
+
+    document.getElementById('submitRate').addEventListener('click', async () => {
+      const errorEl = document.getElementById('rateError');
+      if (selectedStars < 1) {
+        errorEl.textContent = 'Please choose a star rating.';
+        return;
+      }
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: ratingJobId, rating: selectedStars, comment: document.getElementById('reviewComment').value })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errorEl.textContent = data.error;
+        return;
+      }
+      document.getElementById('rateModal').style.display = 'none';
+      loadBookings();
+    });
+
+    document.getElementById('browseToggle').addEventListener('click', () => {
+      const section = document.getElementById('browseSection');
+      const showing = section.style.display === 'block';
+      section.style.display = showing ? 'none' : 'block';
+      document.getElementById('browseToggle').textContent = showing ? 'Or browse all pros' : 'Hide browse';
+      if (!showing && !section.dataset.loaded) {
+        section.dataset.loaded = '1';
+        loadCategories();
+        loadWorkers();
+      }
+    });
+
+    async function loadCategories() {
+      const res = await fetch('/api/categories');
+      const data = await res.json();
+      const filtersEl = document.getElementById('filters');
+      filtersEl.innerHTML = '';
+
+      const allBtn = document.createElement('button');
+      allBtn.className = 'filter-btn active';
+      allBtn.textContent = 'All';
+      allBtn.onclick = () => selectCategory('', allBtn);
+      filtersEl.appendChild(allBtn);
+
+      data.categories.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.className = 'filter-btn';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="2">${categoryIcon(cat)}</svg>${cat}`;
+        btn.onclick = () => selectCategory(cat, btn);
+        filtersEl.appendChild(btn);
+      });
+    }
+
+    function selectCategory(cat, btnEl) {
+      activeCategory = cat;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btnEl.classList.add('active');
+      loadWorkers();
+    }
+
+    async function loadWorkers() {
+      const search = document.getElementById('searchInput').value;
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (activeCategory) params.set('category', activeCategory);
+      document.getElementById('statusLine').textContent = 'Searching…';
+      const res = await fetch('/api/workers?' + params.toString());
+      const data = await res.json();
+      renderWorkers(data.workers);
+    }
+
+    function renderWorkers(workers) {
+      const grid = document.getElementById('workerGrid');
+      const statusLine = document.getElementById('statusLine');
+      grid.innerHTML = '';
+
+      if (workers.length === 0) {
+        statusLine.textContent = '';
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><strong>No pros match that search</strong>Try a different trade or clear your filters.</div>`;
+        return;
+      }
+      statusLine.textContent = `${workers.length} pro${workers.length === 1 ? '' : 's'} available`;
+
+      workers.forEach(w => {
+        const color = categoryColor(w.category);
+        const card = document.createElement('div');
+        card.className = 'worker-card';
+        card.style.setProperty('--cat-color', color);
+        card.innerHTML = `
+          <div class="worker-head">
+            <div class="avatar">${initials(w.name)}</div>
+            <div class="worker-name-block">
+              <strong>${w.name}</strong>
+              <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(w.category)}</svg>${w.category}</span>
+            </div>
+            <span class="rating"><span class="star">★</span> ${w.rating}</span>
+          </div>
+          <p class="location">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+            ${w.location}
+          </p>
+          <p class="bio">${w.bio}</p>
+          <a href="tel:${w.phone}"><button class="small-btn contact-btn">Contact ${w.phone}</button></a>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    let debounceTimer;
+    document.getElementById('searchInput').addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(loadWorkers, 250);
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    });
+
+    (async () => {
+      const me = await checkAuth();
+      if (!me) return;
+      document.getElementById('welcome').textContent = me.email;
+      buildCategoryGrid();
+      await loadBookings();
+    })();
+  </script>
+</body>
+</html>

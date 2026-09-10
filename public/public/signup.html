@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign up — HandyLink</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="auth-page">
+  <div class="card card-wide">
+    <div class="card-body">
+      <span class="brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
+        HandyLink
+      </span>
+      <h1>Create your account</h1>
+      <p class="subtext">Choose how you'll use HandyLink.</p>
+
+      <div class="role-toggle" id="roleToggle">
+        <button type="button" class="role-btn active" data-role="client">
+          <strong>I need help</strong>
+          <span>Find and contact local pros</span>
+        </button>
+        <button type="button" class="role-btn" data-role="provider">
+          <strong>I offer services</strong>
+          <span>List yourself and get found</span>
+        </button>
+      </div>
+
+      <div class="error" id="error"></div>
+
+      <form id="signupForm">
+        <input type="email" id="email" placeholder="Email" required>
+        <input type="password" id="password" placeholder="Password (8+ chars, a letter and a number)" required>
+
+        <div id="providerFields" class="provider-fields" style="display:none;">
+          <input type="text" id="name" placeholder="Full name">
+          <input type="text" id="category" placeholder="Trade / category (e.g. Plumbing)">
+          <input type="text" id="location" placeholder="Location / area you serve">
+          <input type="tel" id="phone" placeholder="Phone number">
+          <textarea id="bio" placeholder="Short bio — what you do, experience, specialties" rows="3"></textarea>
+        </div>
+
+        <button type="submit">Create account</button>
+      </form>
+      <p class="switch">Already have an account? <a href="/login.html">Log in</a></p>
+    </div>
+  </div>
+
+  <script>
+    let selectedRole = 'client';
+
+    document.querySelectorAll('.role-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        selectedRole = btn.dataset.role;
+        document.getElementById('providerFields').style.display = selectedRole === 'provider' ? 'block' : 'none';
+      });
+    });
+
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = '';
+
+      const payload = {
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value,
+        role: selectedRole
+      };
+
+      if (selectedRole === 'provider') {
+        payload.name = document.getElementById('name').value;
+        payload.category = document.getElementById('category').value;
+        payload.location = document.getElementById('location').value;
+        payload.phone = document.getElementById('phone').value;
+        payload.bio = document.getElementById('bio').value;
+      }
+
+      const res = await fetch('/api/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errorEl.textContent = data.error;
+        return;
+      }
+
+      window.location.href = data.role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html';
+    });
+  </script>
+</body>
+</html>

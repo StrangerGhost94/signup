@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your listing — HandyLink</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap">
+    <header class="dash-header">
+      <div>
+        <span class="brand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
+          HandyLink<span class="pro-badge">PRO</span>
+        </span>
+        <h1>Your listing</h1>
+      </div>
+      <div class="dash-user">
+        <span id="welcome"></span>
+        <button id="logoutBtn" class="small-btn logout-btn">Log out</button>
+      </div>
+    </header>
+
+    <p class="provider-intro">This is what clients see when they search. Keep it accurate and up to date.</p>
+
+    <h2 class="section-title" style="margin-top:0;">Job requests</h2>
+    <div id="jobsList"></div>
+
+    <h2 class="section-title">Your listing</h2>
+    <div class="provider-layout">
+      <form id="editForm" class="provider-form">
+        <div class="error" id="error"></div>
+        <div class="success" id="success"></div>
+
+        <label>Full name</label>
+        <input type="text" id="name" required>
+
+        <label>Category</label>
+        <input type="text" id="category" required>
+
+        <label>Location / area you serve</label>
+        <input type="text" id="location" required>
+
+        <label>Phone number</label>
+        <input type="tel" id="phone" required>
+
+        <label>Bio</label>
+        <textarea id="bio" rows="4"></textarea>
+
+        <button type="submit">Save changes</button>
+      </form>
+
+      <div class="preview-col">
+        <span class="preview-label">Live preview</span>
+        <div class="live-badge"><span class="live-dot"></span>Visible to clients now</div>
+        <div class="worker-card" id="previewCard"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    function renderPreview(p) {
+      const color = categoryColor(p.category);
+      const card = document.getElementById('previewCard');
+      card.style.setProperty('--cat-color', color);
+      card.innerHTML = `
+        <div class="worker-head">
+          <div class="avatar">${initials(p.name)}</div>
+          <div class="worker-name-block">
+            <strong>${p.name || 'Your name'}</strong>
+            <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(p.category)}</svg>${p.category || 'Category'}</span>
+          </div>
+          <span class="rating"><span class="star">★</span> ${p.rating || '5.0'}</span>
+        </div>
+        <p class="location">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          ${p.location || 'Location'}
+        </p>
+        <p class="bio">${p.bio || 'Your bio will appear here.'}</p>
+        <button class="small-btn contact-btn" disabled>Contact ${p.phone || ''}</button>
+      `;
+    }
+
+    function fieldsFromForm() {
+      return {
+        name: document.getElementById('name').value,
+        category: document.getElementById('category').value,
+        location: document.getElementById('location').value,
+        phone: document.getElementById('phone').value,
+        bio: document.getElementById('bio').value
+      };
+    }
+
+    ['name', 'category', 'location', 'phone', 'bio'].forEach(id => {
+      document.getElementById(id).addEventListener('input', () => renderPreview(fieldsFromForm()));
+    });
+
+    document.getElementById('editForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('error');
+      const successEl = document.getElementById('success');
+      errorEl.textContent = '';
+      successEl.textContent = '';
+
+      const res = await fetch('/api/provider/me', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fieldsFromForm())
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errorEl.textContent = data.error;
+        return;
+      }
+      successEl.textContent = 'Saved.';
+      renderPreview(data.provider);
+    });
+
+    async function loadJobs() {
+      const res = await fetch('/api/provider/jobs');
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = document.getElementById('jobsList');
+      list.innerHTML = '';
+
+      if (data.jobs.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No job requests yet</strong>When a client books you, it'll show up here.</div>`;
+        return;
+      }
+
+      data.jobs.forEach(j => {
+        const meta = STATUS_META[j.status] || STATUS_META.requested;
+        const urgencyMeta = URGENCY_OPTIONS.find(u => u.value === j.urgency);
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <div class="job-top">
+            <div>
+              <strong>${j.category} — ${j.client_email}</strong>
+              <p class="job-meta">${new Date(j.created_at).toLocaleDateString()} · ${j.location} · ${urgencyMeta ? urgencyMeta.label : j.urgency}</p>
+            </div>
+            <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
+          </div>
+          <p class="job-desc">${j.description}${j.location_notes ? `<br><span class="job-meta">${j.location_notes}</span>` : ''}</p>
+          <div class="job-actions" data-actions></div>
+        `;
+        const actions = card.querySelector('[data-actions]');
+
+        if (j.status === 'requested') {
+          const acceptBtn = document.createElement('button');
+          acceptBtn.className = 'small-btn';
+          acceptBtn.textContent = 'Accept';
+          acceptBtn.onclick = () => actOnJob(j.id, 'accept');
+          const declineBtn = document.createElement('button');
+          declineBtn.className = 'small-btn btn-decline';
+          declineBtn.textContent = 'Decline';
+          declineBtn.onclick = () => actOnJob(j.id, 'decline');
+          actions.appendChild(acceptBtn);
+          actions.appendChild(declineBtn);
+        } else if (j.status === 'accepted') {
+          const completeBtn = document.createElement('button');
+          completeBtn.className = 'small-btn contact-btn';
+          completeBtn.textContent = 'Mark completed';
+          completeBtn.onclick = () => actOnJob(j.id, 'complete');
+          actions.appendChild(completeBtn);
+        }
+
+        list.appendChild(card);
+      });
+    }
+
+    async function actOnJob(id, action) {
+      const res = await fetch(`/api/provider/jobs/${id}/${action}`, { method: 'PUT' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error);
+        return;
+      }
+      loadJobs();
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    });
+
+    (async () => {
+      const meRes = await fetch('/api/me');
+      if (!meRes.ok) {
+        window.location.href = '/login.html';
+        return;
+      }
+      const me = await meRes.json();
+      if (me.role !== 'provider') {
+        window.location.href = '/dashboard.html';
+        return;
+      }
+      document.getElementById('welcome').textContent = me.email;
+
+      const provRes = await fetch('/api/provider/me');
+      const provData = await provRes.json();
+      if (provRes.ok) {
+        const p = provData.provider;
+        document.getElementById('name').value = p.name;
+        document.getElementById('category').value = p.category;
+        document.getElementById('location').value = p.location;
+        document.getElementById('phone').value = p.phone;
+        document.getElementById('bio').value = p.bio;
+        renderPreview(p);
+      }
+      await loadJobs();
+    })();
+  </script>
+</body>
+</html>
