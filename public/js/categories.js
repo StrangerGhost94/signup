@@ -53,6 +53,16 @@ window.categoryIcon = function (cat) {
   return window.CATEGORY_ICONS[cat] || window.CATEGORY_ICONS['Plumbing'];
 };
 
+window.escapeHtml = function (str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 window.initials = function (name) {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);

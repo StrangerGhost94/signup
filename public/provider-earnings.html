@@ -84,7 +84,7 @@
         item.innerHTML = `
           <div class="recent-job-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${categoryIcon(j.category)}</svg></div>
           <div class="recent-job-info">
-            <strong>${j.category} — ${j.client_email}</strong>
+            <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
             <span>${new Date(j.updated_at).toLocaleDateString()}</span>
           </div>
           <div class="recent-job-right"><span class="amount">UGX ${j.estimate_amount.toLocaleString()}</span></div>

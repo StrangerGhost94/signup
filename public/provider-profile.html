@@ -80,17 +80,17 @@
         <div class="worker-head">
           <div class="avatar">${initials(p.name)}</div>
           <div class="worker-name-block">
-            <strong>${p.name || 'Your name'}</strong>
-            <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(p.category)}</svg>${p.category || 'Category'}</span>
+            <strong>${escapeHtml(p.name) || 'Your name'}</strong>
+            <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(p.category)}</svg>${escapeHtml(p.category) || 'Category'}</span>
           </div>
           <span class="rating"><span class="star">★</span> ${p.rating || '5.0'}</span>
         </div>
         <p class="location">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-          ${p.location || 'Location'}
+          ${escapeHtml(p.location) || 'Location'}
         </p>
-        <p class="bio">${p.bio || 'Your bio will appear here.'}</p>
-        <button class="small-btn contact-btn" disabled>Contact ${p.phone || ''}</button>
+        <p class="bio">${escapeHtml(p.bio) || 'Your bio will appear here.'}</p>
+        <button class="small-btn contact-btn" disabled>Contact ${escapeHtml(p.phone) || ''}</button>
       `;
     }
 

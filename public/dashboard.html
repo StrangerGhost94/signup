@@ -153,8 +153,8 @@
         item.innerHTML = `
           <div class="recent-job-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${categoryIcon(b.category)}</svg></div>
           <div class="recent-job-info">
-            <strong>${b.category} — ${b.description.slice(0, 40)}${b.description.length > 40 ? '…' : ''}</strong>
-            <span>${b.provider_name} · ${new Date(b.created_at).toLocaleDateString()}</span>
+            <strong>${escapeHtml(b.category)} — ${escapeHtml(b.description.slice(0, 40))}${b.description.length > 40 ? '…' : ''}</strong>
+            <span>${escapeHtml(b.provider_name)} · ${new Date(b.created_at).toLocaleDateString()}</span>
           </div>
           <div class="recent-job-right">
             <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
@@ -274,16 +274,16 @@
           <div class="worker-head">
             <div class="avatar">${initials(w.name)}</div>
             <div class="worker-name-block">
-              <strong>${w.name}</strong>
-              <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(w.category)}</svg>${w.category}</span>
+              <strong>${escapeHtml(w.name)}</strong>
+              <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(w.category)}</svg>${escapeHtml(w.category)}</span>
             </div>
             <span class="rating"><span class="star">★</span> ${w.rating}</span>
           </div>
           <p class="location">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-            ${w.location}
+            ${escapeHtml(w.location)}
           </p>
-          <p class="bio">${w.bio}</p>
+          <p class="bio">${escapeHtml(w.bio)}</p>
           <a href="tel:${w.phone}"><button class="small-btn contact-btn">Contact ${w.phone}</button></a>
         `;
         grid.appendChild(card);

@@ -65,12 +65,12 @@
         card.innerHTML = `
           <div class="job-top">
             <div>
-              <strong>${j.category} — ${j.client_email}</strong>
-              <p class="job-meta">${new Date(j.created_at).toLocaleDateString()} · ${j.location} · <span style="color:${(URGENCY_OPTIONS.find(u=>u.value===j.urgency)||{}).color}">${urgencyMeta ? urgencyMeta.label : j.urgency}</span></p>
+              <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
+              <p class="job-meta">${new Date(j.created_at).toLocaleDateString()} · ${escapeHtml(j.location)} · <span style="color:${(URGENCY_OPTIONS.find(u=>u.value===j.urgency)||{}).color}">${urgencyMeta ? urgencyMeta.label : escapeHtml(j.urgency)}</span></p>
             </div>
             <span class="status-badge" style="color:${STATUS_META.requested.color}; background:${STATUS_META.requested.bg};">New</span>
           </div>
-          <p class="job-desc">${j.description}${j.location_notes ? `<br><span class="job-meta">${j.location_notes}</span>` : ''}</p>
+          <p class="job-desc">${escapeHtml(j.description)}${j.location_notes ? `<br><span class="job-meta">${escapeHtml(j.location_notes)}</span>` : ''}</p>
           <div class="job-actions" data-actions></div>
         `;
         const actions = card.querySelector('[data-actions]');

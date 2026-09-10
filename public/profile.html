@@ -8,20 +8,35 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="app-body has-bottom-nav">
-  <div class="dash-wrap">
-    <h1 style="font-size:1.4rem; font-weight:800; margin:0 0 1.25rem;">Profile</h1>
+  <div class="app-shell">
+    <nav class="sidebar-nav">
+      <span class="brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
+        HandyLink
+      </span>
+      <a href="/dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
+      <a href="/dashboard.html#recentJobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+      <a href="/messages.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
+      <a href="/profile.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
+    </nav>
 
-    <div class="job-card">
-      <div class="worker-head" style="margin-bottom:0;">
-        <div class="avatar" id="avatarInitials" style="background:var(--primary-tint); color:var(--primary-deep);"></div>
-        <div class="worker-name-block">
-          <strong id="profileEmail"></strong>
-          <span class="job-meta">Customer account</span>
+    <div class="app-main">
+      <div class="dash-wrap">
+        <h1 style="font-size:1.4rem; font-weight:800; margin:0 0 1.25rem;">Profile</h1>
+
+        <div class="job-card">
+          <div class="worker-head" style="margin-bottom:0;">
+            <div class="avatar" id="avatarInitials" style="background:var(--primary-tint); color:var(--primary-deep);"></div>
+            <div class="worker-name-block">
+              <strong id="profileEmail"></strong>
+              <span class="job-meta">Customer account</span>
+            </div>
+          </div>
         </div>
+
+        <button id="logoutBtn" class="btn-outline" style="margin-top:1rem; max-width:280px;">Log out</button>
       </div>
     </div>
-
-    <button id="logoutBtn" class="btn-outline" style="margin-top:1rem;">Log out</button>
   </div>
 
   <nav class="bottom-nav">
@@ -38,7 +53,7 @@
       const res = await fetch('/api/me');
       if (!res.ok) { window.location.href = '/login.html'; return; }
       const me = await res.json();
-      if (me.role === 'provider') { window.location.href = '/provider-dashboard.html'; return; }
+      if (me.role === 'provider') { window.location.href = '/provider-profile.html'; return; }
       document.getElementById('profileEmail').textContent = me.email;
       document.getElementById('avatarInitials').textContent = initials(me.email.split('@')[0]);
     })();

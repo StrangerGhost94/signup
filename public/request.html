@@ -36,7 +36,7 @@
     sessionStorage.removeItem('preferredUrgency');
 
     document.getElementById('categoryLabel').innerHTML =
-      `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(category)}" stroke-width="2" style="width:1.15em;height:1.15em;">${categoryIcon(category)}</svg> ${category}`;
+      `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(category)}" stroke-width="2" style="width:1.15em;height:1.15em;">${categoryIcon(category)}</svg> ${escapeHtml(category)}`;
 
     const urgencyGrid = document.getElementById('urgencyGrid');
     URGENCY_OPTIONS.forEach(opt => {

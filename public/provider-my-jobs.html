@@ -73,12 +73,12 @@
         card.innerHTML = `
           <div class="job-top">
             <div>
-              <strong>${j.category} — ${j.client_email}</strong>
-              <p class="job-meta">${j.location} · UGX ${j.estimate_amount.toLocaleString()}</p>
+              <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
+              <p class="job-meta">${escapeHtml(j.location)} · UGX ${j.estimate_amount.toLocaleString()}</p>
             </div>
             <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
           </div>
-          <p class="job-desc">${j.description}</p>
+          <p class="job-desc">${escapeHtml(j.description)}</p>
           <div class="job-actions" data-actions></div>
         `;
         if (j.status === 'accepted') {

@@ -3,9 +3,16 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const { Pool } = require('pg');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Wraps an async route handler so a thrown/rejected error is passed to
+// Express's error handler instead of hanging the request or crashing the process.
+function asyncHandler(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
 
 // Trust Railway's reverse proxy so secure cookies work correctly.
 app.set('trust proxy', 1);
@@ -141,6 +148,15 @@ app.use(session({
   }
 }));
 
+// Basic brute-force protection on auth endpoints.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please wait a few minutes and try again.' }
+});
+
 function requireLogin(req, res, next) {
   if (!req.session.userId) {
     return res.status(401).json({ error: 'Not logged in.' });
@@ -181,7 +197,7 @@ async function getProviderIdForUser(userId) {
 
 // --- Auth routes ---
 
-app.post('/api/signup', async (req, res) => {
+app.post('/api/signup', authLimiter, async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = req.body.password;
   const role = req.body.role === 'provider' ? 'provider' : 'client';
@@ -255,7 +271,7 @@ app.post('/api/signup', async (req, res) => {
   }
 });
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = req.body.password;
 
@@ -306,12 +322,12 @@ app.get('/api/me', (req, res) => {
 
 // --- Client-facing: browse/search providers ---
 
-app.get('/api/categories', requireLogin, async (req, res) => {
+app.get('/api/categories', requireLogin, asyncHandler(async (req, res) => {
   const result = await pool.query('SELECT DISTINCT category FROM providers ORDER BY category');
   res.json({ categories: result.rows.map(r => r.category) });
-});
+}));
 
-app.get('/api/workers', requireLogin, async (req, res) => {
+app.get('/api/workers', requireLogin, asyncHandler(async (req, res) => {
   const { search, category } = req.query;
   const result = await pool.query('SELECT * FROM providers ORDER BY rating DESC, name');
   let results = result.rows;
@@ -330,17 +346,17 @@ app.get('/api/workers', requireLogin, async (req, res) => {
   }
 
   res.json({ workers: results });
-});
+}));
 
 // --- Provider-facing: manage own listing ---
 
-app.get('/api/provider/me', requireRole('provider'), async (req, res) => {
+app.get('/api/provider/me', requireRole('provider'), asyncHandler(async (req, res) => {
   const result = await pool.query('SELECT * FROM providers WHERE user_id = $1', [req.session.userId]);
   if (result.rows.length === 0) {
     return res.status(404).json({ error: 'No provider profile found.' });
   }
   res.json({ provider: result.rows[0] });
-});
+}));
 
 app.put('/api/provider/me', requireRole('provider'), async (req, res) => {
   const { name, category, location, phone, bio } = req.body;
@@ -396,7 +412,7 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
   }
 });
 
-app.get('/api/bookings/mine', requireRole('client'), async (req, res) => {
+app.get('/api/bookings/mine', requireRole('client'), asyncHandler(async (req, res) => {
   const result = await pool.query(
     `SELECT jr.*, p.name AS provider_name, p.phone AS provider_phone,
             (r.id IS NOT NULL) AS reviewed
@@ -408,11 +424,11 @@ app.get('/api/bookings/mine', requireRole('client'), async (req, res) => {
     [req.session.userId]
   );
   res.json({ bookings: result.rows });
-});
+}));
 
 // --- Provider-facing: manage incoming job requests ---
 
-app.get('/api/provider/jobs', requireRole('provider'), async (req, res) => {
+app.get('/api/provider/jobs', requireRole('provider'), asyncHandler(async (req, res) => {
   const providerId = await getProviderIdForUser(req.session.userId);
   if (!providerId) {
     return res.status(404).json({ error: 'No provider profile found.' });
@@ -427,7 +443,7 @@ app.get('/api/provider/jobs', requireRole('provider'), async (req, res) => {
     [providerId]
   );
   res.json({ jobs: result.rows });
-});
+}));
 
 async function updateJobStatus(req, res, { from, to }) {
   const providerId = await getProviderIdForUser(req.session.userId);
@@ -448,7 +464,7 @@ async function updateJobStatus(req, res, { from, to }) {
   res.json({ job: result.rows[0] });
 }
 
-app.get('/api/provider/earnings', requireRole('provider'), async (req, res) => {
+app.get('/api/provider/earnings', requireRole('provider'), asyncHandler(async (req, res) => {
   const providerId = await getProviderIdForUser(req.session.userId);
   if (!providerId) {
     return res.status(404).json({ error: 'No provider profile found.' });
@@ -474,7 +490,7 @@ app.get('/api/provider/earnings', requireRole('provider'), async (req, res) => {
     rating: providerResult.rows[0]?.rating || null,
     recent: recentResult.rows
   });
-});
+}));
 
 app.put('/api/provider/jobs/:id/accept', requireRole('provider'), (req, res) =>
   updateJobStatus(req, res, { from: 'requested', to: 'accepted' })
@@ -534,6 +550,21 @@ app.post('/api/reviews', requireRole('client'), async (req, res) => {
   } finally {
     client.release();
   }
+});
+
+// --- 404 and error handling (must be last, after all routes) ---
+
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Not found.' });
+  }
+  res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));
+});
+
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: 'Something went wrong on our end. Please try again.' });
 });
 
 initDb()

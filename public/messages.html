@@ -8,24 +8,54 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="app-body has-bottom-nav">
-  <div class="dash-wrap">
-    <h1 style="font-size:1.4rem; font-weight:800; margin:0 0 1.25rem;">Messages</h1>
-    <div class="empty-state">
-      <strong>Messaging isn't built yet</strong>
-      For now, accepted bookings show a Call button so you can reach your pro directly.
+  <div class="app-shell">
+    <nav class="sidebar-nav" id="sidebarNav"></nav>
+    <div class="app-main">
+      <div class="dash-wrap">
+        <h1 style="font-size:1.4rem; font-weight:800; margin:0 0 1.25rem;">Messages</h1>
+        <div class="empty-state">
+          <strong>Messaging isn't built yet</strong>
+          For now, accepted bookings show a Call button so you can reach each other directly.
+        </div>
+      </div>
     </div>
   </div>
 
-  <nav class="bottom-nav">
-    <a href="/dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
-    <a href="/dashboard.html#recentJobs" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
-    <a href="/dashboard.html" class="nav-item nav-post"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></a>
-    <a href="/messages.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
-    <a href="/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
-  </nav>
+  <nav class="bottom-nav" id="bottomNav"></nav>
 
+  <script src="js/categories.js"></script>
   <script>
-    fetch('/api/me').then(r => { if (!r.ok) window.location.href = '/login.html'; });
+    const BRAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>';
+
+    const CLIENT_LINKS = [
+      { href: '/dashboard.html', label: 'Home', icon: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>' },
+      { href: '/dashboard.html#recentJobs', label: 'Jobs', icon: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/>' },
+      { href: '/messages.html', label: 'Messages', icon: '<path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/>', active: true },
+      { href: '/profile.html', label: 'Profile', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>' }
+    ];
+
+    const PROVIDER_LINKS = [
+      { href: '/provider-dashboard.html', label: 'Jobs', icon: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/>' },
+      { href: '/provider-my-jobs.html', label: 'My Jobs', icon: '<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/>' },
+      { href: '/provider-earnings.html', label: 'Earnings', icon: '<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>' },
+      { href: '/messages.html', label: 'Messages', icon: '<path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/>', active: true },
+      { href: '/provider-profile.html', label: 'Profile', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>' }
+    ];
+
+    function buildNav(links, isProvider) {
+      const sidebar = document.getElementById('sidebarNav');
+      const bottom = document.getElementById('bottomNav');
+      sidebar.innerHTML = `<span class="brand">${BRAND_SVG}HandyLink${isProvider ? '<span class="pro-badge">PRO</span>' : ''}</span>` +
+        links.map(l => `<a href="${l.href}" class="${l.active ? 'active' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${l.icon}</svg>${l.label}</a>`).join('');
+      bottom.innerHTML = links.map(l => `<a href="${l.href}" class="nav-item ${l.active ? 'active' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${l.icon}</svg>${l.label}</a>`).join('');
+    }
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      buildNav(me.role === 'provider' ? PROVIDER_LINKS : CLIENT_LINKS, me.role === 'provider');
+    })();
   </script>
 </body>
 </html>
