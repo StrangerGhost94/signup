@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#EFF1EE">
 <title>Find a handyman — Handy</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -26,7 +28,10 @@
     <div class="filters" id="filters"></div>
 
     <div class="worker-grid" id="workerGrid"></div>
-    <p id="noResults" style="display:none;">No handymen found. Try a different search.</p>
+    <p id="noResults" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      No handymen found. Try a different search or category.
+    </p>
   </div>
 
   <script>
@@ -41,6 +46,23 @@
     };
 
     let activeCategory = '';
+
+    function initials(name) {
+      return (name || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
+    }
+
+    function showSkeleton() {
+      const grid = document.getElementById('workerGrid');
+      document.getElementById('noResults').style.display = 'none';
+      grid.innerHTML = Array.from({ length: 4 }).map(() => `
+        <div class="skeleton-card">
+          <div class="skeleton-line" style="width:60%"></div>
+          <div class="skeleton-line" style="width:35%"></div>
+          <div class="skeleton-line" style="width:90%"></div>
+          <div class="skeleton-line" style="width:75%"></div>
+        </div>
+      `).join('');
+    }
 
     async function checkAuth() {
       const res = await fetch('/api/me');
@@ -97,6 +119,7 @@
       if (search) params.set('search', search);
       if (activeCategory) params.set('category', activeCategory);
 
+      showSkeleton();
       const res = await fetch('/api/workers?' + params.toString());
       const data = await res.json();
       renderWorkers(data.workers);
@@ -120,10 +143,15 @@
         card.style.setProperty('--cat-color', color);
         card.innerHTML = `
           <div class="worker-top">
-            <strong>${w.name}</strong>
-            <span class="rating">★ ${w.rating}</span>
+            <div class="worker-avatar">${initials(w.name)}</div>
+            <div class="worker-id">
+              <div class="worker-name-row">
+                <strong>${w.name}</strong>
+                <span class="rating">★ ${w.rating}</span>
+              </div>
+              <span class="tag">${w.category}</span>
+            </div>
           </div>
-          <span class="tag">${w.category}</span>
           <p class="location">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
             ${w.location}

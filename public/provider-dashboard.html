@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#EFF1EE">
 <title>Your listing — Handy</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -61,16 +63,25 @@
       'Moving': '#5A5F73'
     };
 
+    function initials(name) {
+      return (name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+    }
+
     function renderPreview(p) {
       const color = CATEGORY_COLORS[p.category] || '#2F6169';
       const card = document.getElementById('previewCard');
       card.style.setProperty('--cat-color', color);
       card.innerHTML = `
         <div class="worker-top">
-          <strong>${p.name || 'Your name'}</strong>
-          <span class="rating">★ ${p.rating || '5.0'}</span>
+          <div class="worker-avatar">${initials(p.name)}</div>
+          <div class="worker-id">
+            <div class="worker-name-row">
+              <strong>${p.name || 'Your name'}</strong>
+              <span class="rating">★ ${p.rating || '5.0'}</span>
+            </div>
+            <span class="tag">${p.category || 'Category'}</span>
+          </div>
         </div>
-        <span class="tag">${p.category || 'Category'}</span>
         <p class="location">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
           ${p.location || 'Location'}
