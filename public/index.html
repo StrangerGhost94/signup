@@ -9,25 +9,32 @@
 </head>
 <body>
 
-  <!-- Mobile: full-bleed photo hero, matches the app-mockup splash screen -->
-  <div class="splash-hero">
-    <div class="splash-photo" style="background-image:url('images/hero-handyman.jpg');">
-      <div class="splash-brand-row">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1.15em;height:1.15em;"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
-        <span class="brand">HandyLink</span>
-      </div>
-      <div class="splash-tagline">Real People. Real Skills. Real Solutions.</div>
+  <!-- Mobile: the photo IS the whole screen, content floats on top — like a real app splash. -->
+  <div class="splash-hero" style="background-image:url('images/hero-handyman.jpg');">
+    <div class="splash-brand-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1.15em;height:1.15em;"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
+      <span class="brand">HandyLink</span>
     </div>
-    <div class="splash-body">
+    <div class="splash-content">
+      <p class="splash-tagline">REAL PEOPLE · REAL SKILLS · REAL SOLUTIONS</p>
       <h1>Find trusted handymen, fast.</h1>
       <p>Plumbing, electrical, painting, cleaning and more. Get the right person for the job — nearby and verified.</p>
       <a href="/signup.html"><button>Get Started →</button></a>
-      <p class="switch" style="margin-top:1rem;">Already have an account? <a href="/login.html">Sign in</a></p>
+      <p class="switch">Already have an account? <a href="/login.html">Sign in</a></p>
     </div>
   </div>
 
-  <!-- Desktop: split layout, a genuinely different composition, not a stretched phone screen -->
+  <!-- Desktop: photo on the left, content on the right — a distinct composition, not a stretched phone screen. -->
   <div class="desktop-hero">
+    <div class="desktop-hero-photo" style="background-image:url('images/hero-handyman.jpg');">
+      <div class="desktop-hero-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+        <div>
+          <strong>James Okello</strong>
+          <span>Plumbing · ★ 4.8</span>
+        </div>
+      </div>
+    </div>
     <div class="desktop-hero-text">
       <span class="brand">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
@@ -43,15 +50,6 @@
         <div><strong>7</strong><span>Service categories</span></div>
         <div><strong>2</strong><span>Minute booking</span></div>
         <div><strong>100%</strong><span>Reviewed by real clients</span></div>
-      </div>
-    </div>
-    <div class="desktop-hero-photo" style="background-image:url('images/hero-handyman.jpg');">
-      <div class="desktop-hero-badge">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
-        <div>
-          <strong>James Okello</strong>
-          <span>Plumbing · ★ 4.8</span>
-        </div>
       </div>
     </div>
   </div>

@@ -910,26 +910,25 @@ body.app-body {
 
 /* --- Splash / landing hero --- */
 .splash-hero {
+  position: relative;
   min-height: 100vh;
+  min-height: 100dvh;
+  background-size: cover;
+  background-position: center 22%;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
 }
-.splash-photo {
-  position: relative;
-  height: 62vh;
-  min-height: 380px;
-  background-size: cover;
-  background-position: center 20%;
-}
-.splash-photo::after {
+.splash-hero::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(11,17,14,0.05) 0%, rgba(11,17,14,0.85) 100%);
+  background: linear-gradient(180deg, rgba(8,14,11,0.15) 0%, rgba(8,14,11,0.35) 45%, rgba(6,10,8,0.92) 100%);
 }
 .splash-brand-row {
   position: absolute;
-  top: 1.5rem;
+  top: calc(1.75rem + env(safe-area-inset-top));
   left: 1.5rem;
   z-index: 2;
   display: flex;
@@ -937,37 +936,41 @@ body.app-body {
   gap: 0.5rem;
   color: #fff;
 }
-.splash-brand-row .brand { color: #fff; font-size: 1.15rem; }
-.splash-tagline {
-  position: absolute;
-  bottom: 1.25rem;
-  left: 1.5rem;
-  right: 1.5rem;
+.splash-brand-row .brand { color: #fff; font-size: 1.15rem; text-shadow: 0 1px 8px rgba(0,0,0,0.25); }
+.splash-content {
+  position: relative;
   z-index: 2;
+  padding: 1.75rem 1.5rem calc(2.5rem + env(safe-area-inset-bottom));
   color: #fff;
-  font-size: 0.82rem;
-  font-weight: 600;
-  opacity: 0.85;
 }
-.splash-body {
-  background: var(--bg);
-  padding: 1.75rem 1.5rem 2.5rem;
-  flex: 1;
+.splash-tagline {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+  opacity: 0.95;
+  margin: 0 0 0.6rem;
 }
-.splash-body h1 {
-  font-size: 2rem;
+.splash-content h1 {
+  font-size: clamp(1.9rem, 8vw, 2.3rem);
   font-weight: 800;
-  line-height: 1.1;
-  margin: 0 0 0.75rem;
+  line-height: 1.08;
+  margin: 0 0 0.65rem;
+  text-shadow: 0 2px 16px rgba(0,0,0,0.3);
 }
-.splash-body p {
-  color: var(--ink-soft);
+.splash-content p {
+  color: rgba(255,255,255,0.82);
   font-size: 0.95rem;
   line-height: 1.5;
   margin: 0 0 1.5rem;
   max-width: 420px;
 }
-.splash-body button { max-width: 420px; }
+.splash-content button {
+  max-width: 420px;
+  box-shadow: 0 8px 24px -8px rgba(11,110,79,0.55);
+}
+.splash-content .switch { color: rgba(255,255,255,0.75); margin-top: 1rem; }
+.splash-content .switch a { color: #fff; text-decoration: underline; }
 
 .desktop-hero { display: none; }
 
@@ -978,6 +981,40 @@ body.app-body {
     min-height: 100vh;
     align-items: stretch;
   }
+
+  .desktop-hero-photo {
+    flex: 1;
+    position: relative;
+    background-size: cover;
+    background-position: center 25%;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 2rem 0 2rem 2rem;
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+  }
+  .desktop-hero-photo::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(20deg, rgba(11,110,79,0.22) 0%, transparent 55%);
+  }
+  .desktop-hero-badge {
+    position: absolute;
+    bottom: 1.5rem;
+    left: 1.5rem;
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: blur(6px);
+    border-radius: var(--radius-sm);
+    padding: 0.85rem 1.1rem;
+    box-shadow: var(--shadow-md);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .desktop-hero-badge svg { width: 22px; height: 22px; color: var(--primary); flex-shrink: 0; }
+  .desktop-hero-badge strong { display: block; font-size: 0.85rem; }
+  .desktop-hero-badge span { font-size: 0.74rem; color: var(--ink-soft); }
+
   .desktop-hero-text {
     flex: 1;
     display: flex;
@@ -990,6 +1027,7 @@ body.app-body {
     font-size: clamp(2.4rem, 4vw, 3.4rem);
     font-weight: 800;
     line-height: 1.06;
+    letter-spacing: -0.015em;
     margin: 1.5rem 0 1.1rem;
   }
   .desktop-hero-text p {
@@ -1000,7 +1038,8 @@ body.app-body {
     max-width: 460px;
   }
   .desktop-hero-ctas { display: flex; gap: 0.85rem; margin-bottom: 3rem; }
-  .desktop-hero-ctas button { width: auto; padding: 1rem 2rem; }
+  .desktop-hero-ctas button { width: auto; padding: 1rem 2rem; box-shadow: 0 10px 28px -10px rgba(11,110,79,0.5); }
+  .desktop-hero-ctas button:hover { transform: translateY(-1px); }
   .desktop-trust-row {
     display: flex;
     gap: 2.5rem;
@@ -1009,37 +1048,6 @@ body.app-body {
   }
   .desktop-trust-row div strong { display: block; font-size: 1.5rem; font-weight: 800; color: var(--primary-deep); }
   .desktop-trust-row div span { font-size: 0.82rem; color: var(--ink-soft); }
-
-  .desktop-hero-photo {
-    flex: 1;
-    position: relative;
-    background-size: cover;
-    background-position: center 25%;
-    border-radius: var(--radius) 0 0 var(--radius);
-    margin: 2rem 2rem 2rem 0;
-    overflow: hidden;
-  }
-  .desktop-hero-photo::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(200deg, rgba(11,110,79,0.18) 0%, transparent 55%);
-  }
-  .desktop-hero-badge {
-    position: absolute;
-    bottom: 1.5rem;
-    left: 1.5rem;
-    background: rgba(255,255,255,0.95);
-    border-radius: var(--radius-sm);
-    padding: 0.85rem 1.1rem;
-    box-shadow: var(--shadow-md);
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-  }
-  .desktop-hero-badge svg { width: 22px; height: 22px; color: var(--primary); flex-shrink: 0; }
-  .desktop-hero-badge strong { display: block; font-size: 0.85rem; }
-  .desktop-hero-badge span { font-size: 0.74rem; color: var(--ink-soft); }
 }
 
 /* --- App shell: sidebar on desktop, bottom nav on mobile --- */
@@ -1278,7 +1286,7 @@ body.app-body {
    ============================================================ */
 
 /* Respect notches/status bars at the top, not just the bottom. */
-.splash-brand-row { top: calc(1.5rem + env(safe-area-inset-top)); }
+/* .splash-brand-row top offset is set in the main hero rule above, with safe-area inset baked in. */
 .dash-header, .app-topbar { padding-top: env(safe-area-inset-top); }
 
 /* Prevent any accidental horizontal scroll on narrow devices. */
