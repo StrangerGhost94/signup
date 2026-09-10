@@ -882,3 +882,191 @@ body.app-body { background: var(--surface); }
 .big-choice-text strong { display: block; font-size: 0.98rem; font-weight: 700; color: var(--ink); }
 .big-choice-text span { font-size: 0.82rem; color: var(--ink-soft); }
 .big-choice-card .chevron { width: 18px; height: 18px; color: var(--ink-soft); flex-shrink: 0; }
+
+/* ============================================================
+   Responsive shell: mobile app-card feel vs. a real desktop site.
+   Mobile (<900px): full-bleed photo hero, bottom nav, single column.
+   Desktop (>=900px): split hero, left sidebar nav, multi-column.
+   ============================================================ */
+
+/* --- Splash / landing hero --- */
+.splash-hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.splash-photo {
+  position: relative;
+  height: 62vh;
+  min-height: 380px;
+  background-size: cover;
+  background-position: center 20%;
+}
+.splash-photo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(11,17,14,0.05) 0%, rgba(11,17,14,0.85) 100%);
+}
+.splash-brand-row {
+  position: absolute;
+  top: 1.5rem;
+  left: 1.5rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #fff;
+}
+.splash-brand-row .brand { color: #fff; font-size: 1.15rem; }
+.splash-tagline {
+  position: absolute;
+  bottom: 1.25rem;
+  left: 1.5rem;
+  right: 1.5rem;
+  z-index: 2;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.splash-body {
+  background: var(--bg);
+  padding: 1.75rem 1.5rem 2.5rem;
+  flex: 1;
+}
+.splash-body h1 {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.1;
+  margin: 0 0 0.75rem;
+}
+.splash-body p {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin: 0 0 1.5rem;
+  max-width: 420px;
+}
+.splash-body button { max-width: 420px; }
+
+.desktop-hero { display: none; }
+
+@media (min-width: 900px) {
+  .splash-hero { display: none; }
+  .desktop-hero {
+    display: flex;
+    min-height: 100vh;
+    align-items: stretch;
+  }
+  .desktop-hero-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4rem 5vw;
+    max-width: 640px;
+  }
+  .desktop-hero-text h1 {
+    font-size: clamp(2.4rem, 4vw, 3.4rem);
+    font-weight: 800;
+    line-height: 1.06;
+    margin: 1.5rem 0 1.1rem;
+  }
+  .desktop-hero-text p {
+    color: var(--ink-soft);
+    font-size: 1.1rem;
+    line-height: 1.6;
+    margin: 0 0 2rem;
+    max-width: 460px;
+  }
+  .desktop-hero-ctas { display: flex; gap: 0.85rem; margin-bottom: 3rem; }
+  .desktop-hero-ctas button { width: auto; padding: 1rem 2rem; }
+  .desktop-trust-row {
+    display: flex;
+    gap: 2.5rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--line);
+  }
+  .desktop-trust-row div strong { display: block; font-size: 1.5rem; font-weight: 800; color: var(--primary-deep); }
+  .desktop-trust-row div span { font-size: 0.82rem; color: var(--ink-soft); }
+
+  .desktop-hero-photo {
+    flex: 1;
+    position: relative;
+    background-size: cover;
+    background-position: center 25%;
+    border-radius: var(--radius) 0 0 var(--radius);
+    margin: 2rem 2rem 2rem 0;
+    overflow: hidden;
+  }
+  .desktop-hero-photo::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(200deg, rgba(11,110,79,0.18) 0%, transparent 55%);
+  }
+  .desktop-hero-badge {
+    position: absolute;
+    bottom: 1.5rem;
+    left: 1.5rem;
+    background: rgba(255,255,255,0.95);
+    border-radius: var(--radius-sm);
+    padding: 0.85rem 1.1rem;
+    box-shadow: var(--shadow-md);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .desktop-hero-badge svg { width: 22px; height: 22px; color: var(--primary); flex-shrink: 0; }
+  .desktop-hero-badge strong { display: block; font-size: 0.85rem; }
+  .desktop-hero-badge span { font-size: 0.74rem; color: var(--ink-soft); }
+}
+
+/* --- App shell: sidebar on desktop, bottom nav on mobile --- */
+.app-shell { display: flex; min-height: 100vh; }
+.sidebar-nav { display: none; }
+
+@media (min-width: 900px) {
+  .bottom-nav { display: none; }
+  .has-bottom-nav { padding-bottom: 0; }
+
+  .sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--bg);
+    border-right: 1px solid var(--line);
+    padding: 1.5rem 1rem;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .sidebar-nav .brand { margin-bottom: 2rem; padding-left: 0.5rem; }
+  .sidebar-nav a {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 0.6rem;
+    border-radius: var(--radius-sm);
+    color: var(--ink-soft);
+    font-weight: 600;
+    font-size: 0.92rem;
+    margin-bottom: 0.2rem;
+  }
+  .sidebar-nav a svg { width: 20px; height: 20px; }
+  .sidebar-nav a:hover { background: var(--surface); }
+  .sidebar-nav a.active { background: var(--primary-tint); color: var(--primary-deep); }
+  .sidebar-nav .sidebar-post {
+    margin-top: 0.5rem;
+    background: var(--primary);
+    color: #fff;
+  }
+  .sidebar-nav .sidebar-post:hover { background: var(--primary-deep); }
+
+  .app-main { flex: 1; min-width: 0; }
+  .dash-wrap { max-width: 1100px; padding: 2rem 3rem 3rem; }
+  .home-cat-grid { grid-template-columns: repeat(7, 1fr); }
+  .worker-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+}

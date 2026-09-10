@@ -8,6 +8,20 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="app-body has-bottom-nav">
+  <div class="app-shell">
+    <nav class="sidebar-nav">
+      <span class="brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
+        HandyLink
+      </span>
+      <a href="/dashboard.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
+      <a href="#recentJobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+      <a href="/messages.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
+      <a href="/profile.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
+      <a href="#homeCatGrid" class="sidebar-post"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Post a job</a>
+    </nav>
+
+    <div class="app-main">
   <div class="dash-wrap">
     <header class="app-topbar">
       <div>
@@ -52,6 +66,8 @@
       <div class="filters" id="filters"></div>
       <p class="status-line" id="statusLine"></p>
       <div class="worker-grid" id="workerGrid"></div>
+    </div>
+  </div>
     </div>
   </div>
 
