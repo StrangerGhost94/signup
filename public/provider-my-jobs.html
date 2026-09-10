@@ -62,7 +62,7 @@
       const filtered = allJobs.filter(j => activeTab === 'active' ? j.status === 'accepted' : j.status === 'completed');
 
       if (filtered.length === 0) {
-        list.innerHTML = `<div class="empty-state"><strong>Nothing here yet</strong>${activeTab === 'active' ? 'Accepted jobs will show up here.' : 'Completed jobs will show up here.'}</div>`;
+        list.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>Nothing here yet</strong>${activeTab === 'active' ? 'Accepted jobs will show up here.' : 'Completed jobs will show up here.'}</div>`;
         return;
       }
 

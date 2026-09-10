@@ -4,6 +4,10 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const { Pool } = require('pg');
 const rateLimit = require('express-rate-limit');
+const { OAuth2Client } = require('google-auth-library');
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || null;
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -352,6 +356,49 @@ app.post('/api/login', authLimiter, async (req, res) => {
     res.status(500).json({ error: 'Something went wrong logging in. Please try again.' });
   }
 });
+
+// Tells the frontend whether Google sign-in is actually wired up, so it can
+// hide the button (falling back to the honest placeholder) when it's not.
+app.get('/api/config', (req, res) => {
+  res.json({ googleEnabled: !!googleClient, googleClientId: GOOGLE_CLIENT_ID });
+});
+
+app.post('/api/auth/google', authLimiter, asyncHandler(async (req, res) => {
+  if (!googleClient) {
+    return res.status(503).json({ error: 'Google sign-in isn\u2019t set up yet.' });
+  }
+  const { credential, expectedRole } = req.body;
+  if (!isNonEmpty(credential)) {
+    return res.status(400).json({ error: 'Missing Google credential.' });
+  }
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
+    payload = ticket.getPayload();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid Google sign-in. Please try again.' });
+  }
+
+  const email = normalizeEmail(payload.email);
+  const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+  const user = result.rows[0];
+
+  if (!user) {
+    // No account yet — let the frontend send them to sign up with these prefilled.
+    return res.json({ accountFound: false, email, name: payload.name || '' });
+  }
+
+  if (expectedRole && expectedRole !== user.role) {
+    const correctTab = user.role === 'provider' ? 'Worker' : 'Customer';
+    return res.status(409).json({ error: `This account is registered as a ${correctTab}. Switch tabs above and try again.` });
+  }
+
+  req.session.userId = user.id;
+  req.session.userEmail = user.email;
+  req.session.role = user.role;
+  res.json({ message: 'Logged in.', email: user.email, role: user.role, accountFound: true });
+}));
 
 app.post('/api/logout', (req, res) => {
   req.session.destroy(() => {

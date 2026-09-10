@@ -6,6 +6,7 @@
 <title>Sign in — HandyLink</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body class="auth-page">
   <div class="card">
@@ -61,6 +62,7 @@
       <div class="divider">or</div>
 
       <div class="social-row">
+        <div id="googleBtnReal" style="flex:1; display:none;"></div>
         <button type="button" class="social-btn" id="googleBtn">
           <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.65l-3.57-2.77c-.99.66-2.26 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.85A10.99 10.99 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.04H2.18a11 11 0 0 0 0 9.92l3.66-2.85z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1a10.99 10.99 0 0 0-9.82 6.04l3.66 2.85c.87-2.6 3.3-4.51 6.16-4.51z"/></svg>
           Google
@@ -96,9 +98,56 @@
       document.getElementById('socialNote').textContent = 'Password reset by email isn\u2019t set up yet.';
     });
 
-    ['googleBtn', 'appleBtn'].forEach(id => {
+    ['appleBtn'].forEach(id => {
       document.getElementById(id).addEventListener('click', () => {
-        document.getElementById('socialNote').textContent = `${id === 'googleBtn' ? 'Google' : 'Apple'} sign-in isn\u2019t set up yet.`;
+        document.getElementById('socialNote').textContent = 'Apple sign-in isn\u2019t set up yet.';
+      });
+    });
+
+    function handleGoogleCredential(response) {
+      fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: response.credential, expectedRole })
+      })
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok) {
+            document.getElementById('error').textContent = data.error;
+            return;
+          }
+          if (data.accountFound === false) {
+            sessionStorage.setItem('googlePrefill', JSON.stringify({ email: data.email, name: data.name }));
+            document.getElementById('socialNote').textContent = 'No account found for that Google email — taking you to sign up.';
+            setTimeout(() => { window.location.href = '/signup.html'; }, 1200);
+            return;
+          }
+          window.location.href = data.role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html';
+        })
+        .catch(() => {
+          document.getElementById('error').textContent = 'Something went wrong with Google sign-in. Please try again.';
+        });
+    }
+
+    fetch('/api/config').then(r => r.json()).then(config => {
+      if (!config.googleEnabled) {
+        document.getElementById('googleBtn').addEventListener('click', () => {
+          document.getElementById('socialNote').textContent = 'Google sign-in isn\u2019t set up yet.';
+        });
+        return;
+      }
+      document.getElementById('googleBtn').style.display = 'none';
+      document.getElementById('googleBtnReal').style.display = 'block';
+      const waitForGis = setInterval(() => {
+        if (window.google && window.google.accounts) {
+          clearInterval(waitForGis);
+          google.accounts.id.initialize({ client_id: config.googleClientId, callback: handleGoogleCredential });
+          google.accounts.id.renderButton(document.getElementById('googleBtnReal'), { theme: 'outline', size: 'large', shape: 'pill', width: 260 });
+        }
+      }, 100);
+    }).catch(() => {
+      document.getElementById('googleBtn').addEventListener('click', () => {
+        document.getElementById('socialNote').textContent = 'Google sign-in isn\u2019t set up yet.';
       });
     });
 

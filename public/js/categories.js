@@ -116,6 +116,7 @@ window.initials = function (name) {
 
 window.errorStateHtml = function (retryFnName) {
   return `<div class="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
     <strong>Something went wrong</strong>
     Check your connection and try again.
     <div style="margin-top:0.75rem;"><button class="small-btn btn-outline" style="width:auto;" onclick="${retryFnName}">Retry</button></div>

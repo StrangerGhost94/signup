@@ -118,7 +118,7 @@
         const tile = document.createElement('button');
         tile.type = 'button';
         tile.className = 'home-cat-tile';
-        tile.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="1.8">${categoryIcon(cat)}</svg><span>${cat}</span>`;
+        tile.innerHTML = `<div class="icon-chip" style="background:color-mix(in srgb, ${categoryColor(cat)} 16%, white);"><svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="1.8">${categoryIcon(cat)}</svg></div><span>${cat}</span>`;
         tile.onclick = () => window.location.href = `/request.html?category=${encodeURIComponent(cat)}`;
         grid.appendChild(tile);
       });
@@ -160,7 +160,7 @@
       list.innerHTML = '';
 
       if (data.bookings.length === 0) {
-        list.innerHTML = `<div class="empty-state"><strong>No jobs yet</strong>Pick a category above to get started.</div>`;
+        list.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>No jobs yet</strong>Pick a category above to get started.</div>`;
         return;
       }
 
@@ -304,7 +304,7 @@
       grid.innerHTML = '';
       if (workers.length === 0) {
         statusLine.textContent = '';
-        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><strong>No pros match that search</strong>Try a different trade or clear your filters.</div>`;
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>No pros match that search</strong>Try a different trade or clear your filters.</div>`;
         return;
       }
       statusLine.textContent = `${workers.length} pro${workers.length === 1 ? '' : 's'} available`;

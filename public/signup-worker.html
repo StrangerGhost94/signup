@@ -6,6 +6,7 @@
 <title>Create worker account — HandyLink</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body class="auth-page">
   <div class="card card-wide">
@@ -18,6 +19,8 @@
       <p class="subtext">Tell us about your skills and experience.</p>
 
       <div class="error" id="error"></div>
+
+      <div id="googleBtnReal" style="display:none; margin-bottom:1rem;"></div>
 
       <form id="signupForm">
         <div class="photo-upload-row">
@@ -80,6 +83,38 @@
 
   <script src="js/categories.js"></script>
   <script>
+    function decodeJwtPayload(token) {
+      try {
+        const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        return JSON.parse(decodeURIComponent(atob(base64).split('').map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')));
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function applyPrefill(name, email) {
+      if (name) document.getElementById('name').value = name;
+      if (email) document.getElementById('email').value = email;
+      showToast('Details filled in from Google — just set a password to finish.');
+    }
+
+    function handleGoogleCredential(response) {
+      const payload = decodeJwtPayload(response.credential);
+      if (payload) applyPrefill(payload.name, payload.email);
+    }
+
+    fetch('/api/config').then(r => r.json()).then(config => {
+      if (!config.googleEnabled) return;
+      document.getElementById('googleBtnReal').style.display = 'block';
+      const waitForGis = setInterval(() => {
+        if (window.google && window.google.accounts) {
+          clearInterval(waitForGis);
+          google.accounts.id.initialize({ client_id: config.googleClientId, callback: handleGoogleCredential });
+          google.accounts.id.renderButton(document.getElementById('googleBtnReal'), { theme: 'outline', size: 'large', shape: 'pill', width: 320, text: 'continue_with' });
+        }
+      }, 100);
+    }).catch(() => {});
+
     let compressedPhoto = null;
 
     document.getElementById('photoInput').addEventListener('change', async (e) => {
