@@ -82,12 +82,14 @@
 
     fetch('/api/config').then(r => r.json()).then(config => {
       if (!config.googleEnabled) return;
-      document.getElementById('googleBtnReal').style.display = 'block';
+      const container = document.getElementById('googleBtnReal');
+      container.style.display = 'block';
       const waitForGis = setInterval(() => {
         if (window.google && window.google.accounts) {
           clearInterval(waitForGis);
           google.accounts.id.initialize({ client_id: config.googleClientId, callback: handleGoogleCredential });
-          google.accounts.id.renderButton(document.getElementById('googleBtnReal'), { theme: 'outline', size: 'large', shape: 'pill', width: 320, text: 'continue_with' });
+          const fitWidth = Math.min(Math.round(container.getBoundingClientRect().width) || 300, 400);
+          google.accounts.id.renderButton(container, { theme: 'outline', size: 'large', shape: 'pill', width: fitWidth, text: 'continue_with' });
         }
       }, 100);
     }).catch(() => {});

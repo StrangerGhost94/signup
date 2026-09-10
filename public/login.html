@@ -62,7 +62,7 @@
       <div class="divider">or</div>
 
       <div class="social-row">
-        <div id="googleBtnReal" style="flex:1; display:none;"></div>
+        <div id="googleBtnReal" style="width:100%; display:none;"></div>
         <button type="button" class="social-btn" id="googleBtn" style="flex:1;">
           <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.65l-3.57-2.77c-.99.66-2.26 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.85A10.99 10.99 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.04H2.18a11 11 0 0 0 0 9.92l3.66-2.85z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1a10.99 10.99 0 0 0-9.82 6.04l3.66 2.85c.87-2.6 3.3-4.51 6.16-4.51z"/></svg>
           Continue with Google
@@ -168,12 +168,14 @@
         return;
       }
       document.getElementById('googleBtn').style.display = 'none';
-      document.getElementById('googleBtnReal').style.display = 'block';
+      const container = document.getElementById('googleBtnReal');
+      container.style.display = 'block';
       const waitForGis = setInterval(() => {
         if (window.google && window.google.accounts) {
           clearInterval(waitForGis);
           google.accounts.id.initialize({ client_id: config.googleClientId, callback: handleGoogleCredential });
-          google.accounts.id.renderButton(document.getElementById('googleBtnReal'), { theme: 'outline', size: 'large', shape: 'pill', width: 260 });
+          const fitWidth = Math.min(Math.round(container.getBoundingClientRect().width) || 300, 400);
+          google.accounts.id.renderButton(container, { theme: 'outline', size: 'large', shape: 'pill', width: fitWidth });
         }
       }, 100);
     }).catch(() => {
