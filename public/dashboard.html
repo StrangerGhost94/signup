@@ -48,7 +48,12 @@
         window.location.href = '/login.html';
         return null;
       }
-      return res.json();
+      const me = await res.json();
+      if (me.role === 'provider') {
+        window.location.href = '/provider-dashboard.html';
+        return null;
+      }
+      return me;
     }
 
     async function loadCategories() {

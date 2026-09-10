@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Your listing — Handy</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="dash-wrap">
+    <header class="dash-header">
+      <div>
+        <span class="wordmark">HANDY <span class="pro-badge">PRO</span></span>
+        <h1>Your listing</h1>
+      </div>
+      <div class="dash-user">
+        <span id="welcome"></span>
+        <button id="logoutBtn" class="small-btn logout-btn">Log out</button>
+      </div>
+    </header>
+
+    <p class="provider-intro">This is what clients see when they search. Keep it accurate and up to date.</p>
+
+    <div class="provider-layout">
+      <form id="editForm" class="provider-form">
+        <div class="error" id="error"></div>
+        <div class="success" id="success"></div>
+
+        <label>Full name</label>
+        <input type="text" id="name" required>
+
+        <label>Category</label>
+        <input type="text" id="category" required>
+
+        <label>Location / area you serve</label>
+        <input type="text" id="location" required>
+
+        <label>Phone number</label>
+        <input type="tel" id="phone" required>
+
+        <label>Bio</label>
+        <textarea id="bio" rows="4"></textarea>
+
+        <button type="submit" class="btn-primary">Save changes</button>
+      </form>
+
+      <div class="preview-col">
+        <span class="preview-label">Live preview</span>
+        <div class="worker-card" id="previewCard"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const CATEGORY_COLORS = {
+      'Plumbing': '#2F6169',
+      'Electrical': '#B9791C',
+      'Carpentry': '#8B5E34',
+      'Painting': '#A24E67',
+      'Cleaning': '#3F7D63',
+      'Gardening': '#5C8A3A',
+      'Moving': '#5A5F73'
+    };
+
+    function renderPreview(p) {
+      const color = CATEGORY_COLORS[p.category] || '#2F6169';
+      const card = document.getElementById('previewCard');
+      card.style.setProperty('--cat-color', color);
+      card.innerHTML = `
+        <div class="worker-top">
+          <strong>${p.name || 'Your name'}</strong>
+          <span class="rating">★ ${p.rating || '5.0'}</span>
+        </div>
+        <span class="tag">${p.category || 'Category'}</span>
+        <p class="location">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          ${p.location || 'Location'}
+        </p>
+        <p class="bio">${p.bio || 'Your bio will appear here.'}</p>
+        <button class="small-btn contact-btn" disabled>Contact ${p.phone || ''}</button>
+      `;
+    }
+
+    function fieldsFromForm() {
+      return {
+        name: document.getElementById('name').value,
+        category: document.getElementById('category').value,
+        location: document.getElementById('location').value,
+        phone: document.getElementById('phone').value,
+        bio: document.getElementById('bio').value
+      };
+    }
+
+    ['name', 'category', 'location', 'phone', 'bio'].forEach(id => {
+      document.getElementById(id).addEventListener('input', () => renderPreview(fieldsFromForm()));
+    });
+
+    document.getElementById('editForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('error');
+      const successEl = document.getElementById('success');
+      errorEl.textContent = '';
+      successEl.textContent = '';
+
+      const res = await fetch('/api/provider/me', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fieldsFromForm())
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errorEl.textContent = data.error;
+        return;
+      }
+      successEl.textContent = 'Saved.';
+      renderPreview(data.provider);
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    });
+
+    (async () => {
+      const meRes = await fetch('/api/me');
+      if (!meRes.ok) {
+        window.location.href = '/login.html';
+        return;
+      }
+      const me = await meRes.json();
+      if (me.role !== 'provider') {
+        window.location.href = '/dashboard.html';
+        return;
+      }
+      document.getElementById('welcome').textContent = `Signed in as ${me.email}`;
+
+      const provRes = await fetch('/api/provider/me');
+      const provData = await provRes.json();
+      if (provRes.ok) {
+        const p = provData.provider;
+        document.getElementById('name').value = p.name;
+        document.getElementById('category').value = p.category;
+        document.getElementById('location').value = p.location;
+        document.getElementById('phone').value = p.phone;
+        document.getElementById('bio').value = p.bio;
+        renderPreview(p);
+      }
+    })();
+  </script>
+</body>
+</html>

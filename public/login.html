@@ -41,7 +41,7 @@
         errorEl.textContent = data.error;
         return;
       }
-      window.location.href = '/dashboard.html';
+      window.location.href = data.role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html';
     });
   </script>
 </body>

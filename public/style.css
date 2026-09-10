@@ -309,3 +309,102 @@ p.switch a { color: var(--steel); font-weight: 600; }
 .contact-btn:hover { background: var(--call-deep); }
 
 #noResults { color: var(--ink-soft); text-align: center; padding: 2rem 0; }
+
+/* --- Role toggle on signup --- */
+.card-wide { max-width: 440px; }
+.role-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+}
+.role-btn {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.8rem 0.7rem;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.role-btn strong { font-size: 0.9rem; }
+.role-btn span { font-size: 0.76rem; color: var(--ink-soft); font-weight: 400; }
+.role-btn.active {
+  border-color: var(--accent);
+  background: #FBF3E4;
+}
+.role-btn:hover { border-color: var(--accent-deep); }
+.provider-fields {
+  border-top: 1px dashed var(--line);
+  padding-top: 1rem;
+  margin-bottom: 0.25rem;
+}
+textarea {
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: #FBFBFA;
+  resize: vertical;
+}
+textarea:focus { border-color: var(--steel); background: #fff; }
+
+/* --- Provider dashboard --- */
+.pro-badge {
+  background: var(--accent);
+  color: #2A2210;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  margin-left: 0.3rem;
+  letter-spacing: 0.02em;
+}
+.provider-intro { color: var(--ink-soft); font-size: 0.92rem; margin: -0.75rem 0 1.5rem; }
+.provider-layout {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+.provider-form {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+}
+.provider-form label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: 0.35rem;
+}
+.preview-col { position: sticky; top: 2rem; }
+.preview-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.6rem;
+}
+.preview-col .contact-btn[disabled] { cursor: default; opacity: 0.85; }
+.success {
+  color: var(--call-deep);
+  font-size: 0.88rem;
+  margin-bottom: 1rem;
+  min-height: 1.2em;
+}
+
+@media (max-width: 760px) {
+  .provider-layout { grid-template-columns: 1fr; }
+  .preview-col { position: static; }
+}

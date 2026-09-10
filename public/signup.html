@@ -6,34 +6,79 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="auth-page">
-  <div class="card">
+  <div class="card card-wide">
     <div class="card-accent"></div>
     <div class="card-body">
       <span class="wordmark">HANDY</span>
       <h1>Create your account</h1>
-      <p class="subtext">Start finding trusted help near you.</p>
+      <p class="subtext">Choose how you'll use Handy.</p>
+
+      <div class="role-toggle" id="roleToggle">
+        <button type="button" class="role-btn active" data-role="client">
+          <strong>I need help</strong>
+          <span>Find and contact local pros</span>
+        </button>
+        <button type="button" class="role-btn" data-role="provider">
+          <strong>I offer services</strong>
+          <span>List yourself and get found</span>
+        </button>
+      </div>
+
       <div class="error" id="error"></div>
+
       <form id="signupForm">
         <input type="email" id="email" placeholder="Email" required>
         <input type="password" id="password" placeholder="Password (8+ chars, a letter and a number)" required>
-        <button type="submit" class="btn-primary">Sign up</button>
+
+        <div id="providerFields" class="provider-fields" style="display:none;">
+          <input type="text" id="name" placeholder="Full name">
+          <input type="text" id="category" placeholder="Trade / category (e.g. Plumbing)">
+          <input type="text" id="location" placeholder="Location / area you serve">
+          <input type="tel" id="phone" placeholder="Phone number">
+          <textarea id="bio" placeholder="Short bio — what you do, experience, specialties" rows="3"></textarea>
+        </div>
+
+        <button type="submit" class="btn-primary">Create account</button>
       </form>
       <p class="switch">Already have an account? <a href="/login.html">Log in</a></p>
     </div>
   </div>
 
   <script>
+    let selectedRole = 'client';
+
+    document.querySelectorAll('.role-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        selectedRole = btn.dataset.role;
+        document.getElementById('providerFields').style.display = selectedRole === 'provider' ? 'block' : 'none';
+      });
+    });
+
     document.getElementById('signupForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const email = document.getElementById('email').value;
-      const password = document.getElementById('password').value;
       const errorEl = document.getElementById('error');
       errorEl.textContent = '';
+
+      const payload = {
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value,
+        role: selectedRole
+      };
+
+      if (selectedRole === 'provider') {
+        payload.name = document.getElementById('name').value;
+        payload.category = document.getElementById('category').value;
+        payload.location = document.getElementById('location').value;
+        payload.phone = document.getElementById('phone').value;
+        payload.bio = document.getElementById('bio').value;
+      }
 
       const res = await fetch('/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
 
@@ -41,7 +86,8 @@
         errorEl.textContent = data.error;
         return;
       }
-      window.location.href = '/dashboard.html';
+
+      window.location.href = data.role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html';
     });
   </script>
 </body>
