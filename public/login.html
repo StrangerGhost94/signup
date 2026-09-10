@@ -21,6 +21,16 @@
 
       <h1>Welcome back!</h1>
       <p class="subtext">Sign in to your account</p>
+
+      <div class="role-toggle" id="accountToggle" style="grid-template-columns: 1fr 1fr;">
+        <button type="button" class="role-btn active" data-role="client" style="align-items:center; text-align:center;">
+          <strong>Customer</strong>
+        </button>
+        <button type="button" class="role-btn" data-role="provider" style="align-items:center; text-align:center;">
+          <strong>Worker</strong>
+        </button>
+      </div>
+
       <div class="error" id="error"></div>
 
       <form id="loginForm">
@@ -67,6 +77,15 @@
   </div>
 
   <script>
+    let expectedRole = 'client';
+    document.querySelectorAll('#accountToggle .role-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#accountToggle .role-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        expectedRole = btn.dataset.role;
+      });
+    });
+
     document.getElementById('eyeToggle').addEventListener('click', () => {
       const pw = document.getElementById('password');
       pw.type = pw.type === 'password' ? 'text' : 'password';
@@ -94,7 +113,7 @@
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, remember })
+        body: JSON.stringify({ email, password, remember, expectedRole })
       });
       const data = await res.json();
 

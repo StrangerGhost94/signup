@@ -46,6 +46,14 @@ async function initDb() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'client'
   `);
 
+  // Migration: collect phone numbers and names going forward (nullable for old rows).
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT
+  `);
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS providers (
       id SERIAL PRIMARY KEY,
@@ -160,7 +168,15 @@ app.post('/api/signup', async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = req.body.password;
   const role = req.body.role === 'provider' ? 'provider' : 'client';
+  const name = req.body.name;
+  const phone = req.body.phone;
 
+  if (!isNonEmpty(name)) {
+    return res.status(400).json({ error: 'Please enter your full name.' });
+  }
+  if (!isNonEmpty(phone)) {
+    return res.status(400).json({ error: 'Please enter your phone number.' });
+  }
   if (!email || !EMAIL_RE.test(email)) {
     return res.status(400).json({ error: 'Enter a valid email address.' });
   }
@@ -170,9 +186,9 @@ app.post('/api/signup', async (req, res) => {
 
   let providerFields = null;
   if (role === 'provider') {
-    const { name, category, location, phone, bio } = req.body;
-    if (!isNonEmpty(name) || !isNonEmpty(category) || !isNonEmpty(location) || !isNonEmpty(phone)) {
-      return res.status(400).json({ error: 'Please fill in your name, category, location, and phone number.' });
+    const { category, location, bio } = req.body;
+    if (!isNonEmpty(category) || !isNonEmpty(location)) {
+      return res.status(400).json({ error: 'Please fill in the trade you offer and the area you serve.' });
     }
     providerFields = {
       name: name.trim(),
@@ -195,8 +211,8 @@ app.post('/api/signup', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const userResult = await client.query(
-      'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id',
-      [email, passwordHash, role]
+      'INSERT INTO users (email, password_hash, role, phone, name) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+      [email, passwordHash, role, phone.trim(), name.trim()]
     );
     const userId = userResult.rows[0].id;
 
@@ -237,6 +253,12 @@ app.post('/api/login', async (req, res) => {
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    const expectedRole = req.body.expectedRole;
+    if (expectedRole && expectedRole !== user.role) {
+      const correctTab = user.role === 'provider' ? 'Worker' : 'Customer';
+      return res.status(409).json({ error: `This account is registered as a ${correctTab}. Switch tabs above and sign in again.` });
     }
 
     req.session.userId = user.id;

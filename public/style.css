@@ -849,3 +849,36 @@ body.app-body { background: var(--surface); }
 }
 .nav-item.nav-post svg { width: 24px; height: 24px; }
 .has-bottom-nav { padding-bottom: 5rem; }
+
+/* --- Big account-type choice cards --- */
+.big-choice-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--bg);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.1rem;
+  margin-bottom: 0.85rem;
+  cursor: pointer;
+}
+.big-choice-card:hover, .big-choice-card.active-choice {
+  border-color: var(--primary);
+  background: var(--primary-tint);
+}
+.big-choice-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.big-choice-icon svg { width: 22px; height: 22px; }
+.big-choice-text { flex: 1; min-width: 0; }
+.big-choice-text strong { display: block; font-size: 0.98rem; font-weight: 700; color: var(--ink); }
+.big-choice-text span { font-size: 0.82rem; color: var(--ink-soft); }
+.big-choice-card .chevron { width: 18px; height: 18px; color: var(--ink-soft); flex-shrink: 0; }

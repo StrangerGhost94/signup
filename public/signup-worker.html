@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create worker account — HandyLink</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="auth-page">
+  <div class="card card-wide">
+    <div class="card-body">
+      <a href="/signup.html" class="back-arrow" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </a>
+
+      <h1 style="margin-top:0;">Create worker account</h1>
+      <p class="subtext">Tell us about your skills and experience.</p>
+
+      <div class="error" id="error"></div>
+
+      <form id="signupForm">
+        <div class="input-icon-wrap">
+          <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+          <input type="text" id="name" placeholder="Full name — e.g. John Kamau" required>
+        </div>
+
+        <div class="input-icon-wrap">
+          <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.98.36 1.94.68 2.86a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.22-1.25a2 2 0 0 1 2.11-.45c.92.32 1.88.55 2.86.68A2 2 0 0 1 22 16.92z"/></svg>
+          <input type="tel" id="phone" placeholder="Phone number — e.g. 0772 123 456" required>
+        </div>
+
+        <div class="input-icon-wrap">
+          <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4V4z"/><path d="M4 4l8 8 8-8"/></svg>
+          <input type="email" id="email" placeholder="Email address — e.g. john@example.com" required>
+        </div>
+
+        <div class="input-icon-wrap">
+          <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></svg>
+          <input type="password" id="password" placeholder="Create password — 8+ chars, a letter and a number" required>
+          <button type="button" class="eye-toggle" id="eyeToggle" aria-label="Show password">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+
+        <label style="display:block; font-weight:700; font-size:0.88rem; margin-bottom:0.5rem;">What service do you offer?</label>
+        <select id="category" required style="width:100%; padding:0.85rem 1rem; margin-bottom:1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:1rem; font-family:inherit; background:var(--surface); color:var(--ink);">
+          <option value="" disabled selected>Select your primary service</option>
+          <option>Plumbing</option>
+          <option>Electrical</option>
+          <option>Carpentry</option>
+          <option>Painting</option>
+          <option>Cleaning</option>
+          <option>Gardening</option>
+          <option>Moving</option>
+        </select>
+
+        <input type="text" id="location" placeholder="Area you serve — e.g. Ntinda, Kampala" required>
+        <textarea id="bio" rows="3" placeholder="Short bio — experience, specialties (optional)"></textarea>
+
+        <button type="submit">Create account</button>
+        <p class="inline-note">By creating an account, you agree to our Terms of Service and Privacy Policy.</p>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('eyeToggle').addEventListener('click', () => {
+      const pw = document.getElementById('password');
+      pw.type = pw.type === 'password' ? 'text' : 'password';
+    });
+
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = '';
+
+      const payload = {
+        role: 'provider',
+        name: document.getElementById('name').value,
+        phone: document.getElementById('phone').value,
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value,
+        category: document.getElementById('category').value,
+        location: document.getElementById('location').value,
+        bio: document.getElementById('bio').value
+      };
+
+      const res = await fetch('/api/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errorEl.textContent = data.error;
+        return;
+      }
+      window.location.href = '/provider-dashboard.html';
+    });
+  </script>
+</body>
+</html>
