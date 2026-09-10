@@ -34,6 +34,14 @@
           <form id="editForm" class="provider-form">
             <div class="error" id="error"></div>
 
+            <div class="photo-upload-row">
+              <div class="photo-preview" id="photoPreview">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              </div>
+              <label class="photo-upload-label" for="photoInput">Change photo</label>
+              <input type="file" id="photoInput" accept="image/*" style="display:none;">
+            </div>
+
             <label>Full name</label>
             <input type="text" id="name" required>
 
@@ -72,13 +80,19 @@
 
   <script src="js/categories.js"></script>
   <script>
+    let currentPhoto = null;
+    let pendingPhoto = null;
+
     function renderPreview(p) {
       const color = categoryColor(p.category);
       const card = document.getElementById('previewCard');
       card.style.setProperty('--cat-color', color);
+      const avatarHtml = (pendingPhoto || p.photo)
+        ? `<img class="avatar-img" src="${pendingPhoto || p.photo}" alt="">`
+        : initials(p.name);
       card.innerHTML = `
         <div class="worker-head">
-          <div class="avatar">${initials(p.name)}</div>
+          <div class="avatar">${avatarHtml}</div>
           <div class="worker-name-block">
             <strong>${escapeHtml(p.name) || 'Your name'}</strong>
             <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(p.category)}</svg>${escapeHtml(p.category) || 'Category'}</span>
@@ -94,13 +108,26 @@
       `;
     }
 
+    document.getElementById('photoInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        pendingPhoto = await compressImageFile(file, 320, 0.75);
+        document.getElementById('photoPreview').innerHTML = `<img src="${pendingPhoto}" alt="">`;
+        renderPreview(fieldsFromForm());
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
     function fieldsFromForm() {
       return {
         name: document.getElementById('name').value,
         category: document.getElementById('category').value,
         location: document.getElementById('location').value,
         phone: document.getElementById('phone').value,
-        bio: document.getElementById('bio').value
+        bio: document.getElementById('bio').value,
+        photo: currentPhoto
       };
     }
 
@@ -113,10 +140,14 @@
       const errorEl = document.getElementById('error');
       errorEl.textContent = '';
 
+      const payload = fieldsFromForm();
+      if (pendingPhoto) payload.photo = pendingPhoto;
+      else delete payload.photo;
+
       const res = await fetch('/api/provider/me', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fieldsFromForm())
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
 
@@ -124,6 +155,8 @@
         errorEl.textContent = data.error;
         return;
       }
+      pendingPhoto = null;
+      currentPhoto = data.provider.photo;
       showToast('Listing saved.', 'success');
       renderPreview(data.provider);
     });
@@ -149,6 +182,8 @@
         document.getElementById('location').value = p.location;
         document.getElementById('phone').value = p.phone;
         document.getElementById('bio').value = p.bio;
+        currentPhoto = p.photo;
+        if (p.photo) document.getElementById('photoPreview').innerHTML = `<img src="${p.photo}" alt="">`;
         renderPreview(p);
       }
     })();

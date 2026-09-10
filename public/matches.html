@@ -19,7 +19,7 @@
   </div>
 
   <div class="modal-overlay" id="confirmModal" style="display:none;">
-    <div class="modal-box">
+    <div class="modal-box" role="dialog" aria-modal="true">
       <h2>Confirm booking</h2>
       <div id="confirmSummary"></div>
       <div class="error" id="confirmError"></div>
@@ -78,7 +78,7 @@
         card.style.setProperty('--cat-color', color);
         card.innerHTML = `
           <div class="worker-head">
-            <div class="avatar">${initials(w.name)}</div>
+            <div class="avatar">${w.photo ? `<img class="avatar-img" src="${w.photo}" alt="">` : initials(w.name)}</div>
             <div class="worker-name-block">
               <strong>${escapeHtml(w.name)}</strong>
               <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(w.category)}</svg>${escapeHtml(w.category)}</span>
@@ -108,11 +108,11 @@
         <div class="modal-row"><span>Estimate</span><span>UGX ${estimate}</span></div>
       `;
       document.getElementById('confirmError').textContent = '';
-      document.getElementById('confirmModal').style.display = 'flex';
+      openModal(document.getElementById('confirmModal'));
     }
 
     document.getElementById('cancelBooking').addEventListener('click', () => {
-      document.getElementById('confirmModal').style.display = 'none';
+      closeModal(document.getElementById('confirmModal'));
     });
 
     document.getElementById('confirmBooking').addEventListener('click', async () => {

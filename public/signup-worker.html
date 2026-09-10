@@ -20,6 +20,14 @@
       <div class="error" id="error"></div>
 
       <form id="signupForm">
+        <div class="photo-upload-row">
+          <div class="photo-preview" id="photoPreview">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
+          <label class="photo-upload-label" for="photoInput">Add profile photo (optional)</label>
+          <input type="file" id="photoInput" accept="image/*" style="display:none;">
+        </div>
+
         <div class="input-icon-wrap">
           <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
           <input type="text" id="name" placeholder="Full name — e.g. John Kamau" required>
@@ -43,6 +51,12 @@
           </button>
         </div>
 
+        <div class="pw-checklist" id="pwChecklist">
+          <span id="pwLength"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>8+ characters</span>
+          <span id="pwLetter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>A letter</span>
+          <span id="pwNumber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>A number</span>
+        </div>
+
         <label style="display:block; font-weight:700; font-size:0.88rem; margin-bottom:0.5rem;">What service do you offer?</label>
         <select id="category" required style="width:100%; padding:0.85rem 1rem; margin-bottom:1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:1rem; font-family:inherit; background:var(--surface); color:var(--ink);">
           <option value="" disabled selected>Select your primary service</option>
@@ -64,10 +78,31 @@
     </div>
   </div>
 
+  <script src="js/categories.js"></script>
   <script>
+    let compressedPhoto = null;
+
+    document.getElementById('photoInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        compressedPhoto = await compressImageFile(file, 320, 0.75);
+        document.getElementById('photoPreview').innerHTML = `<img src="${compressedPhoto}" alt="">`;
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
     document.getElementById('eyeToggle').addEventListener('click', () => {
       const pw = document.getElementById('password');
       pw.type = pw.type === 'password' ? 'text' : 'password';
+    });
+
+    document.getElementById('password').addEventListener('input', (e) => {
+      const strength = checkPasswordStrength(e.target.value);
+      ['length', 'letter', 'number'].forEach(key => {
+        document.getElementById('pw' + key.charAt(0).toUpperCase() + key.slice(1)).classList.toggle('met', strength[key]);
+      });
     });
 
     document.getElementById('signupForm').addEventListener('submit', async (e) => {
@@ -83,7 +118,8 @@
         password: document.getElementById('password').value,
         category: document.getElementById('category').value,
         location: document.getElementById('location').value,
-        bio: document.getElementById('bio').value
+        bio: document.getElementById('bio').value,
+        photo: compressedPhoto
       };
 
       const res = await fetch('/api/signup', {

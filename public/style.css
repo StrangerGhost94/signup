@@ -1200,3 +1200,55 @@ body.app-body { background: var(--surface); }
   white-space: nowrap;
 }
 .tab-bar a.active { background: var(--bg); color: var(--ink); box-shadow: var(--shadow-sm); }
+
+/* --- Password strength checklist --- */
+.pw-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: -0.6rem 0 1rem;
+  font-size: 0.78rem;
+}
+.pw-checklist span {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--ink-soft);
+}
+.pw-checklist span svg { width: 13px; height: 13px; color: var(--line); flex-shrink: 0; }
+.pw-checklist span.met { color: var(--primary-deep); }
+.pw-checklist span.met svg { color: var(--primary); }
+
+/* --- Photo upload --- */
+.photo-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.photo-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1.5px dashed var(--line);
+  color: var(--ink-soft);
+}
+.photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+.photo-preview svg { width: 22px; height: 22px; }
+.photo-upload-label {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--steel, var(--primary-deep));
+  cursor: pointer;
+  border: 1.5px solid var(--line);
+  padding: 0.55rem 1rem;
+  border-radius: var(--radius-sm);
+}
+.photo-upload-label:hover { border-color: var(--primary); }
+.avatar-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }

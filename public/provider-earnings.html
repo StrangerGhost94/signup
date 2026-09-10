@@ -79,15 +79,17 @@
       data.recent.forEach(j => {
         const color = categoryColor(j.category);
         const item = document.createElement('div');
-        item.className = 'recent-job-item fade-in-up';
+        item.className = 'job-card fade-in-up';
         item.style.setProperty('--cat-color', color);
         item.innerHTML = `
-          <div class="recent-job-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${categoryIcon(j.category)}</svg></div>
-          <div class="recent-job-info">
-            <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
-            <span>${new Date(j.updated_at).toLocaleDateString()}</span>
+          <div class="job-top">
+            <div>
+              <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
+              <p class="job-meta">${new Date(j.updated_at).toLocaleDateString()}</p>
+            </div>
+            <span class="amount" style="font-weight:700;">UGX ${j.estimate_amount.toLocaleString()}</span>
           </div>
-          <div class="recent-job-right"><span class="amount">UGX ${j.estimate_amount.toLocaleString()}</span></div>
+          ${j.review_rating ? `<p class="job-meta"><span style="color:var(--warning);">${'★'.repeat(j.review_rating)}${'☆'.repeat(5 - j.review_rating)}</span></p>${j.review_comment ? `<p class="job-desc">"${escapeHtml(j.review_comment)}"</p>` : ''}` : `<p class="job-meta">Not rated yet</p>`}
         `;
         list.appendChild(item);
       });

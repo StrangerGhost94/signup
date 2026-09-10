@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="app-body has-bottom-nav">
-  <div class="app-shell">
+  <div class="app-shell" id="appShell" style="visibility:hidden;">
     <nav class="sidebar-nav">
       <span class="brand">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
@@ -81,7 +81,11 @@
         const declineBtn = document.createElement('button');
         declineBtn.className = 'small-btn btn-decline';
         declineBtn.textContent = 'Decline';
-        declineBtn.onclick = () => actOnJob(j.id, 'decline');
+        declineBtn.onclick = () => {
+          if (confirm('Decline this job request? The client will be notified.')) {
+            actOnJob(j.id, 'decline');
+          }
+        };
         actions.appendChild(acceptBtn);
         actions.appendChild(declineBtn);
         list.appendChild(card);
@@ -105,6 +109,7 @@
       const me = await res.json();
       if (me.role !== 'provider') { window.location.href = '/dashboard.html'; return; }
       document.getElementById('welcome').textContent = me.email;
+      document.getElementById('appShell').style.visibility = 'visible';
       await loadJobs();
     })();
   </script>

@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="app-body has-bottom-nav">
-  <div class="app-shell">
+  <div class="app-shell" id="appShell" style="visibility:hidden;">
     <nav class="sidebar-nav">
       <span class="brand">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
@@ -29,15 +29,15 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
           HandyLink
         </span>
-        <div class="location-pill">
+        <button class="location-pill" id="locationBtn" style="background:none; border:none; cursor:pointer; width:auto; min-height:auto; padding:0;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
           Kampala
-        </div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
       </div>
       <div class="topbar-right">
         <button class="bell-btn" id="bellBtn" aria-label="Notifications">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-          <span class="bell-dot" id="bellDot" style="display:none;"></span>
         </button>
       </div>
     </header>
@@ -80,7 +80,7 @@
   </nav>
 
   <div class="modal-overlay" id="rateModal" style="display:none;">
-    <div class="modal-box">
+    <div class="modal-box" role="dialog" aria-modal="true">
       <h2>How was it?</h2>
       <div class="star-picker" id="starPicker">
         <button type="button" data-v="1">★</button>
@@ -124,6 +124,13 @@
       });
     }
 
+    document.getElementById('locationBtn').addEventListener('click', () => {
+      showToast('Location selection isn\u2019t built yet — showing all of Kampala.');
+    });
+    document.getElementById('bellBtn').addEventListener('click', () => {
+      showToast('Notifications aren\u2019t built yet.');
+    });
+
     document.getElementById('getHelpNowBtn').addEventListener('click', () => {
       sessionStorage.setItem('preferredUrgency', 'now');
       document.getElementById('homeCatGrid').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -132,11 +139,24 @@
       setTimeout(() => { document.getElementById('homeCatGrid').style.outline = 'none'; }, 1500);
     });
 
+    let bookingsShowAll = false;
+
     async function loadBookings() {
-      const res = await fetch('/api/bookings/mine');
-      if (!res.ok) return;
-      const data = await res.json();
       const list = document.getElementById('bookingsList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+
+      let res;
+      try {
+        res = await fetch('/api/bookings/mine');
+      } catch (err) {
+        list.innerHTML = errorStateHtml('loadBookings()');
+        return;
+      }
+      if (!res.ok) {
+        list.innerHTML = errorStateHtml('loadBookings()');
+        return;
+      }
+      const data = await res.json();
       list.innerHTML = '';
 
       if (data.bookings.length === 0) {
@@ -144,7 +164,8 @@
         return;
       }
 
-      data.bookings.slice(0, 8).forEach(b => {
+      const shown = bookingsShowAll ? data.bookings : data.bookings.slice(0, 8);
+      shown.forEach(b => {
         const meta = STATUS_META[b.status] || STATUS_META.requested;
         const color = categoryColor(b.category);
         const item = document.createElement('div');
@@ -158,12 +179,22 @@
           </div>
           <div class="recent-job-right">
             <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
+
           </div>
         `;
         item.style.cursor = 'pointer';
         item.addEventListener('click', () => showBookingDetail(b));
         list.appendChild(item);
       });
+
+      if (!bookingsShowAll && data.bookings.length > 8) {
+        const moreBtn = document.createElement('button');
+        moreBtn.className = 'btn-outline';
+        moreBtn.style.marginTop = '0.25rem';
+        moreBtn.textContent = `Show all ${data.bookings.length} bookings`;
+        moreBtn.onclick = () => { bookingsShowAll = true; loadBookings(); };
+        list.appendChild(moreBtn);
+      }
     }
 
     function showBookingDetail(b) {
@@ -180,7 +211,7 @@
       document.querySelectorAll('#starPicker button').forEach(b => b.classList.remove('selected'));
       document.getElementById('reviewComment').value = '';
       document.getElementById('rateError').textContent = '';
-      document.getElementById('rateModal').style.display = 'flex';
+      openModal(document.getElementById('rateModal'));
     };
 
     document.querySelectorAll('#starPicker button').forEach(btn => {
@@ -193,7 +224,7 @@
     });
 
     document.getElementById('cancelRate').addEventListener('click', () => {
-      document.getElementById('rateModal').style.display = 'none';
+      closeModal(document.getElementById('rateModal'));
     });
 
     document.getElementById('submitRate').addEventListener('click', async () => {
@@ -209,7 +240,7 @@
       });
       const data = await res.json();
       if (!res.ok) { errorEl.textContent = data.error; return; }
-      document.getElementById('rateModal').style.display = 'none';
+      closeModal(document.getElementById('rateModal'));
       loadBookings();
     });
 
@@ -249,8 +280,20 @@
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (activeCategory) params.set('category', activeCategory);
-      document.getElementById('statusLine').textContent = 'Searching…';
-      const res = await fetch('/api/workers?' + params.toString());
+      document.getElementById('statusLine').textContent = '';
+      document.getElementById('workerGrid').innerHTML = `<div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div>`;
+
+      let res;
+      try {
+        res = await fetch('/api/workers?' + params.toString());
+      } catch (err) {
+        document.getElementById('workerGrid').innerHTML = errorStateHtml('loadWorkers()');
+        return;
+      }
+      if (!res.ok) {
+        document.getElementById('workerGrid').innerHTML = errorStateHtml('loadWorkers()');
+        return;
+      }
       const data = await res.json();
       renderWorkers(data.workers);
     }
@@ -272,7 +315,7 @@
         card.style.setProperty('--cat-color', color);
         card.innerHTML = `
           <div class="worker-head">
-            <div class="avatar">${initials(w.name)}</div>
+            <div class="avatar">${w.photo ? `<img class="avatar-img" src="${w.photo}" alt="">` : initials(w.name)}</div>
             <div class="worker-name-block">
               <strong>${escapeHtml(w.name)}</strong>
               <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(w.category)}</svg>${escapeHtml(w.category)}</span>
@@ -305,6 +348,7 @@
     (async () => {
       const me = await checkAuth();
       if (!me) return;
+      document.getElementById('appShell').style.visibility = 'visible';
       buildCategoryGrid();
       await loadBookings();
     })();

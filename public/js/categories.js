@@ -53,6 +53,49 @@ window.categoryIcon = function (cat) {
   return window.CATEGORY_ICONS[cat] || window.CATEGORY_ICONS['Plumbing'];
 };
 
+window.checkPasswordStrength = function (pw) {
+  return {
+    length: pw.length >= 8,
+    letter: /[A-Za-z]/.test(pw),
+    number: /[0-9]/.test(pw)
+  };
+};
+
+window.compressImageFile = function (file, maxDim, quality) {
+  maxDim = maxDim || 320;
+  quality = quality || 0.75;
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('Please choose an image file.'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read that file.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Could not read that image.'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDim) {
+          height = Math.round(height * (maxDim / width));
+          width = maxDim;
+        } else if (height > maxDim) {
+          width = Math.round(width * (maxDim / height));
+          height = maxDim;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
 window.escapeHtml = function (str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -71,15 +114,65 @@ window.initials = function (name) {
   return (first + last).toUpperCase();
 };
 
+window.errorStateHtml = function (retryFnName) {
+  return `<div class="empty-state">
+    <strong>Something went wrong</strong>
+    Check your connection and try again.
+    <div style="margin-top:0.75rem;"><button class="small-btn btn-outline" style="width:auto;" onclick="${retryFnName}">Retry</button></div>
+  </div>`;
+};
+
+let _modalLastFocus = null;
+let _modalKeyHandler = null;
+
+window.openModal = function (overlayEl) {
+  _modalLastFocus = document.activeElement;
+  overlayEl.style.display = 'flex';
+
+  const focusables = overlayEl.querySelectorAll('button, input, textarea, a[href], select');
+  if (focusables.length) focusables[0].focus();
+
+  _modalKeyHandler = function (e) {
+    if (e.key === 'Escape') {
+      window.closeModal(overlayEl);
+      return;
+    }
+    if (e.key === 'Tab' && focusables.length) {
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  };
+  document.addEventListener('keydown', _modalKeyHandler);
+};
+
+window.closeModal = function (overlayEl) {
+  overlayEl.style.display = 'none';
+  if (_modalKeyHandler) {
+    document.removeEventListener('keydown', _modalKeyHandler);
+    _modalKeyHandler = null;
+  }
+  if (_modalLastFocus) _modalLastFocus.focus();
+};
+
 window.showToast = function (message, type) {
   let stack = document.querySelector('.toast-stack');
   if (!stack) {
     stack = document.createElement('div');
     stack.className = 'toast-stack';
+    stack.setAttribute('aria-live', 'polite');
+    stack.setAttribute('aria-atomic', 'true');
     document.body.appendChild(stack);
   }
   const toast = document.createElement('div');
   toast.className = 'toast' + (type ? ` toast-${type}` : '');
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
   toast.textContent = message;
   stack.appendChild(toast);
   setTimeout(() => {

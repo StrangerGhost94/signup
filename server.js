@@ -87,6 +87,11 @@ async function initDb() {
     )
   `);
 
+  // Migration: profile photo, stored as a data URL (small, compressed client-side).
+  await pool.query(`
+    ALTER TABLE providers ADD COLUMN IF NOT EXISTS photo TEXT
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS job_requests (
       id SERIAL PRIMARY KEY,
@@ -134,7 +139,7 @@ async function initDb() {
   }
 }
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(session({
@@ -182,6 +187,32 @@ function normalizeEmail(email) {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const dns = require('dns').promises;
+const domainCheckCache = new Map(); // avoid repeat DNS lookups for common domains
+
+async function domainCanReceiveMail(email) {
+  const domain = email.split('@')[1];
+  if (!domain) return false;
+  if (domainCheckCache.has(domain)) return domainCheckCache.get(domain);
+
+  let ok = false;
+  try {
+    const mxRecords = await dns.resolveMx(domain);
+    ok = mxRecords && mxRecords.length > 0;
+  } catch (err) {
+    // No MX records — fall back to checking the domain resolves at all
+    // (some small domains route mail through their A record).
+    try {
+      await dns.resolve4(domain);
+      ok = true;
+    } catch (err2) {
+      ok = false;
+    }
+  }
+  domainCheckCache.set(domain, ok);
+  return ok;
+}
+
 function isStrongPassword(pw) {
   return typeof pw === 'string' && pw.length >= 8 && /[A-Za-z]/.test(pw) && /[0-9]/.test(pw);
 }
@@ -193,6 +224,13 @@ function isNonEmpty(val) {
 async function getProviderIdForUser(userId) {
   const result = await pool.query('SELECT id FROM providers WHERE user_id = $1', [userId]);
   return result.rows[0]?.id || null;
+}
+
+function isValidPhoto(photo) {
+  if (!isNonEmpty(photo)) return true; // optional field
+  if (!photo.startsWith('data:image/')) return false;
+  if (photo.length > 600000) return false; // ~440KB, plenty for a compressed avatar
+  return true;
 }
 
 // --- Auth routes ---
@@ -213,22 +251,30 @@ app.post('/api/signup', authLimiter, async (req, res) => {
   if (!email || !EMAIL_RE.test(email)) {
     return res.status(400).json({ error: 'Enter a valid email address.' });
   }
+  const domainOk = await domainCanReceiveMail(email);
+  if (!domainOk) {
+    return res.status(400).json({ error: 'That email domain doesn\u2019t appear to accept mail. Please double-check it.' });
+  }
   if (!isStrongPassword(password)) {
     return res.status(400).json({ error: 'Password must be at least 8 characters and include a letter and a number.' });
   }
 
   let providerFields = null;
   if (role === 'provider') {
-    const { category, location, bio } = req.body;
+    const { category, location, bio, photo } = req.body;
     if (!isNonEmpty(category) || !isNonEmpty(location)) {
       return res.status(400).json({ error: 'Please fill in the trade you offer and the area you serve.' });
+    }
+    if (!isValidPhoto(photo)) {
+      return res.status(400).json({ error: 'That photo is too large or in an unsupported format.' });
     }
     providerFields = {
       name: name.trim(),
       category: category.trim(),
       location: location.trim(),
       phone: phone.trim(),
-      bio: isNonEmpty(bio) ? bio.trim() : ''
+      bio: isNonEmpty(bio) ? bio.trim() : '',
+      photo: isNonEmpty(photo) ? photo : null
     };
   }
 
@@ -251,8 +297,8 @@ app.post('/api/signup', authLimiter, async (req, res) => {
 
     if (providerFields) {
       await client.query(
-        'INSERT INTO providers (user_id, name, category, location, phone, bio, rating) VALUES ($1,$2,$3,$4,$5,$6,5.0)',
-        [userId, providerFields.name, providerFields.category, providerFields.location, providerFields.phone, providerFields.bio]
+        'INSERT INTO providers (user_id, name, category, location, phone, bio, rating, photo) VALUES ($1,$2,$3,$4,$5,$6,5.0,$7)',
+        [userId, providerFields.name, providerFields.category, providerFields.location, providerFields.phone, providerFields.bio, providerFields.photo]
       );
     }
 
@@ -359,16 +405,20 @@ app.get('/api/provider/me', requireRole('provider'), asyncHandler(async (req, re
 }));
 
 app.put('/api/provider/me', requireRole('provider'), async (req, res) => {
-  const { name, category, location, phone, bio } = req.body;
+  const { name, category, location, phone, bio, photo } = req.body;
   if (!isNonEmpty(name) || !isNonEmpty(category) || !isNonEmpty(location) || !isNonEmpty(phone)) {
     return res.status(400).json({ error: 'Please fill in your name, category, location, and phone number.' });
   }
+  if (!isValidPhoto(photo)) {
+    return res.status(400).json({ error: 'That photo is too large or in an unsupported format.' });
+  }
 
   try {
+    // COALESCE keeps the existing photo when none is sent with this update.
     const result = await pool.query(
-      `UPDATE providers SET name=$1, category=$2, location=$3, phone=$4, bio=$5
-       WHERE user_id=$6 RETURNING *`,
-      [name.trim(), category.trim(), location.trim(), phone.trim(), isNonEmpty(bio) ? bio.trim() : '', req.session.userId]
+      `UPDATE providers SET name=$1, category=$2, location=$3, phone=$4, bio=$5, photo=COALESCE($6, photo)
+       WHERE user_id=$7 RETURNING *`,
+      [name.trim(), category.trim(), location.trim(), phone.trim(), isNonEmpty(bio) ? bio.trim() : '', isNonEmpty(photo) ? photo : null, req.session.userId]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'No provider profile found.' });
@@ -477,8 +527,11 @@ app.get('/api/provider/earnings', requireRole('provider'), asyncHandler(async (r
   );
   const providerResult = await pool.query('SELECT rating FROM providers WHERE id = $1', [providerId]);
   const recentResult = await pool.query(
-    `SELECT jr.id, jr.category, jr.description, jr.estimate_amount, jr.updated_at, u.email AS client_email
-     FROM job_requests jr JOIN users u ON u.id = jr.client_user_id
+    `SELECT jr.id, jr.category, jr.description, jr.estimate_amount, jr.updated_at, u.email AS client_email,
+            r.rating AS review_rating, r.comment AS review_comment
+     FROM job_requests jr
+     JOIN users u ON u.id = jr.client_user_id
+     LEFT JOIN reviews r ON r.job_id = jr.id
      WHERE jr.provider_id = $1 AND jr.status = 'completed'
      ORDER BY jr.updated_at DESC LIMIT 10`,
     [providerId]
