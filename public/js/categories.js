@@ -60,3 +60,41 @@ window.initials = function (name) {
   const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
   return (first + last).toUpperCase();
 };
+
+window.showToast = function (message, type) {
+  let stack = document.querySelector('.toast-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.className = 'toast-stack';
+    document.body.appendChild(stack);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (type ? ` toast-${type}` : '');
+  toast.textContent = message;
+  stack.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity 0.2s ease';
+    setTimeout(() => toast.remove(), 200);
+  }, 2800);
+};
+
+window.animateCount = function (el, target, opts) {
+  const duration = (opts && opts.duration) || 900;
+  const prefix = (opts && opts.prefix) || '';
+  const suffix = (opts && opts.suffix) || '';
+  const start = performance.now();
+  const from = 0;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.textContent = prefix + target.toLocaleString() + suffix;
+    return;
+  }
+  function frame(now) {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    const value = Math.round(from + (target - from) * eased);
+    el.textContent = prefix + value.toLocaleString() + suffix;
+    if (t < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+};

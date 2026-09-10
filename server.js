@@ -16,6 +16,18 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
+// Rough estimate midpoints in UGX, mirroring the ranges shown to clients.
+// Used only to give providers a sense of estimated (not real transacted) earnings.
+const ESTIMATE_MIDPOINTS = {
+  'Plumbing': 45000,
+  'Electrical': 60000,
+  'Carpentry': 62500,
+  'Painting': 325000,
+  'Cleaning': 47500,
+  'Gardening': 40000,
+  'Moving': 165000
+};
+
 const SEED_PROVIDERS = [
   { name: 'James Okello', category: 'Plumbing', location: 'Kampala Central', rating: 4.8, phone: '+256701111111', bio: 'Pipe repairs, leak fixes, bathroom installs. 8 years experience.' },
   { name: 'Sarah Nambi', category: 'Electrical', location: 'Ntinda', rating: 4.9, phone: '+256702222222', bio: 'Wiring, sockets, fault diagnosis. Licensed electrician.' },
@@ -82,6 +94,11 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     )
+  `);
+
+  // Migration: estimated job value, for the provider earnings view.
+  await pool.query(`
+    ALTER TABLE job_requests ADD COLUMN IF NOT EXISTS estimate_amount INTEGER DEFAULT 0
   `);
 
   await pool.query(`
@@ -368,9 +385,9 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO job_requests (client_user_id, provider_id, category, description, urgency, location, location_notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [req.session.userId, providerId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '']
+      `INSERT INTO job_requests (client_user_id, provider_id, category, description, urgency, location, location_notes, estimate_amount)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [req.session.userId, providerId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '', ESTIMATE_MIDPOINTS[category.trim()] || 40000]
     );
     res.json({ booking: result.rows[0] });
   } catch (err) {
@@ -430,6 +447,34 @@ async function updateJobStatus(req, res, { from, to }) {
   }
   res.json({ job: result.rows[0] });
 }
+
+app.get('/api/provider/earnings', requireRole('provider'), async (req, res) => {
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) {
+    return res.status(404).json({ error: 'No provider profile found.' });
+  }
+
+  const completedResult = await pool.query(
+    `SELECT COUNT(*)::int AS count, COALESCE(SUM(estimate_amount), 0)::int AS total
+     FROM job_requests WHERE provider_id = $1 AND status = 'completed'`,
+    [providerId]
+  );
+  const providerResult = await pool.query('SELECT rating FROM providers WHERE id = $1', [providerId]);
+  const recentResult = await pool.query(
+    `SELECT jr.id, jr.category, jr.description, jr.estimate_amount, jr.updated_at, u.email AS client_email
+     FROM job_requests jr JOIN users u ON u.id = jr.client_user_id
+     WHERE jr.provider_id = $1 AND jr.status = 'completed'
+     ORDER BY jr.updated_at DESC LIMIT 10`,
+    [providerId]
+  );
+
+  res.json({
+    completedCount: completedResult.rows[0].count,
+    totalEstimated: completedResult.rows[0].total,
+    rating: providerResult.rows[0]?.rating || null,
+    recent: recentResult.rows
+  });
+});
 
 app.put('/api/provider/jobs/:id/accept', requireRole('provider'), (req, res) =>
   updateJobStatus(req, res, { from: 'requested', to: 'accepted' })

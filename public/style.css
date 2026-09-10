@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
   --bg: #FFFFFF;
@@ -1070,3 +1070,133 @@ body.app-body { background: var(--surface); }
   .home-cat-grid { grid-template-columns: repeat(7, 1fr); }
   .worker-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
 }
+
+/* ============================================================
+   Premium motion system — used sparingly and consistently.
+   ============================================================ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0% { background-position: -300px 0; }
+  100% { background-position: 300px 0; }
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+/* Stagger children of a list that opted into fade-in-up */
+.stagger > * { animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.10s; }
+.stagger > *:nth-child(4) { animation-delay: 0.14s; }
+.stagger > *:nth-child(5) { animation-delay: 0.18s; }
+.stagger > *:nth-child(6) { animation-delay: 0.22s; }
+.stagger > *:nth-child(n+7) { animation-delay: 0.26s; }
+
+.modal-box { animation: modalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in-up, .stagger > *, .modal-box { animation: none !important; }
+}
+
+/* --- Skeleton loading state --- */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-alt) 37%, var(--surface) 63%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: var(--radius-sm);
+}
+.skeleton-card {
+  height: 148px;
+  border-radius: var(--radius);
+}
+.skeleton-row { height: 64px; border-radius: var(--radius-sm); margin-bottom: 0.65rem; }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--surface); }
+}
+
+/* --- Toast notifications (replaces native alert()) --- */
+.toast-stack {
+  position: fixed;
+  bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: calc(100% - 2.5rem);
+  max-width: 380px;
+  align-items: center;
+}
+@media (min-width: 900px) { .toast-stack { bottom: 2rem; } }
+.toast {
+  background: var(--ink);
+  color: #fff;
+  padding: 0.8rem 1.1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  font-weight: 600;
+  box-shadow: var(--shadow-md);
+  animation: toastIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  width: 100%;
+  text-align: center;
+}
+.toast.toast-error { background: var(--danger); }
+.toast.toast-success { background: var(--primary-deep); }
+
+/* --- Stat cards (earnings, trust numbers) --- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1.75rem;
+}
+.stat-card {
+  background: var(--bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.25rem 1.1rem;
+}
+.stat-card .stat-value {
+  font-family: 'Manrope', sans-serif;
+  font-size: 1.7rem;
+  font-weight: 800;
+  color: var(--primary-deep);
+  display: block;
+  margin-bottom: 0.2rem;
+  letter-spacing: -0.02em;
+}
+.stat-card .stat-label { font-size: 0.8rem; color: var(--ink-soft); font-weight: 600; }
+
+/* --- Segmented tab bar (Jobs / My Jobs style sub-nav) --- */
+.tab-bar {
+  display: flex;
+  gap: 0.4rem;
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 0.3rem;
+  margin-bottom: 1.5rem;
+  width: fit-content;
+  max-width: 100%;
+}
+.tab-bar a {
+  padding: 0.55rem 1.1rem;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.tab-bar a.active { background: var(--bg); color: var(--ink); box-shadow: var(--shadow-sm); }

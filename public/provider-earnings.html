@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earnings — HandyLink Pro</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body has-bottom-nav">
+  <div class="app-shell">
+    <nav class="sidebar-nav">
+      <span class="brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
+        HandyLink<span class="pro-badge">PRO</span>
+      </span>
+      <a href="/provider-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+      <a href="/provider-my-jobs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>My Jobs</a>
+      <a href="/provider-earnings.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Earnings</a>
+      <a href="/messages.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
+      <a href="/provider-profile.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
+    </nav>
+
+    <div class="app-main">
+      <div class="dash-wrap">
+        <h1 style="font-size:1.4rem; font-weight:800; margin:0 0 0.35rem;">Earnings</h1>
+        <p class="job-meta" style="margin-bottom:1.5rem;">Estimated from completed jobs — not a real payment record yet.</p>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <span class="stat-value" id="statTotal">UGX 0</span>
+            <span class="stat-label">Total estimated</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="statCount">0</span>
+            <span class="stat-label">Completed jobs</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="statRating">—</span>
+            <span class="stat-label">Average rating</span>
+          </div>
+        </div>
+
+        <h2 class="section-title" style="margin-top:0;">Recent completed jobs</h2>
+        <div id="recentList" class="stagger"></div>
+      </div>
+    </div>
+  </div>
+
+  <nav class="bottom-nav">
+    <a href="/provider-dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+    <a href="/provider-my-jobs.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>My Jobs</a>
+    <a href="/provider-earnings.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Earnings</a>
+    <a href="/messages.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
+    <a href="/provider-profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
+  </nav>
+
+  <script src="js/categories.js"></script>
+  <script>
+    (async () => {
+      const meRes = await fetch('/api/me');
+      if (!meRes.ok) { window.location.href = '/login.html'; return; }
+      const me = await meRes.json();
+      if (me.role !== 'provider') { window.location.href = '/dashboard.html'; return; }
+
+      const res = await fetch('/api/provider/earnings');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      animateCount(document.getElementById('statTotal'), data.totalEstimated, { prefix: 'UGX ' });
+      animateCount(document.getElementById('statCount'), data.completedCount);
+      document.getElementById('statRating').textContent = data.rating ? `★ ${data.rating}` : '—';
+
+      const list = document.getElementById('recentList');
+      if (data.recent.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No completed jobs yet</strong>They'll show up here once you finish your first one.</div>`;
+        return;
+      }
+      data.recent.forEach(j => {
+        const color = categoryColor(j.category);
+        const item = document.createElement('div');
+        item.className = 'recent-job-item fade-in-up';
+        item.style.setProperty('--cat-color', color);
+        item.innerHTML = `
+          <div class="recent-job-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${categoryIcon(j.category)}</svg></div>
+          <div class="recent-job-info">
+            <strong>${j.category} — ${j.client_email}</strong>
+            <span>${new Date(j.updated_at).toLocaleDateString()}</span>
+          </div>
+          <div class="recent-job-right"><span class="amount">UGX ${j.estimate_amount.toLocaleString()}</span></div>
+        `;
+        list.appendChild(item);
+      });
+    })();
+  </script>
+</body>
+</html>
