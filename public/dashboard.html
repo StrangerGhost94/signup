@@ -3,66 +3,215 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Find a pro — HandyLink</title>
+<title>HandyLink</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
-<body class="app-body">
+<body class="app-body has-bottom-nav">
   <div class="dash-wrap">
-    <header class="dash-header">
+    <header class="app-topbar">
       <div>
         <span class="brand">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
           HandyLink
         </span>
-        <h1>What do you need help with?</h1>
+        <div class="location-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          Kampala
+        </div>
       </div>
-      <div class="dash-user">
-        <span id="welcome"></span>
-        <button id="logoutBtn" class="small-btn logout-btn">Log out</button>
+      <div class="topbar-right">
+        <button class="bell-btn" id="bellBtn" aria-label="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="bell-dot" id="bellDot" style="display:none;"></span>
+        </button>
       </div>
     </header>
 
     <div class="search-bar">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input type="text" id="searchInput" placeholder="Search by name, skill, or location...">
+      <input type="text" id="searchInput" placeholder="What do you need help with?">
     </div>
 
-    <div class="filters" id="filters"></div>
+    <div id="homeContent">
+      <div class="home-cat-grid" id="homeCatGrid" style="margin-top:1.25rem;"></div>
 
-    <p class="status-line" id="statusLine"></p>
-    <div class="worker-grid" id="workerGrid"></div>
+      <div class="promo-card">
+        <div class="promo-text">
+          <strong>Need someone urgently?</strong>
+          <span>Get a verified professional near you.</span>
+        </div>
+        <button type="button" id="getHelpNowBtn">Get Help Now</button>
+      </div>
+
+      <h2 class="section-title" id="recentJobs">Recent jobs</h2>
+      <div id="bookingsList"></div>
+    </div>
+
+    <div id="searchResults" style="display:none;">
+      <div class="filters" id="filters"></div>
+      <p class="status-line" id="statusLine"></p>
+      <div class="worker-grid" id="workerGrid"></div>
+    </div>
+  </div>
+
+  <nav class="bottom-nav">
+    <a href="/dashboard.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
+    <a href="#recentJobs" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+    <a href="#homeCatGrid" class="nav-item nav-post"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></a>
+    <a href="/messages.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
+    <a href="/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
+  </nav>
+
+  <div class="modal-overlay" id="rateModal" style="display:none;">
+    <div class="modal-box">
+      <h2>How was it?</h2>
+      <div class="star-picker" id="starPicker">
+        <button type="button" data-v="1">★</button>
+        <button type="button" data-v="2">★</button>
+        <button type="button" data-v="3">★</button>
+        <button type="button" data-v="4">★</button>
+        <button type="button" data-v="5">★</button>
+      </div>
+      <textarea id="reviewComment" rows="3" placeholder="Tell us about your experience (optional)"></textarea>
+      <div class="error" id="rateError"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelRate">Cancel</button>
+        <button type="button" id="submitRate">Submit review</button>
+      </div>
+    </div>
   </div>
 
   <script src="js/categories.js"></script>
   <script>
     let activeCategory = '';
+    let ratingJobId = null;
+    let selectedStars = 0;
 
     async function checkAuth() {
       const res = await fetch('/api/me');
-      if (!res.ok) {
-        window.location.href = '/login.html';
-        return null;
-      }
+      if (!res.ok) { window.location.href = '/login.html'; return null; }
       const me = await res.json();
-      if (me.role === 'provider') {
-        window.location.href = '/provider-dashboard.html';
-        return null;
-      }
+      if (me.role === 'provider') { window.location.href = '/provider-dashboard.html'; return null; }
       return me;
+    }
+
+    function buildCategoryGrid() {
+      const grid = document.getElementById('homeCatGrid');
+      Object.keys(CATEGORY_COLORS).forEach(cat => {
+        const tile = document.createElement('button');
+        tile.type = 'button';
+        tile.className = 'home-cat-tile';
+        tile.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="1.8">${categoryIcon(cat)}</svg><span>${cat}</span>`;
+        tile.onclick = () => window.location.href = `/request.html?category=${encodeURIComponent(cat)}`;
+        grid.appendChild(tile);
+      });
+    }
+
+    document.getElementById('getHelpNowBtn').addEventListener('click', () => {
+      sessionStorage.setItem('preferredUrgency', 'now');
+      document.getElementById('homeCatGrid').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('homeCatGrid').style.outline = '2px solid var(--primary)';
+      document.getElementById('homeCatGrid').style.outlineOffset = '6px';
+      setTimeout(() => { document.getElementById('homeCatGrid').style.outline = 'none'; }, 1500);
+    });
+
+    async function loadBookings() {
+      const res = await fetch('/api/bookings/mine');
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = document.getElementById('bookingsList');
+      list.innerHTML = '';
+
+      if (data.bookings.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No jobs yet</strong>Pick a category above to get started.</div>`;
+        return;
+      }
+
+      data.bookings.slice(0, 8).forEach(b => {
+        const meta = STATUS_META[b.status] || STATUS_META.requested;
+        const color = categoryColor(b.category);
+        const item = document.createElement('div');
+        item.className = 'recent-job-item';
+        item.style.setProperty('--cat-color', color);
+        item.innerHTML = `
+          <div class="recent-job-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${categoryIcon(b.category)}</svg></div>
+          <div class="recent-job-info">
+            <strong>${b.category} — ${b.description.slice(0, 40)}${b.description.length > 40 ? '…' : ''}</strong>
+            <span>${b.provider_name} · ${new Date(b.created_at).toLocaleDateString()}</span>
+          </div>
+          <div class="recent-job-right">
+            <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
+          </div>
+        `;
+        item.style.cursor = 'pointer';
+        item.addEventListener('click', () => showBookingDetail(b));
+        list.appendChild(item);
+      });
+    }
+
+    function showBookingDetail(b) {
+      if (b.status === 'accepted') {
+        window.location.href = `tel:${b.provider_phone}`;
+      } else if (b.status === 'completed' && !b.reviewed) {
+        openRateModal(b.id);
+      }
+    }
+
+    window.openRateModal = function (jobId) {
+      ratingJobId = jobId;
+      selectedStars = 0;
+      document.querySelectorAll('#starPicker button').forEach(b => b.classList.remove('selected'));
+      document.getElementById('reviewComment').value = '';
+      document.getElementById('rateError').textContent = '';
+      document.getElementById('rateModal').style.display = 'flex';
+    };
+
+    document.querySelectorAll('#starPicker button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedStars = parseInt(btn.dataset.v, 10);
+        document.querySelectorAll('#starPicker button').forEach(b => {
+          b.classList.toggle('selected', parseInt(b.dataset.v, 10) <= selectedStars);
+        });
+      });
+    });
+
+    document.getElementById('cancelRate').addEventListener('click', () => {
+      document.getElementById('rateModal').style.display = 'none';
+    });
+
+    document.getElementById('submitRate').addEventListener('click', async () => {
+      const errorEl = document.getElementById('rateError');
+      if (selectedStars < 1) {
+        errorEl.textContent = 'Please choose a star rating.';
+        return;
+      }
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: ratingJobId, rating: selectedStars, comment: document.getElementById('reviewComment').value })
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      document.getElementById('rateModal').style.display = 'none';
+      loadBookings();
+    });
+
+    function setMode(searching) {
+      document.getElementById('homeContent').style.display = searching ? 'none' : 'block';
+      document.getElementById('searchResults').style.display = searching ? 'block' : 'none';
     }
 
     async function loadCategories() {
       const res = await fetch('/api/categories');
       const data = await res.json();
       const filtersEl = document.getElementById('filters');
-
+      filtersEl.innerHTML = '';
       const allBtn = document.createElement('button');
       allBtn.className = 'filter-btn active';
       allBtn.textContent = 'All';
       allBtn.onclick = () => selectCategory('', allBtn);
       filtersEl.appendChild(allBtn);
-
       data.categories.forEach(cat => {
         const btn = document.createElement('button');
         btn.className = 'filter-btn';
@@ -84,9 +233,7 @@
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (activeCategory) params.set('category', activeCategory);
-
       document.getElementById('statusLine').textContent = 'Searching…';
-
       const res = await fetch('/api/workers?' + params.toString());
       const data = await res.json();
       renderWorkers(data.workers);
@@ -96,19 +243,12 @@
       const grid = document.getElementById('workerGrid');
       const statusLine = document.getElementById('statusLine');
       grid.innerHTML = '';
-
       if (workers.length === 0) {
         statusLine.textContent = '';
-        grid.innerHTML = `
-          <div class="empty-state" style="grid-column:1/-1;">
-            <strong>No pros match that search</strong>
-            Try a different trade or clear your filters.
-          </div>`;
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><strong>No pros match that search</strong>Try a different trade or clear your filters.</div>`;
         return;
       }
-
       statusLine.textContent = `${workers.length} pro${workers.length === 1 ? '' : 's'} available`;
-
       workers.forEach(w => {
         const color = categoryColor(w.category);
         const card = document.createElement('div');
@@ -119,7 +259,7 @@
             <div class="avatar">${initials(w.name)}</div>
             <div class="worker-name-block">
               <strong>${w.name}</strong>
-              <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${categoryIcon(w.category)}</svg>${w.category}</span>
+              <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(w.category)}</svg>${w.category}</span>
             </div>
             <span class="rating"><span class="star">★</span> ${w.rating}</span>
           </div>
@@ -135,22 +275,22 @@
     }
 
     let debounceTimer;
+    let categoriesLoaded = false;
     document.getElementById('searchInput').addEventListener('input', () => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(loadWorkers, 250);
-    });
-
-    document.getElementById('logoutBtn').addEventListener('click', async () => {
-      await fetch('/api/logout', { method: 'POST' });
-      window.location.href = '/login.html';
+      const val = document.getElementById('searchInput').value;
+      setMode(val.length > 0);
+      if (val.length > 0) {
+        if (!categoriesLoaded) { categoriesLoaded = true; loadCategories(); }
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(loadWorkers, 250);
+      }
     });
 
     (async () => {
       const me = await checkAuth();
       if (!me) return;
-      document.getElementById('welcome').textContent = me.email;
-      await loadCategories();
-      await loadWorkers();
+      buildCategoryGrid();
+      await loadBookings();
     })();
   </script>
 </body>

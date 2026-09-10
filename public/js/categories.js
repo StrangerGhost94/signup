@@ -20,6 +20,31 @@ window.CATEGORY_ICONS = {
   'Moving': '<path d="M3 16V6h11v10M3 16h13M14 10h4l3 3v3M14 16h9M7 19a2 2 0 1 0 0-.01M18 19a2 2 0 1 0 0-.01"/>'
 };
 
+window.URGENCY_OPTIONS = [
+  { value: 'now', label: 'Now', sub: 'ASAP', color: '#DC2626' },
+  { value: 'today', label: 'Today', sub: 'Within hours', color: '#D97706' },
+  { value: 'schedule', label: 'Schedule', sub: 'Choose a time', color: '#0B6E4F' }
+];
+
+// Rough ballpark ranges in UGX, shown as an estimate only — not a quote.
+window.CATEGORY_ESTIMATES = {
+  'Plumbing': '30,000 – 60,000',
+  'Electrical': '40,000 – 80,000',
+  'Carpentry': '35,000 – 90,000',
+  'Painting': '150,000 – 500,000',
+  'Cleaning': '25,000 – 70,000',
+  'Gardening': '20,000 – 60,000',
+  'Moving': '80,000 – 250,000'
+};
+
+window.STATUS_META = {
+  'requested': { label: 'Requested', color: '#D97706', bg: '#FDF3E3' },
+  'accepted': { label: 'Accepted', color: '#0B6E4F', bg: '#E6F4EC' },
+  'declined': { label: 'Declined', color: '#DC2626', bg: '#FCE9E9' },
+  'completed': { label: 'Completed', color: '#374151', bg: '#F0F1F0' },
+  'cancelled': { label: 'Cancelled', color: '#6B7280', bg: '#F0F1F0' }
+};
+
 window.categoryColor = function (cat) {
   return window.CATEGORY_COLORS[cat] || '#2F6169';
 };

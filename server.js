@@ -60,6 +60,34 @@ async function initDb() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS job_requests (
+      id SERIAL PRIMARY KEY,
+      client_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      description TEXT NOT NULL,
+      urgency TEXT NOT NULL DEFAULT 'today' CHECK (urgency IN ('now', 'today', 'schedule')),
+      location TEXT NOT NULL,
+      location_notes TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'accepted', 'declined', 'completed', 'cancelled')),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reviews (
+      id SERIAL PRIMARY KEY,
+      job_id INTEGER UNIQUE NOT NULL REFERENCES job_requests(id) ON DELETE CASCADE,
+      client_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      comment TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
   // Seed a few sample listings the first time, so the client search page
   // isn't empty before any real providers have signed up. These have no
   // user_id, so they're not editable through the provider dashboard.
@@ -119,6 +147,11 @@ function isStrongPassword(pw) {
 
 function isNonEmpty(val) {
   return typeof val === 'string' && val.trim().length > 0;
+}
+
+async function getProviderIdForUser(userId) {
+  const result = await pool.query('SELECT id FROM providers WHERE user_id = $1', [userId]);
+  return result.rows[0]?.id || null;
 }
 
 // --- Auth routes ---
@@ -209,6 +242,9 @@ app.post('/api/login', async (req, res) => {
     req.session.userId = user.id;
     req.session.userEmail = user.email;
     req.session.role = user.role;
+    if (req.body.remember) {
+      req.session.cookie.maxAge = 1000 * 60 * 60 * 24 * 30; // 30 days
+    }
     res.json({ message: 'Logged in.', email: user.email, role: user.role });
   } catch (err) {
     console.error('Login error:', err);
@@ -286,6 +322,150 @@ app.put('/api/provider/me', requireRole('provider'), async (req, res) => {
   } catch (err) {
     console.error('Provider update error:', err);
     res.status(500).json({ error: 'Something went wrong saving your profile.' });
+  }
+});
+
+// --- Client-facing: create and view bookings ---
+
+const VALID_URGENCY = ['now', 'today', 'schedule'];
+
+app.post('/api/bookings', requireRole('client'), async (req, res) => {
+  const { providerId, category, description, urgency, location, locationNotes } = req.body;
+
+  if (!providerId || !isNonEmpty(category) || !isNonEmpty(description) || !isNonEmpty(location)) {
+    return res.status(400).json({ error: 'Please fill in the job description and location.' });
+  }
+  if (!VALID_URGENCY.includes(urgency)) {
+    return res.status(400).json({ error: 'Please choose when you need this done.' });
+  }
+
+  try {
+    const providerCheck = await pool.query('SELECT id FROM providers WHERE id = $1', [providerId]);
+    if (providerCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'That provider no longer exists.' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO job_requests (client_user_id, provider_id, category, description, urgency, location, location_notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [req.session.userId, providerId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '']
+    );
+    res.json({ booking: result.rows[0] });
+  } catch (err) {
+    console.error('Booking error:', err);
+    res.status(500).json({ error: 'Something went wrong creating your booking.' });
+  }
+});
+
+app.get('/api/bookings/mine', requireRole('client'), async (req, res) => {
+  const result = await pool.query(
+    `SELECT jr.*, p.name AS provider_name, p.phone AS provider_phone,
+            (r.id IS NOT NULL) AS reviewed
+     FROM job_requests jr
+     JOIN providers p ON p.id = jr.provider_id
+     LEFT JOIN reviews r ON r.job_id = jr.id
+     WHERE jr.client_user_id = $1
+     ORDER BY jr.created_at DESC`,
+    [req.session.userId]
+  );
+  res.json({ bookings: result.rows });
+});
+
+// --- Provider-facing: manage incoming job requests ---
+
+app.get('/api/provider/jobs', requireRole('provider'), async (req, res) => {
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) {
+    return res.status(404).json({ error: 'No provider profile found.' });
+  }
+
+  const result = await pool.query(
+    `SELECT jr.*, u.email AS client_email
+     FROM job_requests jr
+     JOIN users u ON u.id = jr.client_user_id
+     WHERE jr.provider_id = $1
+     ORDER BY jr.created_at DESC`,
+    [providerId]
+  );
+  res.json({ jobs: result.rows });
+});
+
+async function updateJobStatus(req, res, { from, to }) {
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) {
+    return res.status(404).json({ error: 'No provider profile found.' });
+  }
+
+  const result = await pool.query(
+    `UPDATE job_requests SET status = $1, updated_at = NOW()
+     WHERE id = $2 AND provider_id = $3 AND status = $4
+     RETURNING *`,
+    [to, req.params.id, providerId, from]
+  );
+
+  if (result.rows.length === 0) {
+    return res.status(409).json({ error: 'This job is no longer in a state that allows that action.' });
+  }
+  res.json({ job: result.rows[0] });
+}
+
+app.put('/api/provider/jobs/:id/accept', requireRole('provider'), (req, res) =>
+  updateJobStatus(req, res, { from: 'requested', to: 'accepted' })
+);
+app.put('/api/provider/jobs/:id/decline', requireRole('provider'), (req, res) =>
+  updateJobStatus(req, res, { from: 'requested', to: 'declined' })
+);
+app.put('/api/provider/jobs/:id/complete', requireRole('provider'), (req, res) =>
+  updateJobStatus(req, res, { from: 'accepted', to: 'completed' })
+);
+
+// --- Reviews ---
+
+app.post('/api/reviews', requireRole('client'), async (req, res) => {
+  const { jobId, rating, comment } = req.body;
+  const ratingNum = parseInt(rating, 10);
+
+  if (!jobId || !Number.isInteger(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+    return res.status(400).json({ error: 'Please give a rating between 1 and 5.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const jobResult = await client.query(
+      `SELECT * FROM job_requests WHERE id = $1 AND client_user_id = $2 AND status = 'completed'`,
+      [jobId, req.session.userId]
+    );
+    if (jobResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'This job cannot be reviewed yet.' });
+    }
+    const job = jobResult.rows[0];
+
+    await client.query(
+      'INSERT INTO reviews (job_id, client_user_id, provider_id, rating, comment) VALUES ($1,$2,$3,$4,$5)',
+      [jobId, req.session.userId, job.provider_id, ratingNum, isNonEmpty(comment) ? comment.trim() : '']
+    );
+
+    await client.query(
+      `UPDATE providers SET rating = (
+         SELECT ROUND(AVG(rating)::numeric, 1) FROM reviews WHERE provider_id = $1
+       ) WHERE id = $1`,
+      [job.provider_id]
+    );
+
+    await client.query('COMMIT');
+    res.json({ message: 'Review submitted.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'You already reviewed this job.' });
+    }
+    console.error('Review error:', err);
+    res.status(500).json({ error: 'Something went wrong submitting your review.' });
+  } finally {
+    client.release();
   }
 });
 
