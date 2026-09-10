@@ -154,6 +154,8 @@ window.compressImageFile = function (file, maxDim, quality) {
     }, 1500);
   }
 })();
+
+window.escapeHtml = function (str) {
   if (str === null || str === undefined) return '';
   return String(str)
     .replace(/&/g, '&amp;')

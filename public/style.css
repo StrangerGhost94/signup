@@ -1466,3 +1466,33 @@ html, body { max-width: 100%; overflow-x: hidden; }
   width: auto;
   padding: 0 1.3rem;
 }
+
+/* --- Search suggestions dropdown --- */
+.search-suggestions {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 0.5rem;
+  z-index: 30;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.suggestion-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.suggestion-row:hover, .suggestion-row.highlighted { background: var(--surface); }
+.suggestion-row .icon-chip { width: 34px; height: 34px; border-radius: 10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.suggestion-row .icon-chip svg { width: 17px; height: 17px; }
+.suggestion-row span { font-size: 0.9rem; font-weight: 600; color: var(--ink); }

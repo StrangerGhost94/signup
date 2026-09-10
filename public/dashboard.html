@@ -20,7 +20,7 @@
       <a href="#recentJobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
       <a href="/messages.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
       <a href="/profile.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
-      <a href="#homeCatGrid" class="sidebar-post"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Post a job</a>
+      <button type="button" class="sidebar-post" onclick="openPostModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Post a job</button>
     </nav>
 
     <div class="app-main">
@@ -43,9 +43,10 @@
       </div>
     </header>
 
-    <div class="search-bar">
+    <div class="search-bar" style="position:relative;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input type="text" id="searchInput" placeholder="What do you need help with?">
+      <input type="text" id="searchInput" placeholder="What do you need help with?" autocomplete="off">
+      <div id="searchSuggestions" class="search-suggestions" style="display:none;"></div>
     </div>
 
     <div id="homeContent">
@@ -338,14 +339,50 @@
 
     let debounceTimer;
     let categoriesLoaded = false;
-    document.getElementById('searchInput').addEventListener('input', () => {
-      const val = document.getElementById('searchInput').value;
+    const searchInput = document.getElementById('searchInput');
+    const suggestionsBox = document.getElementById('searchSuggestions');
+
+    function renderSuggestions(query) {
+      const q = query.trim().toLowerCase();
+      const matches = Object.keys(CATEGORY_COLORS).filter(cat => cat.toLowerCase().includes(q));
+      if (matches.length === 0) {
+        suggestionsBox.style.display = 'none';
+        return;
+      }
+      suggestionsBox.innerHTML = matches.map(cat => `
+        <div class="suggestion-row" data-cat="${cat}">
+          <div class="icon-chip" style="background:color-mix(in srgb, ${categoryColor(cat)} 16%, white);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="1.8">${categoryIcon(cat)}</svg>
+          </div>
+          <span>${cat}</span>
+        </div>
+      `).join('');
+      suggestionsBox.querySelectorAll('.suggestion-row').forEach(row => {
+        row.addEventListener('click', () => {
+          searchInput.value = row.dataset.cat;
+          suggestionsBox.style.display = 'none';
+          setMode(true);
+          if (!categoriesLoaded) { categoriesLoaded = true; loadCategories(); }
+          activeCategory = row.dataset.cat;
+          loadWorkers();
+        });
+      });
+      suggestionsBox.style.display = 'block';
+    }
+
+    searchInput.addEventListener('focus', () => renderSuggestions(searchInput.value));
+    searchInput.addEventListener('input', () => {
+      const val = searchInput.value;
+      renderSuggestions(val);
       setMode(val.length > 0);
       if (val.length > 0) {
         if (!categoriesLoaded) { categoriesLoaded = true; loadCategories(); }
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(loadWorkers, 250);
       }
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.search-bar')) suggestionsBox.style.display = 'none';
     });
 
     (async () => {
