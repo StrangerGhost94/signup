@@ -5,9 +5,25 @@ const path = require('path');
 const { Pool } = require('pg');
 const rateLimit = require('express-rate-limit');
 const { OAuth2Client } = require('google-auth-library');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || null;
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+
+// Email is configured via generic SMTP env vars, so it works with a Gmail
+// app password, or any SMTP-speaking provider (Resend, SendGrid, etc.).
+const SMTP_HOST = process.env.SMTP_HOST || null;
+const mailTransport = SMTP_HOST
+  ? nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587', 10),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    })
+  : null;
+const MAIL_FROM = process.env.MAIL_FROM || process.env.SMTP_USER || 'no-reply@handylink.app';
+const APP_URL = process.env.APP_URL || null; // e.g. https://your-app.up.railway.app
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -94,6 +110,17 @@ async function initDb() {
   // Migration: profile photo, stored as a data URL (small, compressed client-side).
   await pool.query(`
     ALTER TABLE providers ADD COLUMN IF NOT EXISTS photo TEXT
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT UNIQUE NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      used BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   await pool.query(`
@@ -360,7 +387,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
 // Tells the frontend whether Google sign-in is actually wired up, so it can
 // hide the button (falling back to the honest placeholder) when it's not.
 app.get('/api/config', (req, res) => {
-  res.json({ googleEnabled: !!googleClient, googleClientId: GOOGLE_CLIENT_ID });
+  res.json({ googleEnabled: !!googleClient, googleClientId: GOOGLE_CLIENT_ID, emailEnabled: !!mailTransport });
 });
 
 app.post('/api/auth/google', authLimiter, asyncHandler(async (req, res) => {
@@ -398,6 +425,80 @@ app.post('/api/auth/google', authLimiter, asyncHandler(async (req, res) => {
   req.session.userEmail = user.email;
   req.session.role = user.role;
   res.json({ message: 'Logged in.', email: user.email, role: user.role, accountFound: true });
+}));
+
+app.post('/api/forgot-password', authLimiter, asyncHandler(async (req, res) => {
+  const email = normalizeEmail(req.body.email);
+
+  // Always return the same generic response, whether or not the email
+  // exists — otherwise this endpoint could be used to check which emails
+  // have accounts.
+  const genericResponse = { message: 'If an account exists for that email, a reset link has been sent.' };
+
+  if (!mailTransport) {
+    return res.status(503).json({ error: 'Password reset by email isn\u2019t set up yet.' });
+  }
+  if (!email || !EMAIL_RE.test(email)) {
+    return res.json(genericResponse);
+  }
+
+  const result = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+  if (result.rows.length === 0) {
+    return res.json(genericResponse);
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+  await pool.query(
+    'INSERT INTO password_resets (user_id, token, expires_at) VALUES ($1, $2, $3)',
+    [result.rows[0].id, token, expiresAt]
+  );
+
+  const baseUrl = APP_URL || `${req.protocol}://${req.get('host')}`;
+  const resetLink = `${baseUrl}/reset-password.html?token=${token}`;
+
+  try {
+    await mailTransport.sendMail({
+      from: MAIL_FROM,
+      to: email,
+      subject: 'Reset your HandyLink password',
+      text: `Reset your password: ${resetLink}\n\nThis link expires in 1 hour. If you didn't request this, you can ignore this email.`,
+      html: `<p>Someone requested a password reset for this HandyLink account.</p>
+             <p><a href="${resetLink}">Click here to reset your password</a> (expires in 1 hour).</p>
+             <p>If you didn't request this, you can safely ignore this email.</p>`
+    });
+  } catch (err) {
+    console.error('Password reset email failed:', err);
+    return res.status(500).json({ error: 'Could not send the reset email. Please try again shortly.' });
+  }
+
+  res.json(genericResponse);
+}));
+
+app.post('/api/reset-password', authLimiter, asyncHandler(async (req, res) => {
+  const { token, password } = req.body;
+  if (!isNonEmpty(token)) {
+    return res.status(400).json({ error: 'Missing reset token.' });
+  }
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters and include a letter and a number.' });
+  }
+
+  const result = await pool.query(
+    `SELECT * FROM password_resets WHERE token = $1 AND used = FALSE AND expires_at > NOW()`,
+    [token]
+  );
+  if (result.rows.length === 0) {
+    return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
+  }
+
+  const reset = result.rows[0];
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, reset.user_id]);
+  await pool.query('UPDATE password_resets SET used = TRUE WHERE id = $1', [reset.id]);
+
+  res.json({ message: 'Password updated. You can now log in.' });
 }));
 
 app.post('/api/logout', (req, res) => {
