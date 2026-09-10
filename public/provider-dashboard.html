@@ -3,15 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#EFF1EE">
-<title>Your listing — Handy</title>
+<title>Your listing — HandyLink</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="app-body">
   <div class="dash-wrap">
     <header class="dash-header">
       <div>
-        <span class="wordmark">HANDY <span class="pro-badge">PRO</span></span>
+        <span class="brand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
+          HandyLink<span class="pro-badge">PRO</span>
+        </span>
         <h1>Your listing</h1>
       </div>
       <div class="dash-user">
@@ -42,45 +45,31 @@
         <label>Bio</label>
         <textarea id="bio" rows="4"></textarea>
 
-        <button type="submit" class="btn-primary">Save changes</button>
+        <button type="submit">Save changes</button>
       </form>
 
       <div class="preview-col">
         <span class="preview-label">Live preview</span>
+        <div class="live-badge"><span class="live-dot"></span>Visible to clients now</div>
         <div class="worker-card" id="previewCard"></div>
       </div>
     </div>
   </div>
 
+  <script src="js/categories.js"></script>
   <script>
-    const CATEGORY_COLORS = {
-      'Plumbing': '#2F6169',
-      'Electrical': '#B9791C',
-      'Carpentry': '#8B5E34',
-      'Painting': '#A24E67',
-      'Cleaning': '#3F7D63',
-      'Gardening': '#5C8A3A',
-      'Moving': '#5A5F73'
-    };
-
-    function initials(name) {
-      return (name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
-    }
-
     function renderPreview(p) {
-      const color = CATEGORY_COLORS[p.category] || '#2F6169';
+      const color = categoryColor(p.category);
       const card = document.getElementById('previewCard');
       card.style.setProperty('--cat-color', color);
       card.innerHTML = `
-        <div class="worker-top">
-          <div class="worker-avatar">${initials(p.name)}</div>
-          <div class="worker-id">
-            <div class="worker-name-row">
-              <strong>${p.name || 'Your name'}</strong>
-              <span class="rating">★ ${p.rating || '5.0'}</span>
-            </div>
-            <span class="tag">${p.category || 'Category'}</span>
+        <div class="worker-head">
+          <div class="avatar">${initials(p.name)}</div>
+          <div class="worker-name-block">
+            <strong>${p.name || 'Your name'}</strong>
+            <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(p.category)}</svg>${p.category || 'Category'}</span>
           </div>
+          <span class="rating"><span class="star">★</span> ${p.rating || '5.0'}</span>
         </div>
         <p class="location">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
@@ -143,7 +132,7 @@
         window.location.href = '/dashboard.html';
         return;
       }
-      document.getElementById('welcome').textContent = `Signed in as ${me.email}`;
+      document.getElementById('welcome').textContent = me.email;
 
       const provRes = await fetch('/api/provider/me');
       const provData = await provRes.json();

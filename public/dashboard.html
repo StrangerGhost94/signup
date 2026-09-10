@@ -3,16 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#EFF1EE">
-<title>Find a handyman — Handy</title>
+<title>Find a pro — HandyLink</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="app-body">
   <div class="dash-wrap">
     <header class="dash-header">
       <div>
-        <span class="wordmark">HANDY</span>
-        <h1>Find a handyman</h1>
+        <span class="brand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
+          HandyLink
+        </span>
+        <h1>What do you need help with?</h1>
       </div>
       <div class="dash-user">
         <span id="welcome"></span>
@@ -27,42 +30,13 @@
 
     <div class="filters" id="filters"></div>
 
+    <p class="status-line" id="statusLine"></p>
     <div class="worker-grid" id="workerGrid"></div>
-    <p id="noResults" style="display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      No handymen found. Try a different search or category.
-    </p>
   </div>
 
+  <script src="js/categories.js"></script>
   <script>
-    const CATEGORY_COLORS = {
-      'Plumbing': '#2F6169',
-      'Electrical': '#B9791C',
-      'Carpentry': '#8B5E34',
-      'Painting': '#A24E67',
-      'Cleaning': '#3F7D63',
-      'Gardening': '#5C8A3A',
-      'Moving': '#5A5F73'
-    };
-
     let activeCategory = '';
-
-    function initials(name) {
-      return (name || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
-    }
-
-    function showSkeleton() {
-      const grid = document.getElementById('workerGrid');
-      document.getElementById('noResults').style.display = 'none';
-      grid.innerHTML = Array.from({ length: 4 }).map(() => `
-        <div class="skeleton-card">
-          <div class="skeleton-line" style="width:60%"></div>
-          <div class="skeleton-line" style="width:35%"></div>
-          <div class="skeleton-line" style="width:90%"></div>
-          <div class="skeleton-line" style="width:75%"></div>
-        </div>
-      `).join('');
-    }
 
     async function checkAuth() {
       const res = await fetch('/api/me');
@@ -85,15 +59,14 @@
 
       const allBtn = document.createElement('button');
       allBtn.className = 'filter-btn active';
-      allBtn.innerHTML = '<span class="dot"></span>All';
+      allBtn.textContent = 'All';
       allBtn.onclick = () => selectCategory('', allBtn);
       filtersEl.appendChild(allBtn);
 
       data.categories.forEach(cat => {
         const btn = document.createElement('button');
         btn.className = 'filter-btn';
-        const color = CATEGORY_COLORS[cat] || '#2F6169';
-        btn.innerHTML = `<span class="dot" style="background:${color}"></span>${cat}`;
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="2">${categoryIcon(cat)}</svg>${cat}`;
         btn.onclick = () => selectCategory(cat, btn);
         filtersEl.appendChild(btn);
       });
@@ -101,14 +74,7 @@
 
     function selectCategory(cat, btnEl) {
       activeCategory = cat;
-      document.querySelectorAll('.filter-btn').forEach(b => {
-        b.classList.remove('active');
-        const dot = b.querySelector('.dot');
-        if (dot && b !== btnEl) {
-          const originalColor = dot.style.background;
-          // restore non-active dot color (already set inline, just remove active override)
-        }
-      });
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
       btnEl.classList.add('active');
       loadWorkers();
     }
@@ -119,7 +85,8 @@
       if (search) params.set('search', search);
       if (activeCategory) params.set('category', activeCategory);
 
-      showSkeleton();
+      document.getElementById('statusLine').textContent = 'Searching…';
+
       const res = await fetch('/api/workers?' + params.toString());
       const data = await res.json();
       renderWorkers(data.workers);
@@ -127,30 +94,34 @@
 
     function renderWorkers(workers) {
       const grid = document.getElementById('workerGrid');
-      const noResults = document.getElementById('noResults');
+      const statusLine = document.getElementById('statusLine');
       grid.innerHTML = '';
 
       if (workers.length === 0) {
-        noResults.style.display = 'block';
+        statusLine.textContent = '';
+        grid.innerHTML = `
+          <div class="empty-state" style="grid-column:1/-1;">
+            <strong>No pros match that search</strong>
+            Try a different trade or clear your filters.
+          </div>`;
         return;
       }
-      noResults.style.display = 'none';
+
+      statusLine.textContent = `${workers.length} pro${workers.length === 1 ? '' : 's'} available`;
 
       workers.forEach(w => {
-        const color = CATEGORY_COLORS[w.category] || '#2F6169';
+        const color = categoryColor(w.category);
         const card = document.createElement('div');
         card.className = 'worker-card';
         card.style.setProperty('--cat-color', color);
         card.innerHTML = `
-          <div class="worker-top">
-            <div class="worker-avatar">${initials(w.name)}</div>
-            <div class="worker-id">
-              <div class="worker-name-row">
-                <strong>${w.name}</strong>
-                <span class="rating">★ ${w.rating}</span>
-              </div>
-              <span class="tag">${w.category}</span>
+          <div class="worker-head">
+            <div class="avatar">${initials(w.name)}</div>
+            <div class="worker-name-block">
+              <strong>${w.name}</strong>
+              <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${categoryIcon(w.category)}</svg>${w.category}</span>
             </div>
+            <span class="rating"><span class="star">★</span> ${w.rating}</span>
           </div>
           <p class="location">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
@@ -177,7 +148,7 @@
     (async () => {
       const me = await checkAuth();
       if (!me) return;
-      document.getElementById('welcome').textContent = `Signed in as ${me.email}`;
+      document.getElementById('welcome').textContent = me.email;
       await loadCategories();
       await loadWorkers();
     })();
