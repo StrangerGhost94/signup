@@ -35,9 +35,15 @@ async function initDb() {
       id SERIAL PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'client' CHECK (role IN ('client', 'provider')),
       created_at TIMESTAMP DEFAULT NOW()
     )
+  `);
+
+  // Migration: the users table may already exist from before roles were
+  // introduced. This adds the column if it's missing, without touching
+  // existing rows (they default to 'client'). Safe to run on every boot.
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'client'
   `);
 
   await pool.query(`
