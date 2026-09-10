@@ -7,7 +7,8 @@ window.CATEGORY_COLORS = {
   'Painting': '#A24E67',
   'Cleaning': '#3B6FA0',
   'Gardening': '#6F8C3E',
-  'Moving': '#5A5F73'
+  'Moving': '#5A5F73',
+  'Mechanical': '#B8491F'
 };
 
 window.CATEGORY_ICONS = {
@@ -17,7 +18,8 @@ window.CATEGORY_ICONS = {
   'Painting': '<rect x="9" y="3" width="6" height="8" rx="1"/><path d="M12 11v10M8 21h8"/>',
   'Cleaning': '<path d="M9 3l6 6M4 20l6-6M13 6l5 5-8 8-4-1 1-4 6-6z"/>',
   'Gardening': '<circle cx="12" cy="9" r="4"/><path d="M12 13v8"/>',
-  'Moving': '<path d="M3 16V6h11v10M3 16h13M14 10h4l3 3v3M14 16h9M7 19a2 2 0 1 0 0-.01M18 19a2 2 0 1 0 0-.01"/>'
+  'Moving': '<path d="M3 16V6h11v10M3 16h13M14 10h4l3 3v3M14 16h9M7 19a2 2 0 1 0 0-.01M18 19a2 2 0 1 0 0-.01"/>',
+  'Mechanical': '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'
 };
 
 window.URGENCY_OPTIONS = [
@@ -34,7 +36,8 @@ window.CATEGORY_ESTIMATES = {
   'Painting': '150,000 – 500,000',
   'Cleaning': '25,000 – 70,000',
   'Gardening': '20,000 – 60,000',
-  'Moving': '80,000 – 250,000'
+  'Moving': '80,000 – 250,000',
+  'Mechanical': '50,000 – 200,000'
 };
 
 window.STATUS_META = {
@@ -96,7 +99,61 @@ window.compressImageFile = function (file, maxDim, quality) {
   });
 };
 
-window.escapeHtml = function (str) {
+// --- PWA install prompt ---
+(function () {
+  if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
+    return; // already installed/running as an app
+  }
+  if (localStorage.getItem('installPromptDismissed')) return;
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
+  function showInstallBanner(onInstallClick, installLabel) {
+    const banner = document.createElement('div');
+    banner.className = 'install-banner';
+    banner.innerHTML = `
+      <img src="images/icon-192.png" alt="" class="install-banner-icon">
+      <div class="install-banner-text">
+        <strong>Add HandyLink to your Home Screen</strong>
+        <span>${installLabel}</span>
+      </div>
+      <button type="button" class="install-banner-close" aria-label="Dismiss">&times;</button>
+    `;
+    document.body.appendChild(banner);
+    banner.querySelector('.install-banner-close').addEventListener('click', () => {
+      banner.remove();
+      localStorage.setItem('installPromptDismissed', '1');
+    });
+    if (onInstallClick) {
+      const clickable = banner.querySelector('.install-banner-text');
+      clickable.style.cursor = 'pointer';
+      clickable.addEventListener('click', onInstallClick);
+    }
+  }
+
+  let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    showInstallBanner(() => {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.finally(() => {
+        document.querySelector('.install-banner')?.remove();
+        localStorage.setItem('installPromptDismissed', '1');
+      });
+    }, 'Tap here to install — quick access, no browser bar.');
+  });
+
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isSafari = /safari/i.test(navigator.userAgent) && !/crios|fxios/i.test(navigator.userAgent);
+  if (isIos && isSafari) {
+    setTimeout(() => {
+      showInstallBanner(null, 'Tap Share, then "Add to Home Screen".');
+    }, 1500);
+  }
+})();
   if (str === null || str === undefined) return '';
   return String(str)
     .replace(/&/g, '&amp;')

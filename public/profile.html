@@ -4,15 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Profile — HandyLink</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B6E4F">
+<link rel="apple-touch-icon" href="images/icon-192.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="app-body has-bottom-nav">
   <div class="app-shell">
     <nav class="sidebar-nav">
       <span class="brand">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
-        HandyLink
+        <img src="images/logo.png" alt="HandyLink" class="brand-logo">
       </span>
       <a href="/dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
       <a href="/dashboard.html#recentJobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
@@ -24,17 +26,45 @@
       <div class="dash-wrap">
         <h1 style="font-size:1.4rem; font-weight:800; margin:0 0 1.25rem;">Profile</h1>
 
-        <div class="job-card">
+        <div class="job-card" style="margin-bottom:1.25rem;">
           <div class="worker-head" style="margin-bottom:0;">
             <div class="avatar" id="avatarInitials" style="background:var(--primary-tint); color:var(--primary-deep);"></div>
             <div class="worker-name-block">
-              <strong id="profileEmail"></strong>
-              <span class="job-meta">Customer account</span>
+              <strong id="profileName">Your name</strong>
+              <span class="job-meta" id="profileEmail"></span>
             </div>
           </div>
         </div>
 
-        <button id="logoutBtn" class="btn-outline" style="margin-top:1rem; max-width:280px;">Log out</button>
+        <div class="stat-grid" style="grid-template-columns: 1fr 1fr;">
+          <div class="stat-card">
+            <span class="stat-value" id="statBookings">0</span>
+            <span class="stat-label">Jobs booked</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="statMember">—</span>
+            <span class="stat-label">Member since</span>
+          </div>
+        </div>
+
+        <h2 class="section-title" style="margin-top:0;">Account details</h2>
+        <form id="profileForm" class="provider-form" style="max-width:420px;">
+          <div class="error" id="error"></div>
+          <div class="success" id="success"></div>
+
+          <label>Full name</label>
+          <input type="text" id="name" required>
+
+          <label>Phone number</label>
+          <input type="tel" id="phone" required>
+
+          <label>Email</label>
+          <input type="email" id="email" disabled style="opacity:0.6;">
+
+          <button type="submit">Save changes</button>
+        </form>
+
+        <button id="logoutBtn" class="btn-outline" style="margin-top:1rem; max-width:420px;">Log out</button>
       </div>
     </div>
   </div>
@@ -54,9 +84,50 @@
       if (!res.ok) { window.location.href = '/login.html'; return; }
       const me = await res.json();
       if (me.role === 'provider') { window.location.href = '/provider-profile.html'; return; }
+
+      document.getElementById('profileName').textContent = me.name || 'Your name';
       document.getElementById('profileEmail').textContent = me.email;
-      document.getElementById('avatarInitials').textContent = initials(me.email.split('@')[0]);
+      document.getElementById('avatarInitials').textContent = initials(me.name || me.email.split('@')[0]);
+      document.getElementById('name').value = me.name || '';
+      document.getElementById('phone').value = me.phone || '';
+      document.getElementById('email').value = me.email;
+      if (me.created_at) {
+        document.getElementById('statMember').textContent = new Date(me.created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+      }
+
+      const bookingsRes = await fetch('/api/bookings/mine');
+      if (bookingsRes.ok) {
+        const data = await bookingsRes.json();
+        animateCount(document.getElementById('statBookings'), data.bookings.length);
+      }
     })();
+
+    document.getElementById('profileForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('error');
+      const successEl = document.getElementById('success');
+      errorEl.textContent = '';
+      successEl.textContent = '';
+
+      const res = await fetch('/api/me', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: document.getElementById('name').value,
+          phone: document.getElementById('phone').value
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errorEl.textContent = data.error;
+        return;
+      }
+      document.getElementById('profileName').textContent = data.name;
+      document.getElementById('avatarInitials').textContent = initials(data.name);
+      successEl.textContent = 'Saved.';
+      showToast('Profile updated.', 'success');
+    });
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {
       await fetch('/api/logout', { method: 'POST' });

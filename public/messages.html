@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Messages — HandyLink</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B6E4F">
+<link rel="apple-touch-icon" href="images/icon-192.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="app-body has-bottom-nav">
@@ -13,11 +16,7 @@
     <div class="app-main">
       <div class="dash-wrap">
         <h1 style="font-size:1.4rem; font-weight:800; margin:0 0 1.25rem;">Messages</h1>
-        <div class="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>
-          <strong>Messaging isn't built yet</strong>
-          For now, accepted bookings show a Call button so you can reach each other directly.
-        </div>
+        <div id="conversationsList" class="stagger"></div>
       </div>
     </div>
   </div>
@@ -46,7 +45,7 @@
     function buildNav(links, isProvider) {
       const sidebar = document.getElementById('sidebarNav');
       const bottom = document.getElementById('bottomNav');
-      sidebar.innerHTML = `<span class="brand">${BRAND_SVG}HandyLink${isProvider ? '<span class="pro-badge">PRO</span>' : ''}</span>` +
+      sidebar.innerHTML = `<span class="brand"><img src="images/logo.png" alt="HandyLink" class="brand-logo">${isProvider ? '<span class="pro-badge">PRO</span>' : ''}</span>` +
         links.map(l => `<a href="${l.href}" class="${l.active ? 'active' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${l.icon}</svg>${l.label}</a>`).join('');
       bottom.innerHTML = links.map(l => `<a href="${l.href}" class="nav-item ${l.active ? 'active' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${l.icon}</svg>${l.label}</a>`).join('');
     }
@@ -56,7 +55,51 @@
       if (!res.ok) { window.location.href = '/login.html'; return; }
       const me = await res.json();
       buildNav(me.role === 'provider' ? PROVIDER_LINKS : CLIENT_LINKS, me.role === 'provider');
+      await loadConversations();
     })();
+
+    async function loadConversations() {
+      const list = document.getElementById('conversationsList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+
+      const res = await fetch('/api/conversations');
+      if (!res.ok) {
+        list.innerHTML = errorStateHtml('loadConversations()');
+        return;
+      }
+      const data = await res.json();
+      list.innerHTML = '';
+
+      if (data.conversations.length === 0) {
+        list.innerHTML = `<div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>
+          <strong>No conversations yet</strong>
+          Once you have a booking, you can message about it here.
+        </div>`;
+        return;
+      }
+
+      data.conversations.forEach(c => {
+        const color = categoryColor(c.category);
+        const item = document.createElement('div');
+        item.className = 'recent-job-item';
+        item.style.setProperty('--cat-color', color);
+        item.style.cursor = 'pointer';
+        const preview = c.last_message ? escapeHtml(c.last_message.slice(0, 50)) : 'No messages yet — say hello.';
+        item.innerHTML = `
+          <div class="recent-job-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${categoryIcon(c.category)}</svg></div>
+          <div class="recent-job-info">
+            <strong>${escapeHtml(c.other_party_name || 'Unknown')} · ${escapeHtml(c.category)}</strong>
+            <span>${preview}</span>
+          </div>
+          ${c.unread_count > 0 ? `<div class="recent-job-right"><span class="status-badge" style="color:#fff; background:var(--primary);">${c.unread_count}</span></div>` : ''}
+        `;
+        item.addEventListener('click', () => {
+          window.location.href = `/message-thread.html?jobId=${c.job_id}`;
+        });
+        list.appendChild(item);
+      });
+    }
   </script>
 </body>
 </html>

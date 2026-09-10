@@ -4,15 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HandyLink</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B6E4F'/%3E%3Cpath d='M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B6E4F">
+<link rel="apple-touch-icon" href="images/icon-192.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="app-body has-bottom-nav">
   <div class="app-shell" id="appShell" style="visibility:hidden;">
     <nav class="sidebar-nav">
       <span class="brand">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
-        HandyLink
+        <img src="images/logo.png" alt="HandyLink" class="brand-logo">
       </span>
       <a href="/dashboard.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
       <a href="#recentJobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
@@ -26,8 +28,7 @@
     <header class="app-topbar">
       <div>
         <span class="brand">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>
-          HandyLink
+          <img src="images/logo.png" alt="HandyLink" class="brand-logo">
         </span>
         <button class="location-pill" id="locationBtn" style="background:none; border:none; cursor:pointer; width:auto; min-height:auto; padding:0;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
@@ -179,7 +180,9 @@
           </div>
           <div class="recent-job-right">
             <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
-
+            <button class="small-btn" style="width:auto; padding:0.35rem; margin-top:0.4rem; background:var(--surface); color:var(--ink);" onclick="event.stopPropagation(); window.location.href='/message-thread.html?jobId=${b.id}';" aria-label="Message">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>
+            </button>
           </div>
         `;
         item.style.cursor = 'pointer';

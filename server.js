@@ -52,7 +52,8 @@ const ESTIMATE_MIDPOINTS = {
   'Painting': 325000,
   'Cleaning': 47500,
   'Gardening': 40000,
-  'Moving': 165000
+  'Moving': 165000,
+  'Mechanical': 125000
 };
 
 const SEED_PROVIDERS = [
@@ -142,6 +143,17 @@ async function initDb() {
   // Migration: estimated job value, for the provider earnings view.
   await pool.query(`
     ALTER TABLE job_requests ADD COLUMN IF NOT EXISTS estimate_amount INTEGER DEFAULT 0
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id SERIAL PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES job_requests(id) ON DELETE CASCADE,
+      sender_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      read_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   await pool.query(`
@@ -507,12 +519,31 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
-app.get('/api/me', (req, res) => {
+app.get('/api/me', asyncHandler(async (req, res) => {
   if (!req.session.userId) {
     return res.status(401).json({ error: 'Not logged in.' });
   }
-  res.json({ email: req.session.userEmail, role: req.session.role });
-});
+  const result = await pool.query('SELECT id, email, role, name, phone, created_at FROM users WHERE id = $1', [req.session.userId]);
+  if (result.rows.length === 0) {
+    return res.status(401).json({ error: 'Not logged in.' });
+  }
+  res.json(result.rows[0]);
+}));
+
+app.put('/api/me', requireLogin, asyncHandler(async (req, res) => {
+  const { name, phone } = req.body;
+  if (!isNonEmpty(name)) {
+    return res.status(400).json({ error: 'Please enter your full name.' });
+  }
+  if (!isNonEmpty(phone)) {
+    return res.status(400).json({ error: 'Please enter your phone number.' });
+  }
+  const result = await pool.query(
+    'UPDATE users SET name = $1, phone = $2 WHERE id = $3 RETURNING email, role, name, phone, created_at',
+    [name.trim(), phone.trim(), req.session.userId]
+  );
+  res.json(result.rows[0]);
+}));
 
 // --- Client-facing: browse/search providers ---
 
@@ -752,6 +783,82 @@ app.post('/api/reviews', requireRole('client'), async (req, res) => {
     client.release();
   }
 });
+
+// --- Messaging (job-scoped conversations between client and provider) ---
+
+async function getJobForParticipant(jobId, userId) {
+  const result = await pool.query(
+    `SELECT jr.id, jr.category, jr.client_user_id, p.user_id AS provider_user_id,
+            p.name AS provider_name, uc.email AS client_email, uc.name AS client_name
+     FROM job_requests jr
+     JOIN providers p ON p.id = jr.provider_id
+     JOIN users uc ON uc.id = jr.client_user_id
+     WHERE jr.id = $1 AND (jr.client_user_id = $2 OR p.user_id = $2)`,
+    [jobId, userId]
+  );
+  return result.rows[0] || null;
+}
+
+app.get('/api/conversations', requireLogin, asyncHandler(async (req, res) => {
+  const userId = req.session.userId;
+  const result = await pool.query(
+    `SELECT jr.id AS job_id, jr.category, jr.status, jr.created_at,
+            CASE WHEN jr.client_user_id = $1 THEN p.name ELSE uc.name END AS other_party_name,
+            (SELECT body FROM messages m WHERE m.job_id = jr.id ORDER BY m.created_at DESC LIMIT 1) AS last_message,
+            (SELECT created_at FROM messages m WHERE m.job_id = jr.id ORDER BY m.created_at DESC LIMIT 1) AS last_message_at,
+            (SELECT COUNT(*)::int FROM messages m WHERE m.job_id = jr.id AND m.sender_user_id != $1 AND m.read_at IS NULL) AS unread_count
+     FROM job_requests jr
+     JOIN providers p ON p.id = jr.provider_id
+     JOIN users uc ON uc.id = jr.client_user_id
+     WHERE jr.client_user_id = $1 OR p.user_id = $1
+     ORDER BY COALESCE(
+       (SELECT created_at FROM messages m WHERE m.job_id = jr.id ORDER BY m.created_at DESC LIMIT 1),
+       jr.created_at
+     ) DESC`,
+    [userId]
+  );
+  res.json({ conversations: result.rows });
+}));
+
+app.get('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => {
+  const job = await getJobForParticipant(req.params.jobId, req.session.userId);
+  if (!job) {
+    return res.status(404).json({ error: 'Conversation not found.' });
+  }
+
+  const result = await pool.query(
+    'SELECT * FROM messages WHERE job_id = $1 ORDER BY created_at ASC',
+    [job.id]
+  );
+
+  // Mark the other person's messages as read now that we've fetched them.
+  await pool.query(
+    'UPDATE messages SET read_at = NOW() WHERE job_id = $1 AND sender_user_id != $2 AND read_at IS NULL',
+    [job.id, req.session.userId]
+  );
+
+  const otherPartyName = job.client_user_id === req.session.userId ? job.provider_name : (job.client_name || job.client_email);
+  res.json({ messages: result.rows, job: { id: job.id, category: job.category, otherPartyName } });
+}));
+
+app.post('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => {
+  const job = await getJobForParticipant(req.params.jobId, req.session.userId);
+  if (!job) {
+    return res.status(404).json({ error: 'Conversation not found.' });
+  }
+  if (!isNonEmpty(req.body.body)) {
+    return res.status(400).json({ error: 'Message can\u2019t be empty.' });
+  }
+  if (req.body.body.length > 2000) {
+    return res.status(400).json({ error: 'Message is too long.' });
+  }
+
+  const result = await pool.query(
+    'INSERT INTO messages (job_id, sender_user_id, body) VALUES ($1, $2, $3) RETURNING *',
+    [job.id, req.session.userId, req.body.body.trim()]
+  );
+  res.json({ message: result.rows[0] });
+}));
 
 // --- 404 and error handling (must be last, after all routes) ---
 
