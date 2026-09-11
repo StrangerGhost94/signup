@@ -51,7 +51,7 @@
   <nav class="bottom-nav">
     <a href="/provider-dashboard.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
     <a href="/provider-my-jobs.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>My Jobs</a>
-    <a href="/provider-earnings.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Earnings</a>
+    <a href="/provider-dashboard.html?tab=open" class="nav-item nav-post" aria-label="Open Jobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></a>
     <a href="/messages.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
     <a href="/provider-profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
   </nav>
@@ -361,6 +361,9 @@
       await loadOpenJobs();
       await loadApprovalBanner();
       await loadNotifications(false);
+      if (new URLSearchParams(window.location.search).get('tab') === 'open') {
+        document.querySelector('[data-tab="open"]').click();
+      }
       setInterval(() => loadNotifications(false), 20000);
       setInterval(() => loadJobs(), 10000);
       setInterval(() => loadOpenJobs(), 15000);
