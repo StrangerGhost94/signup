@@ -884,7 +884,7 @@ body.app-body {
   box-shadow: var(--shadow-md);
 }
 .nav-item.nav-post svg { width: 24px; height: 24px; }
-.has-bottom-nav { padding-bottom: 5rem; }
+.has-bottom-nav { padding-bottom: calc(5rem + env(safe-area-inset-bottom)); }
 
 /* --- Big account-type choice cards --- */
 .big-choice-card {
@@ -1403,6 +1403,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 1.25rem;
+  padding-top: env(safe-area-inset-top);
 }
 .chat-back {
   width: 36px;
