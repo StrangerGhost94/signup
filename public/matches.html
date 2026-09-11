@@ -20,6 +20,7 @@
       This is a higher-risk service — only pros verified specifically for it are shown here.
     </div>
 
+    <div class="filters" id="sortBar" style="margin-bottom:0.75rem;"></div>
     <p class="status-line" id="statusLine"></p>
     <div class="worker-grid stagger" id="workerGrid"></div>
   </div>
@@ -61,6 +62,7 @@
     let chosenProvider = null;
     let myLat = null;
     let myLng = null;
+    let activeSort = 'recommended';
 
     function captureMyLocation() {
       return new Promise((resolve) => {
@@ -72,20 +74,6 @@
       });
     }
 
-    function sortAndRender(workers) {
-      let sorted = workers;
-      if (myLat !== null) {
-        sorted = workers.map(w => ({ ...w, _distance: distanceKm(myLat, myLng, w.latitude, w.longitude) }));
-        sorted.sort((a, b) => {
-          if (a._distance === null && b._distance === null) return 0;
-          if (a._distance === null) return 1;
-          if (b._distance === null) return -1;
-          return a._distance - b._distance;
-        });
-      }
-      renderMatches(sorted);
-    }
-
     let lastFetchedWorkers = [];
 
     const HIGH_RISK_SERVICES = ['Electrical', 'Mechanical'];
@@ -93,17 +81,73 @@
       document.getElementById('highRiskNote').style.display = 'block';
     }
 
+    const SORT_OPTIONS = [
+      ['recommended', 'Recommended'],
+      ['nearest', 'Nearest'],
+      ['rated', 'Top Rated'],
+      ['price', 'Lowest Price'],
+      ['available', 'Fastest Available']
+    ];
+    document.getElementById('sortBar').innerHTML = SORT_OPTIONS.map(([val, label], i) =>
+      `<a href="#" data-sort="${val}" class="filter-btn${i === 0 ? ' active' : ''}">${label}</a>`
+    ).join('');
+    document.querySelectorAll('#sortBar a').forEach(a => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.querySelectorAll('#sortBar a').forEach(x => x.classList.remove('active'));
+        a.classList.add('active');
+        activeSort = a.dataset.sort;
+        applySort();
+      });
+    });
+
+    function applySort() {
+      // The eligibility (hard filters) never changes with sort — only the
+      // order does. "Recommended" keeps the matching engine's own order.
+      let sorted = [...lastFetchedWorkers];
+      if (activeSort === 'nearest') {
+        sorted.sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
+      } else if (activeSort === 'rated') {
+        sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+      } else if (activeSort === 'price') {
+        const priceOf = w => w.hourly_rate || w.callout_fee || Infinity;
+        sorted.sort((a, b) => priceOf(a) - priceOf(b));
+      } else if (activeSort === 'available') {
+        const rank = { available_now: 0, available_today: 1, available_later: 2, not_available: 3 };
+        sorted.sort((a, b) => (rank[a.availability_status] ?? 9) - (rank[b.availability_status] ?? 9));
+      }
+      renderMatches(sorted);
+    }
+
     async function loadMatches() {
       document.getElementById('statusLine').textContent = 'Finding pros…';
+
       captureMyLocation().then(() => {
-        if (myLat !== null) sortAndRender(lastFetchedWorkers);
+        if (myLat !== null) fetchCandidates(); // re-fetch with real distance once resolved
       });
-      const res = await fetch('/api/workers?category=' + encodeURIComponent(category));
+
+      await fetchCandidates();
+    }
+
+    async function fetchCandidates() {
+      const params = new URLSearchParams({ category });
+      if (myLat !== null) { params.set('lat', myLat); params.set('lng', myLng); }
+      if (pendingJob?.urgency) params.set('urgency', pendingJob.urgency);
+      if (pendingJob?.estimateMin != null) { params.set('estimateMin', pendingJob.estimateMin); params.set('estimateMax', pendingJob.estimateMax); }
+
+      const res = await fetch('/api/matching/candidates?' + params.toString());
+      if (!res.ok) {
+        // Fall back to the plain browse list if the matching engine call
+        // fails for any reason — the marketplace still has to work.
+        const fallbackRes = await fetch('/api/workers?category=' + encodeURIComponent(category));
+        const fallbackData = await fallbackRes.json();
+        lastFetchedWorkers = HIGH_RISK_SERVICES.includes(category) ? fallbackData.workers.filter(w => w.category_verified) : fallbackData.workers;
+        applySort();
+        return;
+      }
       const data = await res.json();
-      lastFetchedWorkers = HIGH_RISK_SERVICES.includes(category)
-        ? data.workers.filter(w => w.category_verified)
-        : data.workers;
-      sortAndRender(lastFetchedWorkers);
+      lastFetchedWorkers = data.candidates;
+      applySort();
     }
 
     function renderMatches(workers) {
@@ -124,7 +168,7 @@
         const card = document.createElement('div');
         card.className = 'worker-card';
         card.style.setProperty('--cat-color', color);
-        const distanceLabel = (w._distance !== null && w._distance !== undefined) ? `${w._distance.toFixed(1)} km away` : null;
+        const distanceLabel = (w.distanceKm !== null && w.distanceKm !== undefined) ? `${w.distanceKm.toFixed(1)} km away` : null;
         card.innerHTML = `
           <div class="worker-head">
             <div class="avatar">${w.photo ? `<img class="avatar-img" src="${w.photo}" alt="">` : initials(w.name)}</div>
@@ -134,12 +178,14 @@
             </div>
             <span class="rating"><span class="star">★</span> ${w.rating}</span>
           </div>
+          ${w.matchLabel ? `<span class="trust-badge trust-badge-primary" style="margin-bottom:0.5rem;">${escapeHtml(w.matchLabel)}</span>` : ''}
           <p class="location">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
             ${escapeHtml(w.location)}${distanceLabel ? ` · ${distanceLabel}` : ''}
           </p>
           <p class="trust-meta-line">${renderTrustMeta(w)}</p>
           ${renderTrustBadges(w)}
+          ${w.whyRecommended ? `<p class="job-meta" style="font-style:italic; margin-bottom:0.5rem;">${escapeHtml(w.whyRecommended)}</p>` : ''}
           <p class="bio">${escapeHtml(w.bio)}</p>
 
           <button class="small-btn" data-id="${w.id}" data-name="${escapeHtml(w.name)}">Book ${escapeHtml(w.name.split(' ')[0])}</button>

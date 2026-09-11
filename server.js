@@ -163,6 +163,41 @@ async function initDb() {
     ALTER TABLE providers ADD COLUMN IF NOT EXISTS longitude NUMERIC
   `);
 
+  // Migration: richer location metadata (spec section 3). accuracy/
+  // updated_at let the matching engine judge how fresh/trustworthy a
+  // location is; formatted_address/city/district are the human-readable
+  // fields shown to customers instead of raw coordinates.
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS location_accuracy NUMERIC`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS location_updated_at TIMESTAMP`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS formatted_address TEXT`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS city TEXT`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS district TEXT`);
+
+  // Migration: operating radius and travel preferences (spec section 4).
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS service_radius_km INTEGER DEFAULT 10`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS long_distance_jobs_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS emergency_travel_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
+
+  // Migration: professional type (section 2) and availability (section 11).
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS professional_type TEXT
+    CHECK (professional_type IN ('individual','employee','company'))`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS availability_status TEXT NOT NULL DEFAULT 'available_later'
+    CHECK (availability_status IN ('available_now','available_today','available_later','not_available'))`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS accepts_emergency BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS accepts_same_day BOOLEAN NOT NULL DEFAULT TRUE`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS weekly_schedule JSONB`);
+
+  // Migration: pricing preferences (section 10) — structured, not one
+  // forced universal price. The AI pricing engine still produces the
+  // estimate; this is what the provider does with it.
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS pricing_methods JSONB DEFAULT '[]'`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS callout_fee INTEGER`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS inspection_fee INTEGER`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS hourly_rate INTEGER`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS minimum_charge INTEGER`);
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS provides_own_materials TEXT
+    CHECK (provides_own_materials IN ('yes','no','depends'))`);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS job_requests (
       id SERIAL PRIMARY KEY,
@@ -270,6 +305,77 @@ async function initDb() {
       notes TEXT DEFAULT '',
       created_at TIMESTAMP DEFAULT NOW(),
       UNIQUE(provider_id, service_id)
+    )
+  `);
+
+  // ============================================================
+  // HANDYMAN PROFILE & INTELLIGENT MATCHING — PHASE 1 (schema only)
+  // ============================================================
+
+  // Sub-service taxonomy, admin-configurable (no code deploy needed to
+  // add one — same pattern as `services` itself).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS specialties (
+      id SERIAL PRIMARY KEY,
+      service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(service_id, slug)
+    )
+  `);
+
+  // Which specialties a provider claims, per service they offer.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS worker_service_specialties (
+      id SERIAL PRIMARY KEY,
+      worker_service_id INTEGER NOT NULL REFERENCES worker_services(id) ON DELETE CASCADE,
+      specialty_id INTEGER NOT NULL REFERENCES specialties(id) ON DELETE CASCADE,
+      UNIQUE(worker_service_id, specialty_id)
+    )
+  `);
+
+  // Section 20's critical distinction: this is HANDYMAN-REPORTED
+  // experience per service, kept deliberately separate from the
+  // PLATFORM-MEASURED completed-job count already computable from
+  // job_requests. Neither ever overwrites the other.
+  await pool.query(`ALTER TABLE worker_services ADD COLUMN IF NOT EXISTS reported_experience_level TEXT
+    CHECK (reported_experience_level IN ('less_than_1','1_2','3_5','6_10','10_plus'))`);
+  await pool.query(`ALTER TABLE worker_services ADD COLUMN IF NOT EXISTS reported_jobs_range TEXT
+    CHECK (reported_jobs_range IN ('0_10','11_25','26_50','51_100','101_250','250_plus'))`);
+
+  // Portfolio: supporting evidence, explicitly not proof of qualification
+  // on its own (spec section 9).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS portfolio_items (
+      id SERIAL PRIMARY KEY,
+      provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      service_id INTEGER REFERENCES services(id) ON DELETE SET NULL,
+      photo TEXT NOT NULL,
+      job_type TEXT,
+      description TEXT DEFAULT '',
+      approx_date DATE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Configurable weight profiles for the matching engine (Phase 3), keyed
+  // by scenario so emergency/planned/technical jobs can weigh factors
+  // differently, per spec section 15. Admin-editable, not hard-coded
+  // into application logic once Phase 3 reads from this table.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS matching_weight_profiles (
+      id SERIAL PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      skill_weight INTEGER NOT NULL DEFAULT 30,
+      reliability_weight INTEGER NOT NULL DEFAULT 25,
+      distance_weight INTEGER NOT NULL DEFAULT 15,
+      price_weight INTEGER NOT NULL DEFAULT 15,
+      experience_weight INTEGER NOT NULL DEFAULT 10,
+      availability_weight INTEGER NOT NULL DEFAULT 5,
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT NOW()
     )
   `);
 
@@ -443,6 +549,48 @@ async function initDb() {
     await pool.query(
       `INSERT INTO services (name, slug) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING`,
       [name, name.toLowerCase()]
+    );
+  }
+
+  // Seed the specialty taxonomy (spec section 5), admin-editable from
+  // here on — this is a one-time bootstrap, not a hard-coded limit.
+  const SPECIALTY_SEED = {
+    'Plumbing': ['Sink repair', 'Pipe leaks', 'Toilet repair', 'Drain blockage', 'Tap/faucet repair', 'Water heater', 'Water tank installation', 'Pipe installation', 'Bathroom plumbing'],
+    'Electrical': ['Socket/switch repair', 'Lighting', 'Wiring', 'Circuit breaker', 'Fault finding', 'Generator installation', 'Solar'],
+    'Carpentry': ['Furniture repair', 'Door repair', 'Cabinet installation', 'Shelving', 'Woodwork'],
+    'Painting': ['Interior painting', 'Exterior painting', 'Wall preparation', 'Repainting', 'Decorative painting'],
+    'Cleaning': ['Deep cleaning', 'Move-in/move-out cleaning', 'Office cleaning', 'Post-construction cleaning'],
+    'Gardening': ['Landscaping', 'Lawn care', 'Hedge trimming', 'Tree pruning'],
+    'Moving': ['House moving', 'Office moving', 'Furniture moving', 'Packing'],
+    'Mechanical': ['Engine repair', 'Brake service', 'Diagnostics', 'General maintenance']
+  };
+  for (const [serviceName, specs] of Object.entries(SPECIALTY_SEED)) {
+    const svcRow = await pool.query('SELECT id FROM services WHERE name = $1', [serviceName]);
+    if (svcRow.rows.length === 0) continue;
+    for (const specName of specs) {
+      const slug = specName.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      await pool.query(
+        `INSERT INTO specialties (service_id, name, slug) VALUES ($1, $2, $3) ON CONFLICT (service_id, slug) DO NOTHING`,
+        [svcRow.rows[0].id, specName, slug]
+      );
+    }
+  }
+
+  // Seed the three example weight profiles from spec section 15. Admins
+  // can add more or edit these once Phase 5's admin UI exists — the
+  // matching engine (Phase 3) will read from this table, not a
+  // hard-coded formula.
+  const WEIGHT_PROFILE_SEED = [
+    { name: 'emergency', skill: 30, reliability: 20, distance: 25, price: 5, experience: 10, availability: 10 },
+    { name: 'planned', skill: 25, reliability: 25, distance: 10, price: 15, experience: 20, availability: 5 },
+    { name: 'technical', skill: 35, reliability: 25, distance: 10, price: 5, experience: 20, availability: 5 },
+    { name: 'default', skill: 30, reliability: 25, distance: 15, price: 15, experience: 10, availability: 5 }
+  ];
+  for (const w of WEIGHT_PROFILE_SEED) {
+    await pool.query(
+      `INSERT INTO matching_weight_profiles (name, skill_weight, reliability_weight, distance_weight, price_weight, experience_weight, availability_weight, is_default)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (name) DO NOTHING`,
+      [w.name, w.skill, w.reliability, w.distance, w.price, w.experience, w.availability, w.name === 'default']
     );
   }
 
@@ -666,6 +814,15 @@ const VALID_SERVICES = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Clea
 // done badly — booking one of these requires the provider to be VERIFIED
 // for that exact service, not just generally approved on the platform.
 const HIGH_RISK_SERVICES = ['Electrical', 'Mechanical'];
+
+function distanceKmServer(lat1, lon1, lat2, lon2) {
+  if ([lat1, lon1, lat2, lon2].some(v => v === null || v === undefined || isNaN(v))) return null;
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 const VALID_COMPLEXITY = ['EASY', 'MEDIUM', 'COMPLEX', 'UNKNOWN'];
 const VALID_CONFIDENCE = ['HIGH', 'MEDIUM', 'LOW'];
 
@@ -952,9 +1109,27 @@ app.post('/api/signup', authLimiter, async (req, res) => {
   let providerFields = null;
   let selectedServices = [];
   if (role === 'provider') {
-    const { category, location, bio, photo, services, experienceYears, idDocument, selfie } = req.body;
-    selectedServices = Array.isArray(services) && services.length > 0 ? services : (isNonEmpty(category) ? [category] : []);
-    if (selectedServices.length === 0 || !isNonEmpty(location)) {
+    const {
+      category, location, bio, photo, services, experienceYears, idDocument, selfie,
+      professionalType, latitude, longitude, locationAccuracy,
+      serviceRadiusKm, longDistanceJobsEnabled, emergencyTravelEnabled,
+      pricingMethods, calloutFee, inspectionFee, hourlyRate, minimumCharge, providesOwnMaterials,
+      availabilityStatus, acceptsEmergency, acceptsSameDay
+    } = req.body;
+
+    // `services` can be plain name strings (older clients) or structured
+    // objects carrying specialties/experience per service — normalize to
+    // the structured shape either way.
+    const rawServices = Array.isArray(services) && services.length > 0
+      ? services
+      : (isNonEmpty(category) ? [category] : []);
+    const structuredServices = rawServices.map(s =>
+      typeof s === 'string'
+        ? { name: s, specialties: [], experienceLevel: null, jobsRange: null }
+        : { name: s.name, specialties: Array.isArray(s.specialties) ? s.specialties : [], experienceLevel: s.experienceLevel || null, jobsRange: s.jobsRange || null }
+    ).filter(s => isNonEmpty(s.name));
+
+    if (structuredServices.length === 0 || !isNonEmpty(location)) {
       return res.status(400).json({ error: 'Please select at least one service and fill in the area you serve.' });
     }
     if (!isValidPhoto(photo)) {
@@ -963,16 +1138,47 @@ app.post('/api/signup', authLimiter, async (req, res) => {
     if (!isValidPhoto(idDocument) || !isValidPhoto(selfie)) {
       return res.status(400).json({ error: 'One of your verification uploads is too large or in an unsupported format.' });
     }
+    const validExperienceLevels = ['less_than_1', '1_2', '3_5', '6_10', '10_plus'];
+    const validJobsRanges = ['0_10', '11_25', '26_50', '51_100', '101_250', '250_plus'];
+    for (const s of structuredServices) {
+      if (s.experienceLevel && !validExperienceLevels.includes(s.experienceLevel)) {
+        return res.status(400).json({ error: `Invalid experience level for ${s.name}.` });
+      }
+      if (s.jobsRange && !validJobsRanges.includes(s.jobsRange)) {
+        return res.status(400).json({ error: `Invalid jobs-completed range for ${s.name}.` });
+      }
+    }
+    const validPricingMethods = ['fixed', 'labour_materials', 'hourly', 'callout_repair', 'quote_after_inspection'];
+    const cleanPricingMethods = Array.isArray(pricingMethods) ? pricingMethods.filter(m => validPricingMethods.includes(m)) : [];
+
+    selectedServices = structuredServices.map(s => s.name);
     providerFields = {
       name: name.trim(),
-      category: selectedServices[0].trim(), // primary/display category, kept for existing search compatibility
+      category: structuredServices[0].name.trim(), // primary/display category, kept for existing search compatibility
       location: location.trim(),
       phone: phone.trim(),
       bio: isNonEmpty(bio) ? bio.trim() : '',
       photo: isNonEmpty(photo) ? photo : null,
       experienceYears: Number.isInteger(experienceYears) && experienceYears >= 0 ? experienceYears : null,
       idDocument: isNonEmpty(idDocument) ? idDocument : null,
-      selfie: isNonEmpty(selfie) ? selfie : null
+      selfie: isNonEmpty(selfie) ? selfie : null,
+      structuredServices,
+      professionalType: ['individual', 'employee', 'company'].includes(professionalType) ? professionalType : null,
+      latitude: typeof latitude === 'number' ? latitude : null,
+      longitude: typeof longitude === 'number' ? longitude : null,
+      locationAccuracy: typeof locationAccuracy === 'number' ? locationAccuracy : null,
+      serviceRadiusKm: Number.isInteger(serviceRadiusKm) ? serviceRadiusKm : 10,
+      longDistanceJobsEnabled: !!longDistanceJobsEnabled,
+      emergencyTravelEnabled: !!emergencyTravelEnabled,
+      pricingMethods: cleanPricingMethods,
+      calloutFee: Number.isInteger(calloutFee) ? calloutFee : null,
+      inspectionFee: Number.isInteger(inspectionFee) ? inspectionFee : null,
+      hourlyRate: Number.isInteger(hourlyRate) ? hourlyRate : null,
+      minimumCharge: Number.isInteger(minimumCharge) ? minimumCharge : null,
+      providesOwnMaterials: ['yes', 'no', 'depends'].includes(providesOwnMaterials) ? providesOwnMaterials : null,
+      availabilityStatus: ['available_now', 'available_today', 'available_later', 'not_available'].includes(availabilityStatus) ? availabilityStatus : 'available_later',
+      acceptsEmergency: !!acceptsEmergency,
+      acceptsSameDay: acceptsSameDay !== false
     };
   }
 
@@ -995,19 +1201,51 @@ app.post('/api/signup', authLimiter, async (req, res) => {
 
     if (providerFields) {
       const providerResult = await client.query(
-        'INSERT INTO providers (user_id, name, category, location, phone, bio, rating, photo, experience_years) VALUES ($1,$2,$3,$4,$5,$6,5.0,$7,$8) RETURNING id',
-        [userId, providerFields.name, providerFields.category, providerFields.location, providerFields.phone, providerFields.bio, providerFields.photo, providerFields.experienceYears]
+        `INSERT INTO providers (
+           user_id, name, category, location, phone, bio, rating, photo, experience_years,
+           professional_type, latitude, longitude, location_accuracy, location_updated_at,
+           service_radius_km, long_distance_jobs_enabled, emergency_travel_enabled,
+           pricing_methods, callout_fee, inspection_fee, hourly_rate, minimum_charge, provides_own_materials,
+           availability_status, accepts_emergency, accepts_same_day
+         ) VALUES ($1,$2,$3,$4,$5,$6,5.0,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+         RETURNING id`,
+        [
+          userId, providerFields.name, providerFields.category, providerFields.location, providerFields.phone,
+          providerFields.bio, providerFields.photo, providerFields.experienceYears,
+          providerFields.professionalType, providerFields.latitude, providerFields.longitude, providerFields.locationAccuracy,
+          providerFields.latitude !== null ? new Date() : null,
+          providerFields.serviceRadiusKm, providerFields.longDistanceJobsEnabled, providerFields.emergencyTravelEnabled,
+          JSON.stringify(providerFields.pricingMethods), providerFields.calloutFee, providerFields.inspectionFee,
+          providerFields.hourlyRate, providerFields.minimumCharge, providerFields.providesOwnMaterials,
+          providerFields.availabilityStatus, providerFields.acceptsEmergency, providerFields.acceptsSameDay
+        ]
       );
       const providerId = providerResult.rows[0].id;
 
-      for (const serviceName of selectedServices) {
-        const svcResult = await client.query('SELECT id FROM services WHERE name = $1', [serviceName.trim()]);
-        if (svcResult.rows.length > 0) {
-          await client.query(
-            `INSERT INTO worker_services (provider_id, service_id, verification_status) VALUES ($1, $2, 'PENDING')
-             ON CONFLICT (provider_id, service_id) DO NOTHING`,
-            [providerId, svcResult.rows[0].id]
+      for (const svc of providerFields.structuredServices) {
+        const svcResult = await client.query('SELECT id FROM services WHERE name = $1', [svc.name.trim()]);
+        if (svcResult.rows.length === 0) continue;
+        const wsResult = await client.query(
+          `INSERT INTO worker_services (provider_id, service_id, verification_status, reported_experience_level, reported_jobs_range)
+           VALUES ($1, $2, 'PENDING', $3, $4)
+           ON CONFLICT (provider_id, service_id) DO UPDATE SET reported_experience_level = $3, reported_jobs_range = $4
+           RETURNING id`,
+          [providerId, svcResult.rows[0].id, svc.experienceLevel, svc.jobsRange]
+        );
+        const workerServiceId = wsResult.rows[0].id;
+
+        for (const specialtyName of svc.specialties) {
+          const specResult = await client.query(
+            'SELECT id FROM specialties WHERE service_id = $1 AND name = $2',
+            [svcResult.rows[0].id, specialtyName]
           );
+          if (specResult.rows.length > 0) {
+            await client.query(
+              `INSERT INTO worker_service_specialties (worker_service_id, specialty_id) VALUES ($1, $2)
+               ON CONFLICT (worker_service_id, specialty_id) DO NOTHING`,
+              [workerServiceId, specResult.rows[0].id]
+            );
+          }
         }
       }
 
@@ -1316,6 +1554,22 @@ app.post('/api/support', requireLogin, authLimiter, asyncHandler(async (req, res
 app.get('/api/categories', requireLogin, asyncHandler(async (req, res) => {
   const result = await pool.query('SELECT DISTINCT category FROM providers ORDER BY category');
   res.json({ categories: result.rows.map(r => r.category) });
+}));
+
+// Public — the taxonomy itself isn't sensitive, and the worker signup
+// wizard needs this before the account (and any session) exists.
+app.get('/api/specialties', asyncHandler(async (req, res) => {
+  const { service } = req.query;
+  if (!isNonEmpty(service)) {
+    return res.status(400).json({ error: 'Please specify a service.' });
+  }
+  const result = await pool.query(
+    `SELECT sp.name FROM specialties sp
+     JOIN services s ON s.id = sp.service_id
+     WHERE s.name = $1 AND sp.active = TRUE ORDER BY sp.name`,
+    [service]
+  );
+  res.json({ specialties: result.rows.map(r => r.name) });
 }));
 
 app.get('/api/workers', requireLogin, asyncHandler(async (req, res) => {
@@ -2593,6 +2847,189 @@ app.get('/api/provider/reliability', requireRole('provider'), asyncHandler(async
   if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
   const result = await computeReliabilityScore(providerId);
   res.json(result);
+}));
+
+// ============================================================
+// INTELLIGENT MATCHING ENGINE (spec sections 14-19)
+// Hard filters first (eligibility), then weighted scoring (ranking).
+// Never exposes raw scores to the customer — only labels + plain-
+// language explanations. Weights come from matching_weight_profiles,
+// not a hard-coded formula, so Phase 5's admin UI can tune them later.
+// ============================================================
+
+async function getWeightProfile(urgency, complexity, isHighRisk) {
+  let profileName = 'default';
+  if (urgency === 'now') profileName = 'emergency';
+  else if (isHighRisk || complexity === 'COMPLEX') profileName = 'technical';
+  else if (urgency === 'schedule') profileName = 'planned';
+
+  const result = await pool.query('SELECT * FROM matching_weight_profiles WHERE name = $1', [profileName]);
+  if (result.rows.length > 0) return result.rows[0];
+  const fallback = await pool.query('SELECT * FROM matching_weight_profiles WHERE is_default = TRUE LIMIT 1');
+  return fallback.rows[0] || { skill_weight: 30, reliability_weight: 25, distance_weight: 15, price_weight: 15, experience_weight: 10, availability_weight: 5 };
+}
+
+// Bayesian-ish shrinkage: pulls a rating toward a neutral prior when a
+// provider has few jobs, so 5.0★ from 2 jobs doesn't beat 4.8★ from 250
+// (spec section 14B's explicit example).
+function adjustedRating(rating, jobCount) {
+  const PRIOR = 4.0;
+  const PRIOR_WEIGHT = 8;
+  const r = rating || PRIOR;
+  return ((r * jobCount) + (PRIOR * PRIOR_WEIGHT)) / (jobCount + PRIOR_WEIGHT);
+}
+
+app.get('/api/matching/candidates', requireRole('client'), asyncHandler(async (req, res) => {
+  const { category, urgency, lat, lng, complexity, estimateMin, estimateMax } = req.query;
+  if (!isNonEmpty(category)) {
+    return res.status(400).json({ error: 'Please specify a category.' });
+  }
+  const myLat = lat !== undefined ? parseFloat(lat) : null;
+  const myLng = lng !== undefined ? parseFloat(lng) : null;
+  const isHighRisk = HIGH_RISK_SERVICES.includes(category);
+
+  // --- Hard filters (spec section 19): eligibility, not scoring ---
+  const eligible = await pool.query(`
+    SELECT p.*,
+      ws.verification_status AS skill_status,
+      ws.reported_experience_level, ws.reported_jobs_range,
+      COALESCE((SELECT status FROM verifications WHERE provider_id = p.id AND type = 'identity'), 'PENDING') AS identity_status,
+      COALESCE((SELECT status FROM verifications WHERE provider_id = p.id AND type = 'phone'), 'PENDING') AS phone_status,
+      (SELECT COUNT(*)::int FROM job_requests WHERE provider_id = p.id AND category = $1 AND status = 'completed') AS category_completed_jobs,
+      (SELECT COUNT(*)::int FROM job_requests WHERE provider_id = p.id AND status = 'completed') AS total_completed_jobs,
+      (SELECT COUNT(*)::int FROM job_requests WHERE provider_id = p.id AND status = 'declined') AS total_declined,
+      (SELECT COUNT(*)::int FROM job_requests WHERE provider_id = p.id) AS total_requests,
+      (SELECT COUNT(*)::int FROM disputes d JOIN job_requests jr ON jr.id = d.job_id WHERE jr.provider_id = p.id) AS dispute_count,
+      (SELECT array_agg(sp.name) FROM worker_service_specialties wss
+        JOIN specialties sp ON sp.id = wss.specialty_id WHERE wss.worker_service_id = ws.id) AS specialties
+    FROM providers p
+    JOIN worker_services ws ON ws.provider_id = p.id
+    JOIN services s ON s.id = ws.service_id
+    WHERE p.approval_status = 'APPROVED' AND s.name = $1
+  `, [category]);
+
+  let candidates = eligible.rows.filter(p => {
+    // High-risk services hard-require VERIFIED for that exact skill —
+    // no amount of proximity or price can substitute (spec section 19).
+    if (isHighRisk && p.skill_status !== 'VERIFIED') return false;
+    // Outside their stated service radius, unless they've opted into
+    // long-distance jobs and this is one (checked loosely — real routing
+    // distance is computed below, this just excludes the obviously out
+    // of range once we know the distance).
+    return true;
+  });
+
+  const weights = await getWeightProfile(urgency, complexity, isHighRisk);
+  const totalWeight = weights.skill_weight + weights.reliability_weight + weights.distance_weight +
+    weights.price_weight + weights.experience_weight + weights.availability_weight;
+
+  const EXPERIENCE_SCORES = { 'less_than_1': 20, '1_2': 45, '3_5': 65, '6_10': 85, '10_plus': 100 };
+  const JOBS_SCORES = { '0_10': 10, '11_25': 30, '26_50': 50, '51_100': 70, '101_250': 85, '250_plus': 100 };
+
+  const scored = candidates.map(p => {
+    const dist = (myLat !== null && myLng !== null && p.latitude !== null)
+      ? distanceKmServer(myLat, myLng, p.latitude, p.longitude) : null;
+
+    // Outside their radius and not opted into long-distance jobs — treat
+    // as a hard filter here rather than in the SQL above, since we need
+    // the computed distance to know.
+    if (dist !== null && dist > p.service_radius_km && !p.long_distance_jobs_enabled) {
+      return null;
+    }
+
+    // A. Skill match (has the service + verified bonus + specialty match)
+    let skillScore = 50;
+    if (p.skill_status === 'VERIFIED') skillScore = 90;
+    else if (p.skill_status === 'IN_REVIEW') skillScore = 60;
+    skillScore = Math.min(100, skillScore + (p.category_completed_jobs > 0 ? 10 : 0));
+
+    // B. Reliability, with Bayesian shrinkage on rating + decline/dispute penalties
+    const adjRating = adjustedRating(parseFloat(p.rating), p.total_completed_jobs);
+    let reliabilityScore = (adjRating / 5) * 100;
+    const declineRate = p.total_requests > 0 ? p.total_declined / p.total_requests : 0;
+    reliabilityScore -= declineRate * 20;
+    reliabilityScore -= Math.min(p.dispute_count * 10, 30);
+    reliabilityScore = Math.max(0, Math.min(100, reliabilityScore));
+
+    // C. Distance — closer is better, but capped contribution, not dominant
+    let distanceScore = 50;
+    if (dist !== null) {
+      distanceScore = Math.max(0, 100 - (dist / Math.max(p.service_radius_km, 1)) * 100);
+    }
+
+    // D. Price/value — thin signal without real transaction history yet;
+    // if the provider has a stated hourly/callout fee, compare loosely
+    // against the job's own estimate range; otherwise neutral.
+    let priceScore = 50;
+    if (estimateMin && estimateMax && (p.hourly_rate || p.callout_fee)) {
+      const providerIndicator = p.callout_fee || p.hourly_rate;
+      const mid = (parseInt(estimateMin, 10) + parseInt(estimateMax, 10)) / 2;
+      const ratio = providerIndicator / Math.max(mid, 1);
+      priceScore = Math.max(0, 100 - Math.abs(1 - ratio) * 80);
+    }
+
+    // E. Relevant experience — the SPECIFIC service, not total years
+    const experienceScore = Math.round(
+      ((EXPERIENCE_SCORES[p.reported_experience_level] || 40) +
+       (JOBS_SCORES[p.reported_jobs_range] || 20) +
+       Math.min(p.category_completed_jobs * 5, 40)) / 3
+    );
+
+    // F. Availability — adjusted for urgency
+    let availabilityScore = 40;
+    if (p.availability_status === 'available_now') availabilityScore = 100;
+    else if (p.availability_status === 'available_today') availabilityScore = 75;
+    else if (p.availability_status === 'not_available') availabilityScore = 0;
+    if (urgency === 'now' && !p.accepts_emergency) availabilityScore = Math.min(availabilityScore, 30);
+    if (urgency === 'today' && !p.accepts_same_day) availabilityScore = Math.min(availabilityScore, 40);
+
+    const overall = totalWeight > 0 ? (
+      skillScore * weights.skill_weight +
+      reliabilityScore * weights.reliability_weight +
+      distanceScore * weights.distance_weight +
+      priceScore * weights.price_weight +
+      experienceScore * weights.experience_weight +
+      availabilityScore * weights.availability_weight
+    ) / totalWeight : 50;
+
+    return {
+      id: p.id, name: p.name, category: p.category, location: p.location, phone: p.phone, bio: p.bio,
+      photo: p.photo, rating: p.rating, latitude: p.latitude, longitude: p.longitude,
+      experience_years: p.experience_years, availability_status: p.availability_status,
+      category_verified: p.skill_status === 'VERIFIED', specialties: p.specialties || [],
+      identity_status: p.identity_status, phone_status: p.phone_status,
+      completed_jobs: p.total_completed_jobs, distanceKm: dist,
+      _scores: { skillScore, reliabilityScore, distanceScore, priceScore, experienceScore, availabilityScore, overall }
+    };
+  }).filter(Boolean);
+
+  scored.sort((a, b) => b._scores.overall - a._scores.overall);
+  const top = scored.slice(0, 10);
+
+  // Labels + plain-language reasons — never the raw score itself (section 16).
+  const labeled = new Set();
+  top.forEach((c, i) => {
+    if (i === 0) { c.matchLabel = 'Best Match'; labeled.add(c.id); }
+  });
+  const byReliability = [...top].filter(c => !labeled.has(c.id)).sort((a, b) => b._scores.reliabilityScore - a._scores.reliabilityScore)[0];
+  if (byReliability) { byReliability.matchLabel = 'Highly Rated'; labeled.add(byReliability.id); }
+  const byPrice = [...top].filter(c => !labeled.has(c.id)).sort((a, b) => b._scores.priceScore - a._scores.priceScore)[0];
+  if (byPrice) { byPrice.matchLabel = 'Best Value'; labeled.add(byPrice.id); }
+
+  top.forEach(c => {
+    const reasons = [];
+    if (c._scores.skillScore >= 85) reasons.push(`strong match for ${category.toLowerCase()}`);
+    if (c._scores.reliabilityScore >= 80) reasons.push('highly rated');
+    if (c.distanceKm !== null && c.distanceKm < 5) reasons.push('nearby');
+    if (c.availability_status === 'available_now') reasons.push('available now');
+    if (c._scores.experienceScore >= 75) reasons.push('extensive relevant experience');
+    c.whyRecommended = reasons.length > 0
+      ? `${c.name.split(' ')[0]} is a ${reasons.join(', ')}.`
+      : `${c.name.split(' ')[0]} offers ${category.toLowerCase()} services in your area.`;
+    delete c._scores; // never sent to the client
+  });
+
+  res.json({ candidates: top, weightProfileUsed: weights.name || 'default' });
 }));
 
 app.post('/api/admin/users/:id/suspend', requireRole('admin'), asyncHandler(async (req, res) => {
