@@ -257,6 +257,28 @@ window.initials = function (name) {
   return (first + last).toUpperCase();
 };
 
+window.renderTrustBadges = function (w) {
+  const badges = [];
+  if (w.identity_status === 'VERIFIED') {
+    badges.push(`<span class="trust-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>Identity verified</span>`);
+  }
+  if (w.phone_status === 'VERIFIED') {
+    badges.push(`<span class="trust-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>Phone verified</span>`);
+  }
+  if (w.category_verified) {
+    badges.push(`<span class="trust-badge trust-badge-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>${escapeHtml(w.category)} verified</span>`);
+  }
+  if (badges.length === 0) return '';
+  return `<div class="trust-badge-row">${badges.join('')}</div>`;
+};
+
+window.renderTrustMeta = function (w) {
+  const parts = [];
+  parts.push(`${w.completed_jobs || 0} job${w.completed_jobs === 1 ? '' : 's'} completed`);
+  if (w.experience_years != null) parts.push(`${w.experience_years} yrs experience`);
+  return parts.join(' · ');
+};
+
 window.errorStateHtml = function (retryFnName) {
   return `<div class="empty-state">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>

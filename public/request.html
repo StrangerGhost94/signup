@@ -12,23 +12,42 @@
 </head>
 <body class="app-body">
   <div class="form-page">
-    <a href="/dashboard.html" class="back-link">← Back</a>
+    <a href="/dashboard.html" class="back-link" id="backLink">← Back</a>
     <span class="brand" id="categoryLabel" style="display:block; margin-bottom:0.4rem;"></span>
-    <h1>What needs to be fixed?</h1>
 
-    <div class="error" id="error"></div>
+    <div id="formStep">
+      <h1>What needs to be fixed?</h1>
+      <div class="error" id="error"></div>
 
-    <form id="requestForm">
-      <textarea id="description" rows="4" placeholder="e.g. My bathroom tap is leaking and water is coming from underneath." required></textarea>
+      <form id="requestForm">
+        <textarea id="description" rows="4" placeholder="e.g. My bathroom tap is leaking and water is coming from underneath." required></textarea>
 
-      <label style="display:block; font-weight:700; font-size:0.9rem; margin-bottom:0.6rem;">How urgent is this?</label>
-      <div class="urgency-grid" id="urgencyGrid"></div>
+        <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.5rem;">Photos (optional)</label>
+        <div class="photo-upload-strip" id="photoStrip">
+          <label class="photo-add-btn" for="photoInput">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </label>
+          <input type="file" id="photoInput" accept="image/*" multiple style="display:none;">
+        </div>
 
-      <input type="text" id="location" placeholder="Where is the job? (e.g. Ntinda, Kampala)" required>
-      <textarea id="locationNotes" rows="2" placeholder="Additional directions (optional) — e.g. Apartment 4B, second floor"></textarea>
+        <label style="display:block; font-weight:700; font-size:0.9rem; margin-bottom:0.6rem;">How urgent is this?</label>
+        <div class="urgency-grid" id="urgencyGrid"></div>
 
-      <button type="submit">Find pros</button>
-    </form>
+        <input type="text" id="location" placeholder="Where is the job? (e.g. Ntinda, Kampala)" required>
+        <textarea id="locationNotes" rows="2" placeholder="Additional directions (optional) — e.g. Apartment 4B, second floor"></textarea>
+
+        <button type="submit">Analyze job</button>
+      </form>
+    </div>
+
+    <div id="loadingStep" style="display:none;">
+      <div class="assess-loading">
+        <div class="spinner"></div>
+        <p>Analyzing your job...</p>
+      </div>
+    </div>
+
+    <div id="estimateStep" style="display:none;"></div>
   </div>
 
   <script src="js/categories.js"></script>
@@ -37,6 +56,7 @@
     const category = params.get('category') || 'Other';
     let selectedUrgency = sessionStorage.getItem('preferredUrgency') || 'today';
     sessionStorage.removeItem('preferredUrgency');
+    let photos = [];
 
     document.getElementById('categoryLabel').innerHTML =
       `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(category)}" stroke-width="2" style="width:1.15em;height:1.15em;">${categoryIcon(category)}</svg> ${escapeHtml(category)}`;
@@ -63,6 +83,32 @@
       urgencyGrid.appendChild(btn);
     });
 
+    document.getElementById('photoInput').addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files).slice(0, 3 - photos.length);
+      for (const file of files) {
+        try {
+          const compressed = await compressImageFile(file, 900, 0.7);
+          photos.push(compressed);
+        } catch (err) { showToast(err.message, 'error'); }
+      }
+      renderPhotoStrip();
+    });
+
+    function renderPhotoStrip() {
+      const strip = document.getElementById('photoStrip');
+      strip.querySelectorAll('img').forEach(img => img.remove());
+      photos.forEach((p, i) => {
+        const img = document.createElement('img');
+        img.src = p;
+        img.className = 'photo-thumb';
+        img.style.cursor = 'pointer';
+        img.title = 'Tap to remove';
+        img.onclick = () => { photos.splice(i, 1); renderPhotoStrip(); };
+        strip.insertBefore(img, strip.firstChild);
+      });
+      document.getElementById('photoInput').parentElement.style.display = photos.length >= 3 ? 'none' : 'flex';
+    }
+
     (async () => {
       const res = await fetch('/api/me');
       if (!res.ok) { window.location.href = '/login.html'; return; }
@@ -70,7 +116,7 @@
       if (me.role !== 'client') { window.location.href = '/provider-dashboard.html'; return; }
     })();
 
-    document.getElementById('requestForm').addEventListener('submit', (e) => {
+    document.getElementById('requestForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const errorEl = document.getElementById('error');
       errorEl.textContent = '';
@@ -82,16 +128,104 @@
         return;
       }
 
+      document.getElementById('formStep').style.display = 'none';
+      document.getElementById('loadingStep').style.display = 'block';
+      document.getElementById('backLink').style.display = 'none';
+
+      const res = await fetch('/api/jobs/assess', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description, photos, category, urgency: selectedUrgency })
+      });
+      const data = await res.json();
+
+      document.getElementById('loadingStep').style.display = 'none';
+
+      if (!res.ok) {
+        document.getElementById('formStep').style.display = 'block';
+        document.getElementById('backLink').style.display = 'inline-block';
+        errorEl.textContent = data.error;
+        return;
+      }
+
       sessionStorage.setItem('pendingJob', JSON.stringify({
         category,
         description,
         urgency: selectedUrgency,
         location,
-        locationNotes: document.getElementById('locationNotes').value.trim()
+        locationNotes: document.getElementById('locationNotes').value.trim(),
+        photos,
+        assessmentId: data.assessment.id,
+        estimateMin: data.assessment.total_min,
+        estimateMax: data.assessment.total_max
       }));
 
-      window.location.href = `/matches.html?category=${encodeURIComponent(category)}`;
+      renderEstimate(data.assessment);
     });
+
+    const COMPLEXITY_COLORS = { EASY: '#0B6E4F', MEDIUM: '#D97706', COMPLEX: '#DC2626', UNKNOWN: '#6B7280' };
+    const CONFIDENCE_STYLE = {
+      HIGH: { bg: '#E6F4EC', color: '#0B6E4F', label: '🟢 High confidence' },
+      MEDIUM: { bg: '#FEF3C7', color: '#92400E', label: '🟡 Medium confidence' },
+      LOW: { bg: '#FEE2E2', color: '#B91C1C', label: '🔴 Low confidence — more info would help' }
+    };
+
+    function renderEstimate(a) {
+      const step = document.getElementById('estimateStep');
+      step.style.display = 'block';
+      const conf = CONFIDENCE_STYLE[a.confidence] || CONFIDENCE_STYLE.MEDIUM;
+      const materials = Array.isArray(a.likely_materials) ? a.likely_materials : JSON.parse(a.likely_materials || '[]');
+      const questions = Array.isArray(a.questions) ? a.questions : JSON.parse(a.questions || '[]');
+
+      step.innerHTML = `
+        <div class="estimate-card">
+          <div class="est-service"><svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(a.service)}" stroke-width="2" style="width:16px;height:16px;">${categoryIcon(a.service)}</svg>${escapeHtml(a.service)}</div>
+          <h2>${escapeHtml(a.job_type)}</h2>
+          <p class="est-summary">${escapeHtml(a.problem_summary)}</p>
+
+          <div class="est-complexity"><span class="dot" style="background:${COMPLEXITY_COLORS[a.complexity] || '#6B7280'};"></span>Complexity: ${escapeHtml(a.complexity)}</div>
+
+          ${materials.length ? `<div class="est-materials">Likely materials<ul>${materials.map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul></div>` : ''}
+
+          <div class="est-cost-box">
+            <span class="est-label">Estimated cost</span>
+            <div class="est-total">UGX ${a.total_min.toLocaleString()} – ${a.total_max.toLocaleString()}</div>
+            <div class="est-breakdown">
+              <div><strong>UGX ${a.labour_min.toLocaleString()} – ${a.labour_max.toLocaleString()}</strong>Labour</div>
+              <div><strong>UGX ${a.materials_min.toLocaleString()} – ${a.materials_max.toLocaleString()}</strong>Materials</div>
+            </div>
+          </div>
+
+          <div class="est-confidence" style="background:${conf.bg}; color:${conf.color};">${conf.label}</div>
+
+          ${a.requires_inspection ? `
+            <div class="est-inspection-note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+              <span>A pro may need to inspect the job before confirming the final price. This is an estimate, not a final price.</span>
+            </div>` : ''}
+
+          ${questions.length ? `
+            <div class="est-questions">
+              <strong>A few quick questions could improve this estimate:</strong>
+              <ol>${questions.map(q => `<li>${escapeHtml(q)}</li>`).join('')}</ol>
+              <p style="margin:0.5rem 0 0; color:var(--ink-soft);">Feel free to add these details to your description and try again, or continue as-is.</p>
+            </div>` : ''}
+
+          <button type="button" onclick="proceedToMatches()">Find a Handyman →</button>
+          <button type="button" class="btn-outline" style="margin-top:0.6rem;" onclick="backToForm()">Edit description</button>
+        </div>
+      `;
+    }
+
+    function proceedToMatches() {
+      window.location.href = `/matches.html?category=${encodeURIComponent(category)}`;
+    }
+
+    function backToForm() {
+      document.getElementById('estimateStep').style.display = 'none';
+      document.getElementById('formStep').style.display = 'block';
+      document.getElementById('backLink').style.display = 'inline-block';
+    }
   </script>
 </body>
 </html>

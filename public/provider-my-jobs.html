@@ -68,33 +68,84 @@
 
       filtered.forEach(j => {
         const meta = STATUS_META[j.status];
+        const currentAmount = j.final_amount != null ? j.final_amount : j.estimate_amount;
         const card = document.createElement('div');
         card.className = 'job-card fade-in-up';
         card.innerHTML = `
           <div class="job-top">
             <div>
               <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
-              <p class="job-meta">${escapeHtml(j.location)} · UGX ${j.estimate_amount.toLocaleString()}</p>
+              <p class="job-meta">${escapeHtml(j.location)} · UGX ${currentAmount.toLocaleString()}${j.final_amount != null ? ' (price changed)' : ''}</p>
             </div>
             <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
           </div>
           <p class="job-desc">${escapeHtml(j.description)}</p>
+          ${j.pending_price_change_id ? `<p class="job-meta" style="color:var(--warning); font-weight:600;">⏳ Price change pending client approval</p>` : ''}
+          ${j.status === 'completed' && j.payment_id ? `<p class="job-meta" style="color:var(--primary-deep); font-weight:600;">✓ Cash payment recorded</p>` : ''}
           <div class="job-actions" data-actions></div>
         `;
+        const actions = card.querySelector('[data-actions]');
         if (j.status === 'accepted') {
           const btn = document.createElement('button');
           btn.className = 'small-btn contact-btn';
           btn.textContent = 'Mark completed';
           btn.onclick = () => complete(j.id);
-          card.querySelector('[data-actions]').appendChild(btn);
+          actions.appendChild(btn);
+
+          if (!j.pending_price_change_id) {
+            const priceBtn = document.createElement('button');
+            priceBtn.className = 'small-btn btn-outline';
+            priceBtn.textContent = 'Request price change';
+            priceBtn.onclick = () => openPriceChangeModal(j.id, currentAmount);
+            actions.appendChild(priceBtn);
+          }
+        }
+        if (j.status === 'completed' && !j.payment_id) {
+          const payBtn = document.createElement('button');
+          payBtn.className = 'small-btn contact-btn';
+          payBtn.textContent = 'Mark as paid (cash)';
+          payBtn.onclick = () => markPaid(j.id);
+          actions.appendChild(payBtn);
         }
         const messageBtn = document.createElement('button');
         messageBtn.className = 'small-btn btn-outline';
         messageBtn.textContent = 'Message';
         messageBtn.onclick = () => window.location.href = `/message-thread.html?jobId=${j.id}`;
-        card.querySelector('[data-actions]').appendChild(messageBtn);
+        actions.appendChild(messageBtn);
         list.appendChild(card);
       });
+    }
+
+    function openPriceChangeModal(jobId, currentAmount) {
+      const labour = prompt(`Current price: UGX ${currentAmount.toLocaleString()}\n\nNew labour amount (UGX):`);
+      if (labour === null) return;
+      const materials = prompt('New materials amount (UGX):');
+      if (materials === null) return;
+      const reason = prompt('Why is the price changing? (shown to the client)');
+      if (!reason) return;
+
+      fetch(`/api/jobs/${jobId}/price-change`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ labourAmount: parseInt(labour, 10), materialsAmount: parseInt(materials, 10), reason })
+      })
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok) { showToast(data.error, 'error'); return; }
+          showToast('Price change request sent to the client.', 'success');
+          loadJobs();
+        });
+    }
+
+    async function markPaid(jobId) {
+      if (!confirm('Confirm you have received cash payment for this job?')) return;
+      const res = await fetch(`/api/jobs/${jobId}/payment`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'cash' })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Payment recorded.', 'success');
+      loadJobs();
     }
 
     async function complete(id) {

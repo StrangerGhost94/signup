@@ -184,6 +184,14 @@ async function initDb() {
     ALTER TABLE job_requests ADD COLUMN IF NOT EXISTS estimate_amount INTEGER DEFAULT 0
   `);
 
+  // Migration: the actually-agreed price, separate from the original
+  // estimate. NULL means "no price change has ever been approved — the
+  // original estimate stands." Only ever set via an accepted price-change
+  // request, never directly by a provider.
+  await pool.query(`
+    ALTER TABLE job_requests ADD COLUMN IF NOT EXISTS final_amount INTEGER
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS messages (
       id SERIAL PRIMARY KEY,
@@ -436,7 +444,86 @@ async function initDb() {
     }
   }
 
-  // Seed a few sample listings the first time, so the client search page
+  // ============================================================
+  // AI JOB ASSESSMENT & PRICING ENGINE — PHASES 1-4
+  // The AI identifies WHAT a job is; this pricing engine (not the AI)
+  // determines HOW MUCH it costs, using admin-configurable rules. If no
+  // AI provider is configured, or the AI call fails, the app falls back
+  // to exactly the static per-category estimate that already existed —
+  // nothing about the existing request/matches flow breaks.
+  // ============================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pricing_rules (
+      id SERIAL PRIMARY KEY,
+      service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+      job_type TEXT NOT NULL DEFAULT 'general',
+      labour_min INTEGER NOT NULL,
+      labour_max INTEGER NOT NULL,
+      materials_min INTEGER NOT NULL DEFAULT 0,
+      materials_max INTEGER NOT NULL DEFAULT 0,
+      urgency_now_fee INTEGER NOT NULL DEFAULT 0,
+      urgency_today_fee INTEGER NOT NULL DEFAULT 0,
+      urgency_schedule_fee INTEGER NOT NULL DEFAULT 0,
+      distance_5_10_fee INTEGER NOT NULL DEFAULT 0,
+      distance_10plus_fee INTEGER NOT NULL DEFAULT 0,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(service_id, job_type)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS job_assessments (
+      id SERIAL PRIMARY KEY,
+      client_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      job_id INTEGER REFERENCES job_requests(id) ON DELETE SET NULL,
+      description TEXT NOT NULL,
+      photos JSONB NOT NULL DEFAULT '[]',
+      service TEXT,
+      job_type TEXT,
+      problem_summary TEXT,
+      complexity TEXT CHECK (complexity IN ('EASY','MEDIUM','COMPLEX','UNKNOWN')),
+      likely_materials JSONB NOT NULL DEFAULT '[]',
+      labour_min INTEGER, labour_max INTEGER,
+      materials_min INTEGER, materials_max INTEGER,
+      total_min INTEGER, total_max INTEGER,
+      confidence TEXT CHECK (confidence IN ('HIGH','MEDIUM','LOW')),
+      requires_inspection BOOLEAN NOT NULL DEFAULT TRUE,
+      questions JSONB NOT NULL DEFAULT '[]',
+      ai_raw_response JSONB,
+      source TEXT NOT NULL DEFAULT 'FALLBACK' CHECK (source IN ('AI','FALLBACK')),
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Seed pricing rules from the existing static estimate ranges, split
+  // roughly 60% labour / 40% materials as an editable starting point —
+  // this is exactly the "existing pricing" the pricing engine now reads
+  // instead of ever letting the AI invent a number.
+  const PRICING_SEED = {
+    'Plumbing': { lMin: 18000, lMax: 36000, mMin: 12000, mMax: 24000 },
+    'Electrical': { lMin: 24000, lMax: 48000, mMin: 16000, mMax: 32000 },
+    'Carpentry': { lMin: 21000, lMax: 54000, mMin: 14000, mMax: 36000 },
+    'Painting': { lMin: 90000, lMax: 300000, mMin: 60000, mMax: 200000 },
+    'Cleaning': { lMin: 15000, lMax: 42000, mMin: 10000, mMax: 28000 },
+    'Gardening': { lMin: 12000, lMax: 36000, mMin: 8000, mMax: 24000 },
+    'Moving': { lMin: 48000, lMax: 150000, mMin: 32000, mMax: 100000 },
+    'Mechanical': { lMin: 30000, lMax: 120000, mMin: 20000, mMax: 80000 }
+  };
+  for (const [name, r] of Object.entries(PRICING_SEED)) {
+    const svc = await pool.query('SELECT id FROM services WHERE name = $1', [name]);
+    if (svc.rows.length > 0) {
+      await pool.query(
+        `INSERT INTO pricing_rules (service_id, job_type, labour_min, labour_max, materials_min, materials_max, urgency_now_fee, urgency_today_fee, distance_5_10_fee, distance_10plus_fee)
+         VALUES ($1, 'general', $2, $3, $4, $5, 15000, 5000, 5000, 10000)
+         ON CONFLICT (service_id, job_type) DO NOTHING`,
+        [svc.rows[0].id, r.lMin, r.lMax, r.mMin, r.mMax]
+      );
+    }
+  }
+
+
   // isn't empty before any real providers have signed up. These have no
   // user_id, so they're not editable through the provider dashboard.
   const { rows } = await pool.query('SELECT COUNT(*) FROM providers');
@@ -471,6 +558,17 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many attempts. Please wait a few minutes and try again.' }
+});
+
+// AI calls cost real money per request — cap much more tightly than
+// general auth actions to prevent runaway spend from abuse or accidental
+// retry loops (see spec section 19, "cost control").
+const aiAssessLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many assessment requests. Please wait a few minutes and try again.' }
 });
 
 function requireLogin(req, res, next) {
@@ -519,6 +617,148 @@ const identityVerificationProvider = {
     return { automated: false, status: 'PENDING', note: 'No verification provider configured — awaiting manual admin review.' };
   }
 };
+
+// --- AI job assessment: classifier + strict schema validation ---
+// The AI's only job is to say WHAT the job is (service, job type,
+// complexity, likely materials). It never gets the final say on price —
+// see computePricingEngine() below, which is the only source of the
+// numbers actually shown to the customer.
+
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || null;
+const VALID_SERVICES = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Gardening', 'Moving', 'Mechanical', 'General Handyman', 'Other'];
+const VALID_COMPLEXITY = ['EASY', 'MEDIUM', 'COMPLEX', 'UNKNOWN'];
+const VALID_CONFIDENCE = ['HIGH', 'MEDIUM', 'LOW'];
+
+function validateAssessmentShape(obj) {
+  if (!obj || typeof obj !== 'object') return 'Response was not an object.';
+  if (!VALID_SERVICES.includes(obj.service)) return 'Invalid or missing service.';
+  if (typeof obj.job_type !== 'string' || !obj.job_type) return 'Missing job_type.';
+  if (typeof obj.problem_summary !== 'string' || !obj.problem_summary) return 'Missing problem_summary.';
+  if (!VALID_COMPLEXITY.includes(obj.complexity)) return 'Invalid complexity.';
+  if (!Array.isArray(obj.likely_materials)) return 'likely_materials must be an array.';
+  if (!VALID_CONFIDENCE.includes(obj.confidence)) return 'Invalid confidence.';
+  if (typeof obj.requires_inspection !== 'boolean') return 'requires_inspection must be a boolean.';
+  if (!Array.isArray(obj.questions)) return 'questions must be an array.';
+  if (obj.questions.length > 5) return 'Too many questions.';
+  return null;
+}
+
+const AI_SYSTEM_PROMPT = `You are a job classifier for HandyLink, a home-services marketplace in Uganda. A customer describes a problem, optionally with photos. Your ONLY job is to identify what kind of job this is — never estimate prices, HandyLink's own pricing engine does that.
+
+Respond with ONLY a JSON object, no other text, matching exactly this shape:
+{
+  "service": one of ["Plumbing","Electrical","Carpentry","Painting","Cleaning","Gardening","Moving","Mechanical","General Handyman","Other"],
+  "job_type": short string, e.g. "Kitchen sink leak",
+  "problem_summary": one or two sentences, using cautious language ("appears to be", "likely", "cannot confirm without inspection") — never claim certainty, especially from a photo,
+  "complexity": one of ["EASY","MEDIUM","COMPLEX","UNKNOWN"] — use UNKNOWN rather than guessing,
+  "likely_materials": array of short strings, can be empty,
+  "confidence": one of ["HIGH","MEDIUM","LOW"],
+  "requires_inspection": boolean,
+  "questions": array of at most 3-5 short follow-up questions if genuinely important information is missing, else empty array
+}
+
+For anything involving electrical work, gas, structural/load-bearing work, or other dangerous work, set requires_inspection to true and do not suggest the customer attempt it themselves in problem_summary.
+Never include a price, currency amount, or cost figure anywhere in your response.`;
+
+async function callAiJobClassifier(description, photos) {
+  if (!ANTHROPIC_API_KEY) {
+    return { ok: false, reason: 'not_configured' };
+  }
+
+  const content = [{ type: 'text', text: description }];
+  (photos || []).slice(0, 3).forEach(photo => {
+    const match = /^data:(image\/\w+);base64,(.+)$/.exec(photo);
+    if (match) {
+      content.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } });
+    }
+  });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 700,
+          system: AI_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content }]
+        })
+      });
+      if (!response.ok) {
+        console.error('AI classifier HTTP error:', response.status, await response.text().catch(() => ''));
+        continue;
+      }
+      const data = await response.json();
+      const text = (data.content || []).map(b => b.text || '').join('');
+      let parsed;
+      try {
+        parsed = JSON.parse(text.trim().replace(/^```json\s*|\s*```$/g, ''));
+      } catch (err) {
+        continue; // retry once on invalid JSON
+      }
+      const error = validateAssessmentShape(parsed);
+      if (error) {
+        console.error('AI classifier schema error:', error);
+        continue; // retry once on schema mismatch
+      }
+      return { ok: true, assessment: parsed, raw: data };
+    } catch (err) {
+      console.error('AI classifier request failed:', err.message);
+    }
+  }
+  return { ok: false, reason: 'ai_failed' };
+}
+
+// The pricing engine: the only thing allowed to produce the numbers shown
+// to a customer. Reads admin-configurable pricing_rules; if none exist
+// for a service, falls back to the flat ESTIMATE_MIDPOINTS-derived range.
+async function computePricingEngine({ serviceName, urgency, distanceKm }) {
+  const svc = await pool.query('SELECT id FROM services WHERE name = $1', [serviceName]);
+  let rule = null;
+  if (svc.rows.length > 0) {
+    const ruleResult = await pool.query(
+      `SELECT * FROM pricing_rules WHERE service_id = $1 AND job_type = 'general' AND active = TRUE`,
+      [svc.rows[0].id]
+    );
+    rule = ruleResult.rows[0] || null;
+  }
+
+  if (!rule) {
+    const midpoint = ESTIMATE_MIDPOINTS[serviceName] || 40000;
+    return {
+      labourMin: Math.round(midpoint * 0.5), labourMax: Math.round(midpoint * 0.9),
+      materialsMin: Math.round(midpoint * 0.3), materialsMax: Math.round(midpoint * 0.6),
+      totalMin: Math.round(midpoint * 0.8), totalMax: Math.round(midpoint * 1.5),
+      source: 'fallback_midpoint'
+    };
+  }
+
+  let urgencyFee = 0;
+  if (urgency === 'now') urgencyFee = rule.urgency_now_fee;
+  else if (urgency === 'today') urgencyFee = rule.urgency_today_fee;
+  else if (urgency === 'schedule') urgencyFee = rule.urgency_schedule_fee;
+
+  let distanceFee = 0;
+  if (typeof distanceKm === 'number') {
+    if (distanceKm > 10) distanceFee = rule.distance_10plus_fee;
+    else if (distanceKm > 5) distanceFee = rule.distance_5_10_fee;
+  }
+
+  return {
+    labourMin: rule.labour_min + urgencyFee,
+    labourMax: rule.labour_max + urgencyFee,
+    materialsMin: rule.materials_min,
+    materialsMax: rule.materials_max,
+    totalMin: rule.labour_min + rule.materials_min + urgencyFee + distanceFee,
+    totalMax: rule.labour_max + rule.materials_max + urgencyFee + distanceFee,
+    source: 'pricing_rules'
+  };
+}
 
 function requireRole(role) {
   return (req, res, next) => {
@@ -978,7 +1218,24 @@ app.get('/api/categories', requireLogin, asyncHandler(async (req, res) => {
 
 app.get('/api/workers', requireLogin, asyncHandler(async (req, res) => {
   const { search, category } = req.query;
-  const result = await pool.query(`SELECT * FROM providers WHERE approval_status = 'APPROVED' ORDER BY rating DESC, name`);
+  const result = await pool.query(`
+    SELECT p.*,
+      COALESCE((SELECT status FROM verifications WHERE provider_id = p.id AND type = 'identity'), 'PENDING') AS identity_status,
+      COALESCE((SELECT status FROM verifications WHERE provider_id = p.id AND type = 'phone'), 'PENDING') AS phone_status,
+      (SELECT COUNT(*)::int FROM job_requests WHERE provider_id = p.id AND status = 'completed') AS completed_jobs,
+      EXISTS(
+        SELECT 1 FROM worker_services ws JOIN services s ON s.id = ws.service_id
+        WHERE ws.provider_id = p.id AND s.name = p.category AND ws.verification_status = 'VERIFIED'
+      ) AS category_verified,
+      (
+        SELECT COALESCE(array_agg(s.name ORDER BY s.name), ARRAY[]::text[])
+        FROM worker_services ws JOIN services s ON s.id = ws.service_id
+        WHERE ws.provider_id = p.id AND ws.verification_status = 'VERIFIED'
+      ) AS verified_services
+    FROM providers p
+    WHERE p.approval_status = 'APPROVED'
+    ORDER BY p.rating DESC, p.name
+  `);
   let results = result.rows;
 
   if (category) {
@@ -1024,12 +1281,17 @@ app.get('/api/provider/verification-status', requireRole('provider'), asyncHandl
     'SELECT credential_type, issuing_organization, status, expiry_date FROM credentials WHERE provider_id = $1 ORDER BY created_at DESC',
     [providerId]
   );
+  const jobCount = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM job_requests WHERE provider_id = $1 AND status = 'completed'`,
+    [providerId]
+  );
 
   res.json({
     approvalStatus: providerResult.rows[0].approval_status,
     verifications: verifications.rows,
     services: services.rows,
-    credentials: credentials.rows
+    credentials: credentials.rows,
+    completedJobs: jobCount.rows[0].count
   });
 }));
 
@@ -1102,8 +1364,68 @@ app.put('/api/provider/me', requireRole('provider'), async (req, res) => {
 
 const VALID_URGENCY = ['now', 'today', 'schedule'];
 
+app.post('/api/jobs/assess', requireRole('client'), aiAssessLimiter, asyncHandler(async (req, res) => {
+  const { description, photos, category, urgency, distanceKm } = req.body;
+  if (!isNonEmpty(description)) {
+    return res.status(400).json({ error: 'Please describe the job.' });
+  }
+  if (photos && (!Array.isArray(photos) || photos.some(p => !isValidPhoto(p)))) {
+    return res.status(400).json({ error: 'One of your photos is too large or in an unsupported format.' });
+  }
+  if (urgency && !VALID_URGENCY.includes(urgency)) {
+    return res.status(400).json({ error: 'Invalid urgency value.' });
+  }
+
+  const aiResult = await callAiJobClassifier(description, photos);
+  let assessment, source;
+
+  if (aiResult.ok) {
+    assessment = aiResult.assessment;
+    source = 'AI';
+  } else {
+    // Graceful fallback: use the category the client already picked (if
+    // any) so the existing flow keeps working exactly as it did before
+    // AI existed. This is the "marketplace must still function without
+    // AI" requirement, not a special case bolted on separately.
+    assessment = {
+      service: VALID_SERVICES.includes(category) ? category : 'General Handyman',
+      job_type: 'General',
+      problem_summary: 'Automatic assessment isn\u2019t available right now — a pro will assess this in person.',
+      complexity: 'UNKNOWN',
+      likely_materials: [],
+      confidence: 'LOW',
+      requires_inspection: true,
+      questions: []
+    };
+    source = 'FALLBACK';
+  }
+
+  const pricing = await computePricingEngine({ serviceName: assessment.service, urgency, distanceKm });
+
+  const result = await pool.query(
+    `INSERT INTO job_assessments
+       (client_user_id, description, photos, service, job_type, problem_summary, complexity, likely_materials,
+        labour_min, labour_max, materials_min, materials_max, total_min, total_max, confidence, requires_inspection,
+        questions, ai_raw_response, source)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+     RETURNING *`,
+    [
+      req.session.userId, description.trim(), JSON.stringify(photos || []),
+      assessment.service, assessment.job_type, assessment.problem_summary, assessment.complexity,
+      JSON.stringify(assessment.likely_materials || []),
+      pricing.labourMin, pricing.labourMax, pricing.materialsMin, pricing.materialsMax,
+      pricing.totalMin, pricing.totalMax, assessment.confidence, assessment.requires_inspection,
+      JSON.stringify(assessment.questions || []),
+      aiResult.ok ? JSON.stringify(aiResult.raw) : null,
+      source
+    ]
+  );
+
+  res.json({ assessment: result.rows[0] });
+}));
+
 app.post('/api/bookings', requireRole('client'), async (req, res) => {
-  const { providerId, category, description, urgency, location, locationNotes } = req.body;
+  const { providerId, category, description, urgency, location, locationNotes, assessmentId } = req.body;
 
   if (!providerId || !isNonEmpty(category) || !isNonEmpty(description) || !isNonEmpty(location)) {
     return res.status(400).json({ error: 'Please fill in the job description and location.' });
@@ -1121,11 +1443,28 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
       return res.status(403).json({ error: 'This provider isn\u2019t approved to receive jobs yet.' });
     }
 
+    let estimateAmount = ESTIMATE_MIDPOINTS[category.trim()] || 40000;
+    let linkedAssessment = null;
+    if (assessmentId) {
+      const assessResult = await pool.query(
+        'SELECT * FROM job_assessments WHERE id = $1 AND client_user_id = $2',
+        [assessmentId, req.session.userId]
+      );
+      if (assessResult.rows.length > 0) {
+        linkedAssessment = assessResult.rows[0];
+        estimateAmount = Math.round((linkedAssessment.total_min + linkedAssessment.total_max) / 2);
+      }
+    }
+
     const result = await pool.query(
       `INSERT INTO job_requests (client_user_id, provider_id, category, description, urgency, location, location_notes, estimate_amount)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [req.session.userId, providerId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '', ESTIMATE_MIDPOINTS[category.trim()] || 40000]
+      [req.session.userId, providerId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '', estimateAmount]
     );
+
+    if (linkedAssessment) {
+      await pool.query('UPDATE job_assessments SET job_id = $1 WHERE id = $2', [result.rows[0].id, linkedAssessment.id]);
+    }
 
     if (providerCheck.rows[0].user_id) {
       createNotification(
@@ -1146,10 +1485,12 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
 app.get('/api/bookings/mine', requireRole('client'), asyncHandler(async (req, res) => {
   const result = await pool.query(
     `SELECT jr.*, p.name AS provider_name, p.phone AS provider_phone,
-            (r.id IS NOT NULL) AS reviewed
+            (r.id IS NOT NULL) AS reviewed,
+            pcr.id AS pending_price_change_id, pcr.new_amount AS pending_new_amount, pcr.reason AS pending_price_reason
      FROM job_requests jr
      JOIN providers p ON p.id = jr.provider_id
      LEFT JOIN reviews r ON r.job_id = jr.id
+     LEFT JOIN price_change_requests pcr ON pcr.job_id = jr.id AND pcr.status = 'PENDING'
      WHERE jr.client_user_id = $1
      ORDER BY jr.created_at DESC`,
     [req.session.userId]
@@ -1166,9 +1507,14 @@ app.get('/api/provider/jobs', requireRole('provider'), asyncHandler(async (req, 
   }
 
   const result = await pool.query(
-    `SELECT jr.*, u.email AS client_email
+    `SELECT jr.*, u.email AS client_email,
+            pcr.id AS pending_price_change_id, pcr.status AS pending_price_status,
+            (SELECT id FROM payments WHERE job_id = jr.id) AS payment_id,
+            ja.complexity AS ai_complexity, ja.likely_materials AS ai_materials, ja.confidence AS ai_confidence
      FROM job_requests jr
      JOIN users u ON u.id = jr.client_user_id
+     LEFT JOIN price_change_requests pcr ON pcr.job_id = jr.id AND pcr.status = 'PENDING'
+     LEFT JOIN job_assessments ja ON ja.job_id = jr.id
      WHERE jr.provider_id = $1
      ORDER BY jr.created_at DESC`,
     [providerId]
@@ -1220,13 +1566,13 @@ app.get('/api/provider/earnings', requireRole('provider'), asyncHandler(async (r
   }
 
   const completedResult = await pool.query(
-    `SELECT COUNT(*)::int AS count, COALESCE(SUM(estimate_amount), 0)::int AS total
+    `SELECT COUNT(*)::int AS count, COALESCE(SUM(COALESCE(final_amount, estimate_amount)), 0)::int AS total
      FROM job_requests WHERE provider_id = $1 AND status = 'completed'`,
     [providerId]
   );
   const providerResult = await pool.query('SELECT rating FROM providers WHERE id = $1', [providerId]);
   const recentResult = await pool.query(
-    `SELECT jr.id, jr.category, jr.description, jr.estimate_amount, jr.updated_at, u.email AS client_email,
+    `SELECT jr.id, jr.category, jr.description, COALESCE(jr.final_amount, jr.estimate_amount) AS estimate_amount, jr.updated_at, u.email AS client_email,
             r.rating AS review_rating, r.comment AS review_comment
      FROM job_requests jr
      JOIN users u ON u.id = jr.client_user_id
@@ -1253,6 +1599,157 @@ app.put('/api/provider/jobs/:id/decline', requireRole('provider'), (req, res) =>
 app.put('/api/provider/jobs/:id/complete', requireRole('provider'), (req, res) =>
   updateJobStatus(req, res, { from: 'accepted', to: 'completed' })
 );
+
+// --- Price change protection ---
+// A provider cannot bill more than the original estimate unless the
+// client has explicitly accepted a price-change request. job_requests.
+// final_amount is the only field earnings/payment logic ever reads —
+// providers cannot write to it directly, only through this approval flow.
+
+app.post('/api/jobs/:id/price-change', requireRole('provider'), asyncHandler(async (req, res) => {
+  const { labourAmount, materialsAmount, reason } = req.body;
+  const labour = parseInt(labourAmount, 10);
+  const materials = parseInt(materialsAmount, 10);
+  if (!Number.isInteger(labour) || labour < 0 || !Number.isInteger(materials) || materials < 0) {
+    return res.status(400).json({ error: 'Please enter valid labour and materials amounts.' });
+  }
+  if (!isNonEmpty(reason)) {
+    return res.status(400).json({ error: 'Please explain why the price is changing.' });
+  }
+
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+
+  const jobResult = await pool.query(
+    `SELECT * FROM job_requests WHERE id = $1 AND provider_id = $2 AND status = 'accepted'`,
+    [req.params.id, providerId]
+  );
+  if (jobResult.rows.length === 0) {
+    return res.status(404).json({ error: 'This job isn\u2019t in a state that allows a price change.' });
+  }
+  const job = jobResult.rows[0];
+
+  const existingPending = await pool.query(
+    `SELECT id FROM price_change_requests WHERE job_id = $1 AND status = 'PENDING'`,
+    [req.params.id]
+  );
+  if (existingPending.rows.length > 0) {
+    return res.status(409).json({ error: 'There\u2019s already a pending price change request for this job.' });
+  }
+
+  const originalAmount = job.final_amount ?? job.estimate_amount;
+  const newAmount = labour + materials;
+
+  const result = await pool.query(
+    `INSERT INTO price_change_requests (job_id, requested_by, original_amount, new_amount, labour_amount, materials_amount, reason)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [req.params.id, req.session.userId, originalAmount, newAmount, labour, materials, reason.trim()]
+  );
+
+  await createAuditLog(req.session.userId, 'PRICE_CHANGE_REQUESTED', 'job', req.params.id, `${originalAmount} -> ${newAmount}: ${reason.trim()}`);
+  await createNotification(job.client_user_id, 'price_change_requested', `Your pro requested a price change for ${job.category}: UGX ${newAmount.toLocaleString()}`, '/dashboard.html#recentJobs');
+
+  res.json({ priceChange: result.rows[0] });
+}));
+
+app.get('/api/jobs/:id/price-changes', requireLogin, asyncHandler(async (req, res) => {
+  // Either party on the job can view its price-change history.
+  const jobResult = await pool.query(
+    `SELECT jr.*, p.user_id AS provider_user_id FROM job_requests jr JOIN providers p ON p.id = jr.provider_id WHERE jr.id = $1`,
+    [req.params.id]
+  );
+  if (jobResult.rows.length === 0) return res.status(404).json({ error: 'Job not found.' });
+  const job = jobResult.rows[0];
+  if (job.client_user_id !== req.session.userId && job.provider_user_id !== req.session.userId) {
+    return res.status(403).json({ error: 'Not authorized.' });
+  }
+  const result = await pool.query('SELECT * FROM price_change_requests WHERE job_id = $1 ORDER BY created_at DESC', [req.params.id]);
+  res.json({ priceChanges: result.rows });
+}));
+
+app.post('/api/price-changes/:id/decide', requireRole('client'), asyncHandler(async (req, res) => {
+  const { decision } = req.body; // 'ACCEPTED' or 'DECLINED'
+  if (!['ACCEPTED', 'DECLINED'].includes(decision)) {
+    return res.status(400).json({ error: 'Invalid decision.' });
+  }
+
+  const pcResult = await pool.query(
+    `SELECT pcr.*, jr.client_user_id, jr.category FROM price_change_requests pcr
+     JOIN job_requests jr ON jr.id = pcr.job_id
+     WHERE pcr.id = $1 AND pcr.status = 'PENDING'`,
+    [req.params.id]
+  );
+  if (pcResult.rows.length === 0) {
+    return res.status(404).json({ error: 'This price change request is no longer pending.' });
+  }
+  const pc = pcResult.rows[0];
+  if (pc.client_user_id !== req.session.userId) {
+    return res.status(403).json({ error: 'Not authorized.' });
+  }
+
+  await pool.query(
+    'UPDATE price_change_requests SET status = $1, decided_at = NOW() WHERE id = $2',
+    [decision, req.params.id]
+  );
+
+  if (decision === 'ACCEPTED') {
+    await pool.query('UPDATE job_requests SET final_amount = $1 WHERE id = $2', [pc.new_amount, pc.job_id]);
+  }
+
+  await createAuditLog(req.session.userId, `PRICE_CHANGE_${decision}`, 'job', pc.job_id, `UGX ${pc.new_amount}`);
+
+  const providerUser = await pool.query(
+    `SELECT p.user_id FROM job_requests jr JOIN providers p ON p.id = jr.provider_id WHERE jr.id = $1`,
+    [pc.job_id]
+  );
+  if (providerUser.rows[0]) {
+    createNotification(
+      providerUser.rows[0].user_id,
+      'price_change_decided',
+      `Your price change for ${pc.category} was ${decision === 'ACCEPTED' ? 'accepted' : 'declined'}.`,
+      '/provider-my-jobs.html'
+    );
+  }
+
+  res.json({ message: decision === 'ACCEPTED' ? 'Price change accepted.' : 'Price change declined.' });
+}));
+
+// --- Payments (cash only for now — no processor integrated) ---
+
+app.post('/api/jobs/:id/payment', requireRole('provider'), asyncHandler(async (req, res) => {
+  const { method } = req.body;
+  if (method !== 'cash') {
+    return res.status(400).json({ error: 'Only cash payments can be recorded until a payment processor is connected.' });
+  }
+
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+
+  const jobResult = await pool.query(
+    `SELECT * FROM job_requests WHERE id = $1 AND provider_id = $2 AND status = 'completed'`,
+    [req.params.id, providerId]
+  );
+  if (jobResult.rows.length === 0) {
+    return res.status(404).json({ error: 'This job isn\u2019t completed yet, or doesn\u2019t belong to you.' });
+  }
+  const job = jobResult.rows[0];
+  const existingPayment = await pool.query('SELECT id FROM payments WHERE job_id = $1', [req.params.id]);
+  if (existingPayment.rows.length > 0) {
+    return res.status(409).json({ error: 'A payment has already been recorded for this job.' });
+  }
+
+  const amount = job.final_amount ?? job.estimate_amount;
+  const result = await pool.query(
+    `INSERT INTO payments (job_id, client_user_id, provider_id, amount, method, status)
+     VALUES ($1,$2,$3,$4,'cash','COMPLETED') RETURNING *`,
+    [req.params.id, job.client_user_id, providerId, amount]
+  );
+
+  await createAuditLog(req.session.userId, 'PAYMENT_RECORDED_CASH', 'job', req.params.id, `UGX ${amount}`);
+  await createNotification(job.client_user_id, 'payment_recorded', `Your pro marked UGX ${amount.toLocaleString()} as paid in cash for ${job.category}.`, '/dashboard.html#recentJobs');
+
+  res.json({ payment: result.rows[0] });
+}));
 
 // --- Reviews ---
 

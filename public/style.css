@@ -1666,3 +1666,69 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .stat-mini span { font-size: 0.7rem; color: var(--ink-soft); }
 .action-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
 .action-row button { width: auto; padding: 0.5rem 0.9rem; font-size: 0.82rem; }
+
+/* --- Trust badges on worker cards --- */
+.trust-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0;
+}
+.trust-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--surface);
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+}
+.trust-badge svg { width: 11px; height: 11px; flex-shrink: 0; }
+.trust-badge-primary { color: var(--primary-deep); background: var(--primary-tint); }
+.trust-meta-line { font-size: 0.8rem; color: var(--ink-soft); margin: 0.2rem 0 0.4rem; }
+
+/* --- AI job assessment estimate card --- */
+.assess-loading {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: var(--ink-soft);
+}
+.assess-loading .spinner {
+  width: 32px; height: 32px; margin: 0 auto 1rem;
+  border: 3px solid var(--line); border-top-color: var(--primary);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.estimate-card {
+  background: var(--bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 1.5rem;
+}
+.estimate-card .est-service { display: flex; align-items: center; gap: 0.5rem; color: var(--ink-soft); font-size: 0.82rem; font-weight: 700; margin-bottom: 0.3rem; }
+.estimate-card h2 { font-size: 1.2rem; font-weight: 800; margin: 0 0 0.75rem; }
+.estimate-card .est-summary { font-size: 0.92rem; color: var(--ink); line-height: 1.5; margin-bottom: 1.1rem; }
+.est-complexity { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 600; margin-bottom: 1rem; }
+.est-complexity .dot { width: 9px; height: 9px; border-radius: 50%; }
+.est-materials { font-size: 0.85rem; color: var(--ink-soft); margin-bottom: 1.1rem; }
+.est-materials ul { margin: 0.3rem 0 0; padding-left: 1.2rem; }
+.est-cost-box { background: var(--surface); border-radius: var(--radius-sm); padding: 1rem 1.1rem; margin-bottom: 1rem; }
+.est-cost-box .est-label { font-size: 0.76rem; color: var(--ink-soft); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.est-cost-box .est-total { font-size: 1.5rem; font-weight: 800; color: var(--primary-deep); margin: 0.2rem 0 0.7rem; }
+.est-breakdown { display: flex; gap: 1.5rem; font-size: 0.82rem; color: var(--ink-soft); }
+.est-breakdown strong { display: block; color: var(--ink); font-size: 0.9rem; }
+.est-confidence { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 600; padding: 0.35rem 0.7rem; border-radius: 999px; margin-bottom: 1rem; }
+.est-inspection-note { display: flex; gap: 0.5rem; background: #FEF3C7; color: #92400E; border-radius: var(--radius-sm); padding: 0.75rem 0.9rem; font-size: 0.82rem; margin-bottom: 1.25rem; }
+.est-inspection-note svg { width: 18px; height: 18px; flex-shrink: 0; }
+.est-questions { background: var(--primary-tint); border-radius: var(--radius-sm); padding: 0.9rem 1rem; margin-bottom: 1.25rem; font-size: 0.85rem; }
+.est-questions ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+
+.photo-upload-strip { display: flex; gap: 0.6rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.photo-thumb { width: 64px; height: 64px; border-radius: var(--radius-sm); object-fit: cover; }
+.photo-add-btn {
+  width: 64px; height: 64px; border-radius: var(--radius-sm); border: 1.5px dashed var(--line);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--ink-soft); flex-shrink: 0;
+}

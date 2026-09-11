@@ -78,6 +78,7 @@
             <span class="status-badge" style="color:${STATUS_META.requested.color}; background:${STATUS_META.requested.bg};">New</span>
           </div>
           <p class="job-desc">${escapeHtml(j.description)}${j.location_notes ? `<br><span class="job-meta">${escapeHtml(j.location_notes)}</span>` : ''}</p>
+          ${j.ai_complexity ? `<p class="job-meta">AI assessment: ${escapeHtml(j.ai_complexity)} complexity${(() => { try { const m = JSON.parse(j.ai_materials || '[]'); return m.length ? ' · ' + m.map(escapeHtml).join(', ') : ''; } catch (e) { return ''; } })()}</p>` : ''}
           <div class="job-actions" data-actions></div>
         `;
         const actions = card.querySelector('[data-actions]');

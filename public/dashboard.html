@@ -210,6 +210,9 @@
       shown.forEach(b => {
         const meta = STATUS_META[b.status] || STATUS_META.requested;
         const color = categoryColor(b.category);
+        const currentAmount = b.final_amount != null ? b.final_amount : b.estimate_amount;
+        const wrap = document.createElement('div');
+
         const item = document.createElement('div');
         item.className = 'recent-job-item';
         item.style.setProperty('--cat-color', color);
@@ -217,7 +220,7 @@
           <div class="recent-job-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${categoryIcon(b.category)}</svg></div>
           <div class="recent-job-info">
             <strong>${escapeHtml(b.category)} — ${escapeHtml(b.description.slice(0, 40))}${b.description.length > 40 ? '…' : ''}</strong>
-            <span>${escapeHtml(b.provider_name)} · ${new Date(b.created_at).toLocaleDateString()}</span>
+            <span>${escapeHtml(b.provider_name)} · UGX ${currentAmount.toLocaleString()} · ${new Date(b.created_at).toLocaleDateString()}</span>
           </div>
           <div class="recent-job-right">
             <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
@@ -228,7 +231,23 @@
         `;
         item.style.cursor = 'pointer';
         item.addEventListener('click', () => showBookingDetail(b));
-        list.appendChild(item);
+        wrap.appendChild(item);
+
+        if (b.pending_price_change_id) {
+          const alertBox = document.createElement('div');
+          alertBox.style.cssText = 'background:#FEF3C7; border-radius:var(--radius-sm); padding:0.85rem 1rem; margin:-0.4rem 0 0.65rem;';
+          alertBox.innerHTML = `
+            <p style="font-size:0.86rem; font-weight:700; margin:0 0 0.2rem; color:#92400E;">Price change requested</p>
+            <p style="font-size:0.84rem; margin:0 0 0.6rem; color:#92400E;">New total: UGX ${b.pending_new_amount.toLocaleString()} — ${escapeHtml(b.pending_price_reason || '')}</p>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="small-btn" style="width:auto; padding:0.4rem 0.8rem; font-size:0.8rem;" onclick="decidePriceChange(${b.pending_price_change_id}, 'ACCEPTED')">Accept UGX ${b.pending_new_amount.toLocaleString()}</button>
+              <button class="small-btn btn-decline" style="width:auto; padding:0.4rem 0.8rem; font-size:0.8rem;" onclick="decidePriceChange(${b.pending_price_change_id}, 'DECLINED')">Decline</button>
+            </div>
+          `;
+          wrap.appendChild(alertBox);
+        }
+
+        list.appendChild(wrap);
       });
 
       if (!bookingsShowAll && data.bookings.length > 8) {
@@ -248,6 +267,18 @@
         openRateModal(b.id);
       }
     }
+
+    window.decidePriceChange = async function (priceChangeId, decision) {
+      const res = await fetch(`/api/price-changes/${priceChangeId}/decide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast(decision === 'ACCEPTED' ? 'Price change accepted.' : 'Price change declined.', 'success');
+      loadBookings();
+    };
 
     window.openRateModal = function (jobId) {
       ratingJobId = jobId;
@@ -402,6 +433,8 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
             ${escapeHtml(w.location)}${distanceLabel ? ` · ${distanceLabel}` : ''}
           </p>
+          <p class="trust-meta-line">${renderTrustMeta(w)}</p>
+          ${renderTrustBadges(w)}
           <p class="bio">${escapeHtml(w.bio)}</p>
           <a href="tel:${w.phone}"><button class="small-btn contact-btn">Contact ${w.phone}</button></a>
         `;

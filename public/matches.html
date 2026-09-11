@@ -46,10 +46,13 @@
     document.getElementById('backLink').href = `/request.html?category=${encodeURIComponent(category)}`;
     document.getElementById('pageTitle').textContent = `${category} pros near you`;
 
-    const estimate = CATEGORY_ESTIMATES[category] || '20,000 – 100,000';
+    const hasAiEstimate = pendingJob && pendingJob.estimateMin != null && pendingJob.estimateMax != null;
+    const estimate = hasAiEstimate
+      ? `${pendingJob.estimateMin.toLocaleString()} – ${pendingJob.estimateMax.toLocaleString()}`
+      : (CATEGORY_ESTIMATES[category] || '20,000 – 100,000');
     document.getElementById('estimateBanner').innerHTML = `
       <span class="amount">UGX ${estimate}</span>
-      <p>Estimated cost based on similar ${escapeHtml((category || '').toLowerCase())} jobs. Final price is confirmed with the pro directly.</p>
+      <p>${hasAiEstimate ? 'Based on your job description' : `Estimated cost based on similar ${escapeHtml((category || '').toLowerCase())} jobs`}. Final price is confirmed with the pro directly.</p>
     `;
 
     let chosenProvider = null;
@@ -125,6 +128,8 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
             ${escapeHtml(w.location)}${distanceLabel ? ` · ${distanceLabel}` : ''}
           </p>
+          <p class="trust-meta-line">${renderTrustMeta(w)}</p>
+          ${renderTrustBadges(w)}
           <p class="bio">${escapeHtml(w.bio)}</p>
 
           <button class="small-btn" data-id="${w.id}" data-name="${escapeHtml(w.name)}">Book ${escapeHtml(w.name.split(' ')[0])}</button>
@@ -143,6 +148,7 @@
         <div class="modal-row"><span>When</span><span>${urgencyMeta ? urgencyMeta.label : escapeHtml(pendingJob.urgency)}</span></div>
         <div class="modal-row"><span>Location</span><span>${escapeHtml(pendingJob.location)}</span></div>
         <div class="modal-row"><span>Estimate</span><span>UGX ${estimate}</span></div>
+        ${renderTrustBadges(provider)}
       `;
       document.getElementById('confirmError').textContent = '';
       openModal(document.getElementById('confirmModal'));
@@ -165,7 +171,8 @@
           description: pendingJob.description,
           urgency: pendingJob.urgency,
           location: pendingJob.location,
-          locationNotes: pendingJob.locationNotes
+          locationNotes: pendingJob.locationNotes,
+          assessmentId: pendingJob.assessmentId
         })
       });
       const data = await res.json();
