@@ -155,6 +155,72 @@ window.compressImageFile = function (file, maxDim, quality) {
   }
 })();
 
+window.promptForLocation = function (onResult) {
+  const KEY = 'locationPromptDismissedSession';
+
+  function actuallyGetPosition() {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => onResult(pos.coords.latitude, pos.coords.longitude),
+      () => onResult(null, null),
+      { timeout: 8000 }
+    );
+  }
+
+  if (!navigator.geolocation) {
+    onResult(null, null);
+    return;
+  }
+
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+      if (status.state === 'granted') {
+        actuallyGetPosition();
+      } else if (status.state === 'denied') {
+        onResult(null, null);
+      } else {
+        showLocationBanner(actuallyGetPosition, onResult);
+      }
+    }).catch(() => showLocationBanner(actuallyGetPosition, onResult));
+  } else {
+    if (sessionStorage.getItem(KEY)) {
+      onResult(null, null);
+      return;
+    }
+    showLocationBanner(actuallyGetPosition, onResult);
+  }
+
+  function showLocationBanner(onAllow, onResultInner) {
+    if (document.querySelector('.location-banner')) return;
+    const banner = document.createElement('div');
+    banner.className = 'install-banner location-banner';
+    banner.innerHTML = `
+      <div class="install-banner-icon" style="background:var(--primary-tint); display:flex; align-items:center; justify-content:center;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="width:20px;height:20px;"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+      </div>
+      <div class="install-banner-text">
+        <strong>See pros near you</strong>
+        <span>Allow location to sort results by distance.</span>
+      </div>
+      <button type="button" class="small-btn" style="width:auto; padding:0.5rem 0.9rem;">Allow</button>
+    `;
+    document.body.appendChild(banner);
+    banner.querySelector('button').addEventListener('click', () => {
+      banner.remove();
+      onAllow();
+    });
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'install-banner-close';
+    closeBtn.setAttribute('aria-label', 'Dismiss');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', () => {
+      banner.remove();
+      sessionStorage.setItem(KEY, '1');
+      onResultInner(null, null);
+    });
+    banner.appendChild(closeBtn);
+  }
+};
+
 window.distanceKm = function (lat1, lon1, lat2, lon2) {
   if ([lat1, lon1, lat2, lon2].some(v => v === null || v === undefined || isNaN(v))) return null;
   const R = 6371;

@@ -58,32 +58,39 @@
 
     function captureMyLocation() {
       return new Promise((resolve) => {
-        if (!navigator.geolocation) { resolve(); return; }
-        navigator.geolocation.getCurrentPosition(
-          (pos) => { myLat = pos.coords.latitude; myLng = pos.coords.longitude; resolve(); },
-          () => resolve(),
-          { timeout: 6000 }
-        );
+        window.promptForLocation((lat, lng) => {
+          myLat = lat;
+          myLng = lng;
+          resolve();
+        });
       });
     }
 
-    async function loadMatches() {
-      document.getElementById('statusLine').textContent = 'Finding pros…';
-      await captureMyLocation();
-      const res = await fetch('/api/workers?category=' + encodeURIComponent(category));
-      const data = await res.json();
-
-      let workers = data.workers;
+    function sortAndRender(workers) {
+      let sorted = workers;
       if (myLat !== null) {
-        workers = workers.map(w => ({ ...w, _distance: distanceKm(myLat, myLng, w.latitude, w.longitude) }));
-        workers.sort((a, b) => {
+        sorted = workers.map(w => ({ ...w, _distance: distanceKm(myLat, myLng, w.latitude, w.longitude) }));
+        sorted.sort((a, b) => {
           if (a._distance === null && b._distance === null) return 0;
           if (a._distance === null) return 1;
           if (b._distance === null) return -1;
           return a._distance - b._distance;
         });
       }
-      renderMatches(workers);
+      renderMatches(sorted);
+    }
+
+    let lastFetchedWorkers = [];
+
+    async function loadMatches() {
+      document.getElementById('statusLine').textContent = 'Finding pros…';
+      captureMyLocation().then(() => {
+        if (myLat !== null) sortAndRender(lastFetchedWorkers);
+      });
+      const res = await fetch('/api/workers?category=' + encodeURIComponent(category));
+      const data = await res.json();
+      lastFetchedWorkers = data.workers;
+      sortAndRender(lastFetchedWorkers);
     }
 
     function renderMatches(workers) {

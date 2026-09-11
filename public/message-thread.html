@@ -16,6 +16,7 @@
       <a href="/messages.html" class="chat-back" aria-label="Back">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
       </a>
+      <div class="avatar" id="otherAvatar" style="width:40px; height:40px; flex-shrink:0;"></div>
       <div>
         <h1 id="otherPartyName">Conversation</h1>
         <span id="jobCategory"></span>
@@ -56,6 +57,9 @@
       const data = await res.json();
       document.getElementById('otherPartyName').textContent = data.job.otherPartyName;
       document.getElementById('jobCategory').textContent = data.job.category;
+      document.getElementById('otherAvatar').innerHTML = data.job.otherPartyPhoto
+        ? `<img class="avatar-img" src="${data.job.otherPartyPhoto}" alt="">`
+        : initials(data.job.otherPartyName);
 
       const presenceEl = document.getElementById('presenceStatus');
       if (data.job.otherPartyLastActive) {
@@ -81,7 +85,16 @@
         if (m.sender_user_id === window.currentUserId) lastMineIndex = i;
       });
 
+      let lastDateLabel = null;
       data.messages.forEach((m, i) => {
+        const dateLabel = new Date(m.created_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+        if (dateLabel !== lastDateLabel) {
+          const divider = document.createElement('div');
+          divider.style.cssText = 'text-align:center; font-size:0.75rem; color:var(--ink-soft); margin:0.5rem 0;';
+          divider.textContent = dateLabel;
+          thread.appendChild(divider);
+          lastDateLabel = dateLabel;
+        }
         const mine = m.sender_user_id === window.currentUserId;
         const bubble = document.createElement('div');
         bubble.className = 'chat-bubble ' + (mine ? 'mine' : 'theirs');

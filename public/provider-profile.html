@@ -29,6 +29,9 @@
         </header>
 
         <p class="job-meta" style="margin:-0.5rem 0 1.5rem;" id="welcome"></p>
+        <div id="locationReminder" style="display:none; background:var(--primary-tint); border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem; color:var(--primary-deep);">
+          📍 Set your location so nearby clients can find you faster — use the button below.
+        </div>
 
         <div class="provider-layout">
           <form id="editForm" class="provider-form">
@@ -69,6 +72,30 @@
             <div class="worker-card" id="previewCard"></div>
           </div>
         </div>
+
+        <h2 class="section-title">Settings</h2>
+        <form id="passwordForm" class="provider-form" style="max-width:420px; margin-bottom:1.25rem;">
+          <div class="error" id="pwError"></div>
+          <div class="success" id="pwSuccess"></div>
+          <label>Current password</label>
+          <input type="password" id="currentPassword" required>
+          <label>New password</label>
+          <input type="password" id="newPassword" required>
+          <div class="pw-checklist" id="pwChecklist">
+            <span id="pwLength"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>8+ characters</span>
+            <span id="pwLetter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>A letter</span>
+            <span id="pwNumber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>A number</span>
+          </div>
+          <button type="submit" class="btn-outline">Change password</button>
+        </form>
+
+        <div class="job-card" style="max-width:420px; margin-bottom:1.25rem;">
+          <a href="/support.html" style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0;"><span>Help & Support</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M9 6l6 6-6 6"/></svg></a>
+          <a href="/terms.html" style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0;"><span>Terms of Service</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M9 6l6 6-6 6"/></svg></a>
+          <a href="/privacy.html" style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0;"><span>Privacy Policy</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M9 6l6 6-6 6"/></svg></a>
+        </div>
+
+        <button id="deleteAccountBtn" style="max-width:420px; background:transparent; color:var(--danger); border:1.5px solid var(--danger);">Delete account</button>
       </div>
     </div>
   </div>
@@ -196,6 +223,51 @@
       renderPreview(data.provider);
     });
 
+    document.getElementById('newPassword').addEventListener('input', (e) => {
+      const strength = checkPasswordStrength(e.target.value);
+      ['length', 'letter', 'number'].forEach(key => {
+        document.getElementById('pw' + key.charAt(0).toUpperCase() + key.slice(1)).classList.toggle('met', strength[key]);
+      });
+    });
+
+    document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('pwError');
+      const successEl = document.getElementById('pwSuccess');
+      errorEl.textContent = '';
+      successEl.textContent = '';
+
+      const res = await fetch('/api/me/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: document.getElementById('currentPassword').value,
+          newPassword: document.getElementById('newPassword').value
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errorEl.textContent = data.error;
+        return;
+      }
+      document.getElementById('passwordForm').reset();
+      successEl.textContent = 'Password changed.';
+      showToast('Password changed.', 'success');
+    });
+
+    document.getElementById('deleteAccountBtn').addEventListener('click', async () => {
+      if (!confirm('Delete your account permanently? This removes your listing, bookings, messages, and reviews. This cannot be undone.')) {
+        return;
+      }
+      const res = await fetch('/api/me', { method: 'DELETE' });
+      if (res.ok) {
+        window.location.href = '/index.html';
+      } else {
+        showToast('Something went wrong deleting your account.', 'error');
+      }
+    });
+
     document.getElementById('logoutBtn').addEventListener('click', async () => {
       await fetch('/api/logout', { method: 'POST' });
       window.location.href = '/login.html';
@@ -219,6 +291,7 @@
         document.getElementById('bio').value = p.bio;
         currentPhoto = p.photo;
         if (p.photo) document.getElementById('photoPreview').innerHTML = `<img src="${p.photo}" alt="">`;
+        if (!p.latitude) document.getElementById('locationReminder').style.display = 'block';
         renderPreview(p);
       }
     })();

@@ -130,6 +130,17 @@ async function initDb() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_messages (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      email TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS notifications (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -584,6 +595,53 @@ app.put('/api/me', requireLogin, asyncHandler(async (req, res) => {
   res.json(result.rows[0]);
 }));
 
+app.put('/api/me/password', requireLogin, asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!isStrongPassword(newPassword)) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters and include a letter and a number.' });
+  }
+  const result = await pool.query('SELECT password_hash FROM users WHERE id = $1', [req.session.userId]);
+  const valid = await bcrypt.compare(currentPassword || '', result.rows[0].password_hash);
+  if (!valid) {
+    return res.status(401).json({ error: 'Current password is incorrect.' });
+  }
+  const newHash = await bcrypt.hash(newPassword, 10);
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, req.session.userId]);
+  res.json({ message: 'Password updated.' });
+}));
+
+app.delete('/api/me', requireLogin, asyncHandler(async (req, res) => {
+  await pool.query('DELETE FROM users WHERE id = $1', [req.session.userId]);
+  req.session.destroy(() => {});
+  res.json({ message: 'Account deleted.' });
+}));
+
+app.post('/api/support', requireLogin, authLimiter, asyncHandler(async (req, res) => {
+  const { subject, body } = req.body;
+  if (!isNonEmpty(subject) || !isNonEmpty(body)) {
+    return res.status(400).json({ error: 'Please fill in a subject and message.' });
+  }
+  const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [req.session.userId]);
+  const email = userResult.rows[0].email;
+
+  await pool.query(
+    'INSERT INTO support_messages (user_id, email, subject, body) VALUES ($1, $2, $3, $4)',
+    [req.session.userId, email, subject.trim(), body.trim()]
+  );
+
+  if (mailTransport && process.env.SUPPORT_EMAIL) {
+    mailTransport.sendMail({
+      from: MAIL_FROM,
+      to: process.env.SUPPORT_EMAIL,
+      replyTo: email,
+      subject: `[HandyLink Support] ${subject.trim()}`,
+      text: `From: ${email}\n\n${body.trim()}`
+    }).catch(err => console.error('Support email failed:', err));
+  }
+
+  res.json({ message: 'Your message has been sent. We\u2019ll get back to you soon.' });
+}));
+
 // --- Client-facing: browse/search providers ---
 
 app.get('/api/categories', requireLogin, asyncHandler(async (req, res) => {
@@ -852,7 +910,7 @@ app.post('/api/reviews', requireRole('client'), async (req, res) => {
 async function getJobForParticipant(jobId, userId) {
   const result = await pool.query(
     `SELECT jr.id, jr.category, jr.client_user_id, p.user_id AS provider_user_id,
-            p.name AS provider_name, uc.email AS client_email, uc.name AS client_name,
+            p.name AS provider_name, p.photo AS provider_photo, uc.email AS client_email, uc.name AS client_name,
             CASE WHEN jr.client_user_id = $2 THEN up.last_active_at ELSE uc.last_active_at END AS other_last_active
      FROM job_requests jr
      JOIN providers p ON p.id = jr.provider_id
@@ -869,6 +927,7 @@ app.get('/api/conversations', requireLogin, asyncHandler(async (req, res) => {
   const result = await pool.query(
     `SELECT jr.id AS job_id, jr.category, jr.status, jr.created_at,
             CASE WHEN jr.client_user_id = $1 THEN p.name ELSE uc.name END AS other_party_name,
+            CASE WHEN jr.client_user_id = $1 THEN p.photo ELSE NULL END AS other_party_photo,
             (SELECT body FROM messages m WHERE m.job_id = jr.id ORDER BY m.created_at DESC LIMIT 1) AS last_message,
             (SELECT created_at FROM messages m WHERE m.job_id = jr.id ORDER BY m.created_at DESC LIMIT 1) AS last_message_at,
             (SELECT COUNT(*)::int FROM messages m WHERE m.job_id = jr.id AND m.sender_user_id != $1 AND m.read_at IS NULL) AS unread_count
@@ -903,9 +962,10 @@ app.get('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => {
   );
 
   const otherPartyName = job.client_user_id === req.session.userId ? job.provider_name : (job.client_name || job.client_email);
+  const otherPartyPhoto = job.client_user_id === req.session.userId ? job.provider_photo : null;
   res.json({
     messages: result.rows,
-    job: { id: job.id, category: job.category, otherPartyName, otherPartyLastActive: job.other_last_active }
+    job: { id: job.id, category: job.category, otherPartyName, otherPartyPhoto, otherPartyLastActive: job.other_last_active }
   });
 }));
 

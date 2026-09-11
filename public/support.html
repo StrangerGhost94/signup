@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support — HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B6E4F">
+<link rel="apple-touch-icon" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap" style="max-width:640px;">
+    <a href="javascript:history.back()" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </a>
+    <h1 style="font-size:1.4rem; font-weight:800; margin-bottom:1.25rem;">Help & Support</h1>
+
+    <h2 class="section-title" style="margin-top:0;">Frequently asked questions</h2>
+    <div id="faqList"></div>
+
+    <h2 class="section-title">Contact us</h2>
+    <form id="supportForm" class="provider-form">
+      <div class="error" id="error"></div>
+      <div class="success" id="success"></div>
+
+      <label>Subject</label>
+      <input type="text" id="subject" required>
+
+      <label>Message</label>
+      <textarea id="body" rows="5" required placeholder="Describe your issue or question..."></textarea>
+
+      <button type="submit">Send message</button>
+    </form>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    const FAQS = [
+      { q: 'How do payments work?', a: 'HandyLink doesn\u2019t process payments yet. You agree on a final price and pay your pro directly (cash or mobile money) once the job is done.' },
+      { q: 'How do I cancel a booking?', a: 'Message your pro to let them know as early as possible. There\u2019s no automatic cancellation flow yet — a heads-up message is the best way to cancel courteously.' },
+      { q: 'How are ratings calculated?', a: 'A pro\u2019s star rating is the average of all reviews left by clients after a completed job. It updates automatically each time a new review comes in.' },
+      { q: 'I forgot my password. What do I do?', a: 'On the sign-in page, tap "Forgot password?" and enter your email. If email reset is set up on this server, you\u2019ll get a reset link. Otherwise, contact us below.' },
+      { q: 'How do I delete my account?', a: 'Go to your Profile page and scroll to Account Settings — there\u2019s a Delete Account option there. This is permanent and removes your bookings, messages, and reviews.' }
+    ];
+
+    document.getElementById('faqList').innerHTML = FAQS.map((f, i) => `
+      <details style="background:var(--bg); border-radius:var(--radius-sm); box-shadow:var(--shadow-sm); padding:0.9rem 1rem; margin-bottom:0.6rem;">
+        <summary style="font-weight:700; cursor:pointer;">${f.q}</summary>
+        <p style="margin:0.6rem 0 0; color:var(--ink-soft); font-size:0.9rem; line-height:1.5;">${f.a}</p>
+      </details>
+    `).join('');
+
+    document.getElementById('supportForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('error');
+      const successEl = document.getElementById('success');
+      errorEl.textContent = '';
+      successEl.textContent = '';
+
+      const res = await fetch('/api/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: document.getElementById('subject').value,
+          body: document.getElementById('body').value
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        errorEl.textContent = data.error;
+        return;
+      }
+      document.getElementById('supportForm').reset();
+      successEl.textContent = data.message;
+      showToast(data.message, 'success');
+    });
+
+    fetch('/api/me').then(r => { if (!r.ok) window.location.href = '/login.html'; });
+  </script>
+</body>
+</html>

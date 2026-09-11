@@ -168,6 +168,7 @@
       await loadJobs();
       await loadNotifications(false);
       setInterval(() => loadNotifications(false), 20000);
+      setInterval(() => loadJobs(), 10000);
     })();
   </script>
 </body>

@@ -325,12 +325,11 @@
 
     function captureMyLocation() {
       return new Promise((resolve) => {
-        if (!navigator.geolocation) { resolve(); return; }
-        navigator.geolocation.getCurrentPosition(
-          (pos) => { myLat = pos.coords.latitude; myLng = pos.coords.longitude; resolve(); },
-          () => resolve(),
-          { timeout: 6000 }
-        );
+        window.promptForLocation((lat, lng) => {
+          myLat = lat;
+          myLng = lng;
+          resolve();
+        });
       });
     }
 
@@ -344,7 +343,9 @@
 
       if (!locationRequested) {
         locationRequested = true;
-        await captureMyLocation();
+        captureMyLocation().then(() => {
+          if (myLat !== null) loadWorkers(); // re-sort with distance once available
+        });
       }
 
       let res;
@@ -464,6 +465,7 @@
       await loadBookings();
       await loadNotifications(false);
       setInterval(() => loadNotifications(false), 20000);
+      setInterval(() => loadBookings(), 15000);
     })();
   </script>
 </body>
