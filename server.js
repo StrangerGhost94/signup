@@ -3793,6 +3793,62 @@ app.get('/api/admin/flagged-messages', requireRole('admin'), asyncHandler(async 
   res.json({ messages: result.rows });
 }));
 
+// --- Global audit log: the one "show me everything that happened" screen ---
+
+app.get('/api/admin/audit-log-actions', requireRole('admin'), asyncHandler(async (req, res) => {
+  const result = await pool.query('SELECT DISTINCT action FROM audit_logs ORDER BY action');
+  res.json({ actions: result.rows.map(r => r.action) });
+}));
+
+app.get('/api/admin/audit-logs', requireRole('admin'), asyncHandler(async (req, res) => {
+  const { search, action, targetType, from, to, beforeId } = req.query;
+  const limit = Math.min(parseInt(req.query.limit, 10) || 30, 100);
+
+  const conditions = [];
+  const params = [];
+
+  if (action) {
+    params.push(action);
+    conditions.push(`al.action = $${params.length}`);
+  }
+  if (targetType) {
+    params.push(targetType);
+    conditions.push(`al.target_type = $${params.length}`);
+  }
+  if (from) {
+    params.push(from);
+    conditions.push(`al.created_at >= $${params.length}`);
+  }
+  if (to) {
+    params.push(to);
+    conditions.push(`al.created_at <= $${params.length}`);
+  }
+  if (search) {
+    params.push(`%${search}%`);
+    conditions.push(`(al.action ILIKE $${params.length} OR al.notes ILIKE $${params.length} OR u.email ILIKE $${params.length})`);
+  }
+  if (beforeId) {
+    params.push(beforeId);
+    conditions.push(`al.id < $${params.length}`);
+  }
+
+  const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+  params.push(limit + 1); // fetch one extra to know if there's more
+
+  const result = await pool.query(
+    `SELECT al.*, u.email AS actor_email
+     FROM audit_logs al LEFT JOIN users u ON u.id = al.actor_user_id
+     ${where}
+     ORDER BY al.id DESC
+     LIMIT $${params.length}`,
+    params
+  );
+
+  const hasMore = result.rows.length > limit;
+  const logs = hasMore ? result.rows.slice(0, limit) : result.rows;
+  res.json({ logs, hasMore });
+}));
+
 // --- Notifications ---
 
 app.get('/api/notifications', requireLogin, asyncHandler(async (req, res) => {

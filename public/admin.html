@@ -17,6 +17,7 @@
     <button class="admin-tab active" data-section="applications">Applications</button>
     <button class="admin-tab" data-section="pricing">Pricing</button>
     <button class="admin-tab" data-section="safety">Safety</button>
+    <button class="admin-tab" data-section="audit">Audit Log</button>
   </div>
 
   <div id="applicationsSection">
@@ -32,6 +33,7 @@
 
   <div id="pricingSection" class="admin-list" style="display:none;"></div>
   <div id="safetySection" class="admin-list" style="display:none;"></div>
+  <div id="auditSection" class="admin-list" style="display:none;"></div>
 
   <script src="js/categories.js"></script>
   <script>
@@ -54,8 +56,10 @@
         document.getElementById('applicationsSection').style.display = section === 'applications' ? 'block' : 'none';
         document.getElementById('pricingSection').style.display = section === 'pricing' ? 'block' : 'none';
         document.getElementById('safetySection').style.display = section === 'safety' ? 'block' : 'none';
+        document.getElementById('auditSection').style.display = section === 'audit' ? 'block' : 'none';
         if (section === 'pricing') loadPricing();
         if (section === 'safety') loadSafety();
+        if (section === 'audit') initAuditLog();
       });
     });
 
@@ -479,6 +483,88 @@
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast('User suspended.', 'success');
       loadSafety();
+    }
+
+    let auditBuilt = false;
+    let lastAuditId = null;
+
+    async function initAuditLog() {
+      const section = document.getElementById('auditSection');
+      if (!auditBuilt) {
+        auditBuilt = true;
+        const actionsRes = await fetch('/api/admin/audit-log-actions');
+        const actionsData = actionsRes.ok ? await actionsRes.json() : { actions: [] };
+
+        section.innerHTML = `
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;">
+            <input type="text" id="auditSearch" placeholder="Search action, notes, or admin email..." style="flex:1; min-width:200px; margin-bottom:0;">
+            <select id="auditActionFilter" style="width:auto; padding:0.85rem 1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
+              <option value="">All actions</option>
+              ${actionsData.actions.map(a => `<option value="${a}">${a}</option>`).join('')}
+            </select>
+            <input type="date" id="auditFrom" style="width:auto; margin-bottom:0;">
+            <input type="date" id="auditTo" style="width:auto; margin-bottom:0;">
+          </div>
+          <div id="auditList"></div>
+          <button type="button" id="auditLoadMore" class="btn-outline" style="display:none; margin-top:0.75rem;">Load more</button>
+        `;
+
+        let searchDebounce;
+        document.getElementById('auditSearch').addEventListener('input', () => {
+          clearTimeout(searchDebounce);
+          searchDebounce = setTimeout(() => loadAuditLogs(false), 300);
+        });
+        document.getElementById('auditActionFilter').addEventListener('change', () => loadAuditLogs(false));
+        document.getElementById('auditFrom').addEventListener('change', () => loadAuditLogs(false));
+        document.getElementById('auditTo').addEventListener('change', () => loadAuditLogs(false));
+        document.getElementById('auditLoadMore').addEventListener('click', () => loadAuditLogs(true));
+      }
+      loadAuditLogs(false);
+    }
+
+    async function loadAuditLogs(append) {
+      const list = document.getElementById('auditList');
+      if (!append) {
+        list.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+        lastAuditId = null;
+      }
+
+      const params = new URLSearchParams();
+      const search = document.getElementById('auditSearch').value.trim();
+      const action = document.getElementById('auditActionFilter').value;
+      const from = document.getElementById('auditFrom').value;
+      const to = document.getElementById('auditTo').value;
+      if (search) params.set('search', search);
+      if (action) params.set('action', action);
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      if (append && lastAuditId) params.set('beforeId', lastAuditId);
+
+      const res = await fetch('/api/admin/audit-logs?' + params.toString());
+      if (!res.ok) { list.innerHTML = errorStateHtml(''); return; }
+      const data = await res.json();
+
+      if (!append) list.innerHTML = '';
+      if (!append && data.logs.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No matching entries</strong>Try a different search or filter.</div>`;
+      }
+      data.logs.forEach(l => {
+        const row = document.createElement('div');
+        row.className = 'job-card';
+        row.style.marginBottom = '0.6rem';
+        row.innerHTML = `
+          <div class="job-top">
+            <strong style="font-size:0.88rem;">${escapeHtml(l.action)}</strong>
+            <span class="job-meta">${new Date(l.created_at).toLocaleString()}</span>
+          </div>
+          <p class="job-meta">By ${escapeHtml(l.actor_email || 'system')}${l.target_type ? ` · ${escapeHtml(l.target_type)} #${l.target_id}` : ''}</p>
+          ${l.notes ? `<p class="job-desc">${escapeHtml(l.notes)}</p>` : ''}
+        `;
+        list.appendChild(row);
+        lastAuditId = l.id;
+      });
+
+      document.getElementById('auditLoadMore').style.display = data.hasMore ? 'block' : 'none';
     }
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {
