@@ -37,7 +37,13 @@
 
         <div id="approvalBanner" style="display:none; border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem;"></div>
 
+        <div class="filters" id="jobTabBar" style="margin-bottom:1rem;">
+          <button class="filter-btn active" data-tab="requests">Job Requests</button>
+          <button class="filter-btn" data-tab="open">Open Jobs<span id="openJobsCount" style="display:none;"></span></button>
+        </div>
+
         <div id="jobsList" class="stagger"></div>
+        <div id="openJobsList" class="stagger" style="display:none;"></div>
       </div>
     </div>
   </div>
@@ -52,6 +58,83 @@
 
   <script src="js/categories.js"></script>
   <script>
+    document.querySelectorAll('#jobTabBar .filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#jobTabBar .filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.tab;
+        document.getElementById('jobsList').style.display = tab === 'requests' ? 'block' : 'none';
+        document.getElementById('openJobsList').style.display = tab === 'open' ? 'block' : 'none';
+        if (tab === 'open') loadOpenJobs();
+      });
+    });
+
+    async function loadOpenJobs() {
+      const list = document.getElementById('openJobsList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div>`;
+      const res = await fetch('/api/jobs/open');
+      if (!res.ok) { list.innerHTML = errorStateHtml('loadOpenJobs()'); return; }
+      const data = await res.json();
+
+      const countEl = document.getElementById('openJobsCount');
+      if (data.jobs.length > 0) {
+        countEl.textContent = ` (${data.jobs.length})`;
+        countEl.style.display = 'inline';
+      } else {
+        countEl.style.display = 'none';
+      }
+
+      if (data.jobs.length === 0) {
+        list.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>No open jobs right now</strong>Jobs posted for multiple quotes in your category will show up here.</div>`;
+        return;
+      }
+
+      list.innerHTML = '';
+      data.jobs.forEach(j => {
+        const card = document.createElement('div');
+        card.className = 'job-card fade-in-up';
+        const hasOffer = !!j.my_offer_id;
+        card.innerHTML = `
+          <div class="job-top">
+            <div>
+              <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
+              <p class="job-meta">${escapeHtml(j.location)} · Estimate UGX ${j.estimate_amount.toLocaleString()} · ${new Date(j.created_at).toLocaleDateString()}</p>
+            </div>
+          </div>
+          <p class="job-desc">${escapeHtml(j.description)}</p>
+          ${hasOffer ? `<p class="job-meta" style="color:var(--primary-deep); font-weight:600;">✓ You submitted an offer${j.my_offer_status === 'DECLINED' ? ' — the customer chose another pro' : ''}</p>` : ''}
+          <div class="job-actions" data-actions></div>
+        `;
+        const actions = card.querySelector('[data-actions]');
+        const btn = document.createElement('button');
+        btn.className = hasOffer ? 'small-btn btn-outline' : 'small-btn';
+        btn.textContent = hasOffer ? 'Update offer' : 'Submit offer';
+        btn.onclick = () => openOfferModal(j.id, j.estimate_amount);
+        actions.appendChild(btn);
+        list.appendChild(card);
+      });
+    }
+
+    function openOfferModal(jobId, estimateAmount) {
+      const labour = prompt(`This job is estimated around UGX ${estimateAmount.toLocaleString()} total.\n\nYour labour amount (UGX):`);
+      if (labour === null) return;
+      const materials = prompt('Your materials amount (UGX, or 0 if none):');
+      if (materials === null) return;
+      const message = prompt('A short message to the customer (optional):') || '';
+
+      fetch(`/api/jobs/${jobId}/offers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ labourAmount: parseInt(labour, 10), materialsAmount: parseInt(materials, 10) || 0, message })
+      })
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok) { showToast(data.error, 'error'); return; }
+          showToast('Offer submitted.', 'success');
+          loadOpenJobs();
+        });
+    }
+
     async function loadJobs() {
       const res = await fetch('/api/provider/jobs');
       if (!res.ok) return;
@@ -228,10 +311,12 @@
       document.getElementById('welcome').textContent = me.email;
       document.getElementById('appShell').style.visibility = 'visible';
       await loadJobs();
+      await loadOpenJobs();
       await loadApprovalBanner();
       await loadNotifications(false);
       setInterval(() => loadNotifications(false), 20000);
       setInterval(() => loadJobs(), 10000);
+      setInterval(() => loadOpenJobs(), 15000);
     })();
   </script>
 </body>

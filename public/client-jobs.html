@@ -51,7 +51,9 @@
 
   <script src="js/categories.js"></script>
   <script>
-    let activeFilter = 'active';
+    const VALID_FILTERS = ['active', 'upcoming', 'offers', 'completed'];
+    const requestedTab = new URLSearchParams(window.location.search).get('tab');
+    let activeFilter = VALID_FILTERS.includes(requestedTab) ? requestedTab : 'active';
 
     const EVENT_ICONS = {
       posted: '📝', status_accepted: '✅', status_on_the_way: '🚗', status_arrived: '📍',
@@ -273,6 +275,7 @@
       if (!res.ok) { window.location.href = '/login.html'; return; }
       const me = await res.json();
       if (me.role !== 'client') { window.location.href = '/provider-dashboard.html'; return; }
+      document.querySelectorAll('#filterBar .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === activeFilter));
       await loadJobs();
     })();
   </script>

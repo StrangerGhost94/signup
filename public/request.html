@@ -220,6 +220,7 @@
             </div>` : ''}
 
           <button type="button" onclick="proceedToMatches()">Find a Handyman →</button>
+          <button type="button" class="btn-outline" style="margin-top:0.6rem;" onclick="postOpenJob()">Get multiple quotes instead</button>
           <button type="button" class="btn-outline" style="margin-top:0.6rem;" onclick="backToForm()">Edit description</button>
         </div>
       `;
@@ -227,6 +228,29 @@
 
     function proceedToMatches() {
       window.location.href = `/matches.html?category=${encodeURIComponent(category)}`;
+    }
+
+    async function postOpenJob() {
+      const pendingJob = JSON.parse(sessionStorage.getItem('pendingJob') || 'null');
+      if (!pendingJob) { showToast('Something went wrong — please try again.', 'error'); return; }
+
+      const res = await fetch('/api/jobs/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: pendingJob.category,
+          description: pendingJob.description,
+          urgency: pendingJob.urgency,
+          location: pendingJob.location,
+          locationNotes: pendingJob.locationNotes,
+          assessmentId: pendingJob.assessmentId
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      sessionStorage.removeItem('pendingJob');
+      showToast('Job posted — pros nearby can now send you quotes.', 'success');
+      window.location.href = '/client-jobs.html?tab=offers';
     }
 
     function backToForm() {
