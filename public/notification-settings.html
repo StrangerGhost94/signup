@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notifications — HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap" style="max-width:480px;">
+    <a href="/profile.html" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </a>
+    <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:1.25rem;">Notifications</h1>
+
+    <div class="settings-group">
+      <div class="settings-row" style="cursor:default;">
+        <span class="row-label">Enable notifications</span>
+        <label class="switch">
+          <input type="checkbox" id="notifToggle">
+          <span class="switch-track"></span>
+        </label>
+      </div>
+    </div>
+    <p class="job-meta">When off, HandyLink won't create new notifications for bookings, messages, or price changes. You can turn this back on anytime.</p>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    const toggle = document.getElementById('notifToggle');
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      toggle.checked = me.notifications_enabled !== false;
+    })();
+
+    toggle.addEventListener('change', async () => {
+      const res = await fetch('/api/me/notification-preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notificationsEnabled: toggle.checked })
+      });
+      if (!res.ok) { showToast('Could not save preference.', 'error'); return; }
+      showToast(toggle.checked ? 'Notifications enabled.' : 'Notifications disabled.', 'success');
+    });
+  </script>
+</body>
+</html>

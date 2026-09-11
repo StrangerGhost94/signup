@@ -181,6 +181,9 @@
               <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(w.category)}</svg>${escapeHtml(w.category)}</span>
             </div>
             <span class="rating"><span class="star">★</span> ${w.rating}</span>
+            <button class="small-btn" data-fav-id="${w.id}" style="width:auto; padding:0.3rem; margin-left:0.3rem; background:none; border:none;" aria-label="Save">
+              <svg viewBox="0 0 24 24" fill="${w.isFavorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" style="width:18px;height:18px; color:${w.isFavorite ? 'var(--danger)' : 'var(--ink-soft)'};"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 1 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+            </button>
           </div>
           ${w.matchLabel ? `<span class="trust-badge trust-badge-primary" style="margin-bottom:0.5rem;">${escapeHtml(w.matchLabel)}</span>` : ''}
           ${availabilityLabel ? `<span class="availability-line${w.availability_status === 'available_now' ? ' now' : ''}"><span class="dot"></span>${availabilityLabel}</span>` : ''}
@@ -194,11 +197,24 @@
           ${w.whyRecommended ? `<p class="job-meta" style="font-style:italic; margin-bottom:0.5rem;">${escapeHtml(w.whyRecommended)}</p>` : ''}
           <p class="bio">${escapeHtml(w.bio)}</p>
 
-          <button class="small-btn" data-id="${w.id}" data-name="${escapeHtml(w.name)}">Book ${escapeHtml(w.name.split(' ')[0])}</button>
+          <button class="small-btn" data-book-id="${w.id}" data-name="${escapeHtml(w.name)}">Book ${escapeHtml(w.name.split(' ')[0])}</button>
         `;
-        card.querySelector('button').addEventListener('click', () => openConfirm(w));
+        card.querySelector('[data-book-id]').addEventListener('click', () => openConfirm(w));
+        card.querySelector('[data-fav-id]').addEventListener('click', (e) => toggleFavorite(e.currentTarget, w));
         grid.appendChild(card);
       });
+    }
+
+    async function toggleFavorite(btn, w) {
+      const svg = btn.querySelector('svg');
+      const isSaved = svg.getAttribute('fill') === 'currentColor';
+      const res = isSaved
+        ? await fetch(`/api/favorites/${w.id}`, { method: 'DELETE' })
+        : await fetch('/api/favorites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ providerId: w.id }) });
+      if (!res.ok) { showToast('Something went wrong.', 'error'); return; }
+      svg.setAttribute('fill', isSaved ? 'none' : 'currentColor');
+      svg.style.color = isSaved ? 'var(--ink-soft)' : 'var(--danger)';
+      showToast(isSaved ? 'Removed from saved handymen.' : 'Saved to your favorites.', 'success');
     }
 
     function openConfirm(provider) {

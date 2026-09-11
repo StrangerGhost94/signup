@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reviews & Reputation — HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap" style="max-width:560px;">
+    <a href="/profile.html" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </a>
+    <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:0.4rem;">Reviews & Reputation</h1>
+    <p class="job-meta" style="margin-bottom:1.25rem;">Reviews you've written for handymen after completed jobs.</p>
+    <div id="reviewsList"></div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    async function loadReviews() {
+      const list = document.getElementById('reviewsList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div>`;
+      const res = await fetch('/api/me/reviews');
+      if (!res.ok) { list.innerHTML = errorStateHtml('loadReviews()'); return; }
+      const data = await res.json();
+      if (data.reviews.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No reviews yet</strong>Reviews you write after completed jobs will show up here.</div>`;
+        return;
+      }
+      list.innerHTML = '';
+      data.reviews.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        const stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+        card.innerHTML = `
+          <div class="job-top">
+            <strong>${escapeHtml(r.provider_name)} — ${escapeHtml(r.category)}</strong>
+            <span style="color:var(--primary-deep); font-weight:700;">${stars}</span>
+          </div>
+          <p class="job-meta">${new Date(r.created_at).toLocaleDateString()}</p>
+          ${r.comment ? `<p class="job-desc">${escapeHtml(r.comment)}</p>` : ''}
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'client') { window.location.href = '/provider-dashboard.html'; return; }
+      await loadReviews();
+    })();
+  </script>
+</body>
+</html>

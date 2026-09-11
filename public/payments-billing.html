@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payments & Billing — HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap" style="max-width:520px;">
+    <a href="/profile.html" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </a>
+    <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:1.25rem;">Payments & Billing</h1>
+
+    <div class="settings-group">
+      <div class="settings-row" style="cursor:default;">
+        <span class="row-label">Payment Methods</span>
+        <span class="row-value">Cash only</span>
+      </div>
+      <div class="settings-row" style="cursor:default;">
+        <span class="row-label">Refunds</span>
+        <span class="row-value">Not available yet</span>
+      </div>
+    </div>
+    <p class="job-meta" style="margin-bottom:1.5rem;">HandyLink doesn't process card or mobile money payments yet — you pay your pro directly, in cash, once a job is done.</p>
+
+    <p class="settings-section-label">Transaction History</p>
+    <div id="paymentsList"></div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    async function loadPayments() {
+      const list = document.getElementById('paymentsList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div>`;
+      const res = await fetch('/api/me/payments');
+      if (!res.ok) { list.innerHTML = errorStateHtml('loadPayments()'); return; }
+      const data = await res.json();
+      if (data.payments.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No payments yet</strong>Payments your pro records after a completed job will show up here as a receipt.</div>`;
+        return;
+      }
+      list.innerHTML = '';
+      data.payments.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <div class="job-top">
+            <div>
+              <strong>${escapeHtml(p.category)} — ${escapeHtml(p.provider_name)}</strong>
+              <p class="job-meta">${new Date(p.created_at).toLocaleDateString()} · ${p.method.replace('_', ' ')}</p>
+            </div>
+            <strong style="color:var(--primary-deep);">UGX ${p.amount.toLocaleString()}</strong>
+          </div>
+          <p class="job-desc">${escapeHtml(p.job_description)}</p>
+          <p class="job-meta">Receipt: payment #${p.id} · ${p.status}</p>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'client') { window.location.href = '/provider-dashboard.html'; return; }
+      await loadPayments();
+    })();
+  </script>
+</body>
+</html>

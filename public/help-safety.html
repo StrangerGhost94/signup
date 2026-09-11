@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Help & Safety — HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap" style="max-width:520px;">
+    <a href="/profile.html" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </a>
+    <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:1.25rem;">Help & Safety</h1>
+
+    <div class="settings-group">
+      <a href="/support.html" class="settings-row"><span class="row-label">Help & Support</span><svg class="row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></a>
+    </div>
+
+    <p class="settings-section-label">My Reports</p>
+    <div id="reportsList"></div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    const REPORT_LABELS = {
+      identity_mismatch: 'Worker identity doesn\u2019t match profile', suspected_scam: 'Suspected scam', unsafe_behavior: 'Unsafe behavior',
+      harassment: 'Harassment', threatening_behavior: 'Threatening behavior', unauthorized_price_increase: 'Unauthorized price increase',
+      poor_workmanship: 'Poor workmanship', property_damage: 'Property damage', worker_did_not_arrive: 'Worker didn\u2019t arrive', other: 'Other'
+    };
+    const REPORT_STATUS_META = {
+      OPEN: { color: '#B45309', bg: '#FEF3C7', label: 'Open' },
+      UNDER_REVIEW: { color: '#1D4ED8', bg: '#DBEAFE', label: 'Under review' },
+      RESOLVED: { color: '#0B6E4F', bg: '#E6F4EC', label: 'Resolved' },
+      DISMISSED: { color: '#6B7280', bg: '#F3F4F6', label: 'Dismissed' }
+    };
+
+    async function loadReports() {
+      const list = document.getElementById('reportsList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div>`;
+      const res = await fetch('/api/me/reports');
+      if (!res.ok) { list.innerHTML = errorStateHtml('loadReports()'); return; }
+      const data = await res.json();
+      if (data.reports.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No reports filed</strong>If something goes wrong on a job, you can report it from that job's page.</div>`;
+        return;
+      }
+      list.innerHTML = '';
+      data.reports.forEach(r => {
+        const meta = REPORT_STATUS_META[r.status] || REPORT_STATUS_META.OPEN;
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <div class="job-top">
+            <strong>${escapeHtml(REPORT_LABELS[r.category] || r.category)}</strong>
+            <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
+          </div>
+          <p class="job-meta">${new Date(r.created_at).toLocaleDateString()}</p>
+          <p class="job-desc">${escapeHtml(r.description)}</p>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      await loadReports();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saved Handymen — HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap" style="max-width:560px;">
+    <a href="/profile.html" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </a>
+    <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:1.25rem;">Saved Handymen</h1>
+    <div id="favList"></div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    async function loadFavorites() {
+      const list = document.getElementById('favList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div>`;
+      const res = await fetch('/api/favorites');
+      if (!res.ok) { list.innerHTML = errorStateHtml('loadFavorites()'); return; }
+      const data = await res.json();
+      if (data.favorites.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No saved handymen yet</strong>Tap the heart on a pro's card to save them here.</div>`;
+        return;
+      }
+      list.innerHTML = '';
+      data.favorites.forEach(f => {
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <div class="job-top">
+            <div style="display:flex; align-items:center; gap:0.75rem;">
+              <div class="avatar" style="width:44px;height:44px;">${f.photo ? `<img class="avatar-img" src="${f.photo}" alt="">` : initials(f.name)}</div>
+              <div>
+                <strong>${escapeHtml(f.name)}</strong>
+                <p class="job-meta">${escapeHtml(f.category)} · ★ ${f.rating} · ${escapeHtml(f.location)}</p>
+              </div>
+            </div>
+          </div>
+          <div class="action-row">
+            <button class="small-btn" onclick="window.location.href='/matches.html?category=${encodeURIComponent(f.category)}'">Book again</button>
+            <button class="small-btn btn-decline" onclick="removeFavorite(${f.id})">Remove</button>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    async function removeFavorite(providerId) {
+      const res = await fetch(`/api/favorites/${providerId}`, { method: 'DELETE' });
+      if (!res.ok) { showToast('Could not remove.', 'error'); return; }
+      showToast('Removed from saved handymen.', 'success');
+      loadFavorites();
+    }
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'client') { window.location.href = '/provider-dashboard.html'; return; }
+      await loadFavorites();
+    })();
+  </script>
+</body>
+</html>

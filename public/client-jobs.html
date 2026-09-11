@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Jobs — HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap" style="max-width:560px;">
+    <a href="/profile.html" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </a>
+    <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:1.25rem;">My Jobs</h1>
+    <div id="jobsList"></div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    async function loadJobs() {
+      const list = document.getElementById('jobsList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+      const res = await fetch('/api/bookings/mine');
+      if (!res.ok) { list.innerHTML = errorStateHtml('loadJobs()'); return; }
+      const data = await res.json();
+      if (data.bookings.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No jobs yet</strong>Post a job from your home screen to get started.</div>`;
+        return;
+      }
+      list.innerHTML = '';
+      data.bookings.forEach(b => {
+        const meta = STATUS_META[b.status] || STATUS_META.requested;
+        const currentAmount = b.final_amount != null ? b.final_amount : b.estimate_amount;
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <div class="job-top">
+            <div>
+              <strong>${escapeHtml(b.category)} — ${escapeHtml(b.provider_name)}</strong>
+              <p class="job-meta">${escapeHtml(b.location)} · UGX ${currentAmount.toLocaleString()} · ${new Date(b.created_at).toLocaleDateString()}</p>
+            </div>
+            <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
+          </div>
+          <p class="job-desc">${escapeHtml(b.description)}</p>
+          <div class="action-row">
+            <button class="small-btn btn-outline" onclick="window.location.href='/message-thread.html?jobId=${b.id}'">Message</button>
+            ${b.status === 'completed' && !b.reviewed ? `<button class="small-btn" onclick="window.location.href='/dashboard.html#recentJobs'">Rate this job</button>` : ''}
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'client') { window.location.href = '/provider-dashboard.html'; return; }
+      await loadJobs();
+    })();
+  </script>
+</body>
+</html>

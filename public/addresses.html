@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Addresses — HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap" style="max-width:520px;">
+    <a href="/profile.html" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </a>
+    <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:1.25rem;">Addresses</h1>
+
+    <div id="addressList"></div>
+
+    <button type="button" id="addBtn" class="btn-outline" style="margin-top:0.5rem;">+ Add New Address</button>
+  </div>
+
+  <div class="modal-overlay" id="addressModal" style="display:none;">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h2 id="modalTitle">Add address</h2>
+      <div class="error" id="addrError"></div>
+      <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.5rem;">Label</label>
+      <div class="service-check-grid" id="labelGrid" style="grid-template-columns:repeat(3,1fr); margin-bottom:1rem;">
+        <label class="service-check" style="justify-content:center;"><input type="radio" name="addrLabel" value="home" style="display:none;"><span>Home</span></label>
+        <label class="service-check" style="justify-content:center;"><input type="radio" name="addrLabel" value="work" style="display:none;"><span>Work</span></label>
+        <label class="service-check" style="justify-content:center;"><input type="radio" name="addrLabel" value="other" checked style="display:none;"><span>Other</span></label>
+      </div>
+      <textarea id="addressText" rows="2" placeholder="Address — e.g. Plot 12, Ntinda Road, Kampala"></textarea>
+      <input type="text" id="addressNotes" placeholder="Notes (optional) — e.g. Apartment 4B, gate code 1234">
+      <label class="role-btn" style="display:flex; flex-direction:row; align-items:center; gap:0.6rem; margin-bottom:0.5rem;">
+        <input type="checkbox" id="isDefault" style="width:auto;"><span>Set as default address</span>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelAddr">Cancel</button>
+        <button type="button" id="saveAddr">Save address</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    let editingId = null;
+
+    document.querySelectorAll('#labelGrid .service-check').forEach(label => {
+      label.addEventListener('click', () => {
+        document.querySelectorAll('#labelGrid .service-check').forEach(l => l.classList.remove('checked'));
+        label.classList.add('checked');
+        label.querySelector('input').checked = true;
+      });
+    });
+    document.querySelector('#labelGrid .service-check:last-child').classList.add('checked');
+
+    const LABEL_ICONS = {
+      home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
+      work: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+      other: '<path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>'
+    };
+
+    async function loadAddresses() {
+      const list = document.getElementById('addressList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div>`;
+      const res = await fetch('/api/addresses');
+      if (!res.ok) { list.innerHTML = errorStateHtml('loadAddresses()'); return; }
+      const data = await res.json();
+      if (data.addresses.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No addresses yet</strong>Add one to make booking faster.</div>`;
+        return;
+      }
+      list.innerHTML = '';
+      const group = document.createElement('div');
+      group.className = 'settings-group';
+      data.addresses.forEach(a => {
+        const row = document.createElement('div');
+        row.className = 'settings-row';
+        row.style.cursor = 'default';
+        row.innerHTML = `
+          <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${LABEL_ICONS[a.label]}</svg></span>
+          <span class="row-label" style="display:block;">
+            ${a.label.charAt(0).toUpperCase() + a.label.slice(1)}${a.is_default ? ' · Default' : ''}
+            <span style="display:block; font-weight:400; color:var(--ink-soft); font-size:0.82rem;">${escapeHtml(a.address_text)}</span>
+          </span>
+        `;
+        const actions = document.createElement('div');
+        actions.style.display = 'flex';
+        actions.style.gap = '0.4rem';
+        const editBtn = document.createElement('button');
+        editBtn.className = 'small-btn btn-outline';
+        editBtn.style.width = 'auto';
+        editBtn.style.padding = '0.4rem 0.7rem';
+        editBtn.textContent = 'Edit';
+        editBtn.onclick = () => openEdit(a);
+        const delBtn = document.createElement('button');
+        delBtn.className = 'small-btn btn-decline';
+        delBtn.style.width = 'auto';
+        delBtn.style.padding = '0.4rem 0.7rem';
+        delBtn.textContent = 'Delete';
+        delBtn.onclick = () => deleteAddress(a.id);
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        row.appendChild(actions);
+        group.appendChild(row);
+      });
+      list.appendChild(group);
+    }
+
+    function openEdit(address) {
+      editingId = address ? address.id : null;
+      document.getElementById('modalTitle').textContent = address ? 'Edit address' : 'Add address';
+      document.getElementById('addressText').value = address ? address.address_text : '';
+      document.getElementById('addressNotes').value = address ? address.notes : '';
+      document.getElementById('isDefault').checked = address ? address.is_default : false;
+      document.querySelectorAll('#labelGrid .service-check').forEach(l => l.classList.remove('checked'));
+      const labelVal = address ? address.label : 'other';
+      const targetInput = document.querySelector(`#labelGrid input[value="${labelVal}"]`);
+      targetInput.checked = true;
+      targetInput.closest('.service-check').classList.add('checked');
+      document.getElementById('addrError').textContent = '';
+      openModal(document.getElementById('addressModal'));
+    }
+
+    document.getElementById('addBtn').addEventListener('click', () => openEdit(null));
+    document.getElementById('cancelAddr').addEventListener('click', () => closeModal(document.getElementById('addressModal')));
+
+    document.getElementById('saveAddr').addEventListener('click', async () => {
+      const errorEl = document.getElementById('addrError');
+      const addressText = document.getElementById('addressText').value.trim();
+      if (!addressText) { errorEl.textContent = 'Please enter an address.'; return; }
+      const label = document.querySelector('#labelGrid input:checked').value;
+      const payload = {
+        label, addressText,
+        notes: document.getElementById('addressNotes').value,
+        isDefault: document.getElementById('isDefault').checked
+      };
+
+      const res = editingId
+        ? await fetch(`/api/addresses/${editingId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        : await fetch('/api/addresses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      closeModal(document.getElementById('addressModal'));
+      showToast('Address saved.', 'success');
+      loadAddresses();
+    });
+
+    async function deleteAddress(id) {
+      if (!confirm('Remove this address?')) return;
+      const res = await fetch(`/api/addresses/${id}`, { method: 'DELETE' });
+      if (!res.ok) { showToast('Could not remove this address.', 'error'); return; }
+      showToast('Address removed.', 'success');
+      loadAddresses();
+    }
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      await loadAddresses();
+    })();
+  </script>
+</body>
+</html>

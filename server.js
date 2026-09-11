@@ -278,6 +278,35 @@ async function initDb() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS city TEXT`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS district TEXT`);
 
+  // Simple master toggle for now — real and checked by createNotification
+  // below, not decorative. Per-category granularity can be added later
+  // without touching this column.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS addresses (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      label TEXT NOT NULL DEFAULT 'other' CHECK (label IN ('home','work','other')),
+      address_text TEXT NOT NULL,
+      notes TEXT DEFAULT '',
+      latitude NUMERIC,
+      longitude NUMERIC,
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS favorites (
+      id SERIAL PRIMARY KEY,
+      client_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(client_user_id, provider_id)
+    )
+  `);
+
 
   // Migration: lightweight off-platform-payment / scam-language flag on
   // messages — detected, never auto-blocked, visible to admins only.
@@ -779,6 +808,10 @@ async function requireLogin(req, res, next) {
 
 async function createNotification(userId, type, body, link) {
   try {
+    const pref = await pool.query('SELECT notifications_enabled FROM users WHERE id = $1', [userId]);
+    if (pref.rows.length > 0 && pref.rows[0].notifications_enabled === false) {
+      return; // respected here, not just in the UI
+    }
     await pool.query(
       'INSERT INTO notifications (user_id, type, body, link) VALUES ($1, $2, $3, $4)',
       [userId, type, body, link || null]
@@ -1521,7 +1554,7 @@ app.get('/api/me', asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'Not logged in.' });
   }
   const result = await pool.query(
-    'SELECT id, email, role, name, phone, created_at, latitude, longitude, city, district FROM users WHERE id = $1',
+    'SELECT id, email, role, name, phone, created_at, latitude, longitude, city, district, notifications_enabled FROM users WHERE id = $1',
     [req.session.userId]
   );
   if (result.rows.length === 0) {
@@ -1581,6 +1614,124 @@ app.post('/api/me/location', requireLogin, asyncHandler(async (req, res) => {
 
   await createAuditLog(req.session.userId, 'LOCATION_UPDATED', req.session.role, req.session.userId, geo.city || 'reverse-geocode unavailable');
   res.json({ message: 'Location updated.', city: geo.city, district: geo.district, formattedAddress: geo.formattedAddress });
+}));
+
+// --- Addresses ---
+
+app.get('/api/addresses', requireLogin, asyncHandler(async (req, res) => {
+  const result = await pool.query('SELECT * FROM addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC', [req.session.userId]);
+  res.json({ addresses: result.rows });
+}));
+
+app.post('/api/addresses', requireLogin, asyncHandler(async (req, res) => {
+  const { label, addressText, notes, latitude, longitude, isDefault } = req.body;
+  if (!['home', 'work', 'other'].includes(label)) {
+    return res.status(400).json({ error: 'Please choose a valid address label.' });
+  }
+  if (!isNonEmpty(addressText)) {
+    return res.status(400).json({ error: 'Please enter the address.' });
+  }
+  if (isDefault) {
+    await pool.query('UPDATE addresses SET is_default = FALSE WHERE user_id = $1', [req.session.userId]);
+  }
+  const result = await pool.query(
+    `INSERT INTO addresses (user_id, label, address_text, notes, latitude, longitude, is_default)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [req.session.userId, label, addressText.trim(), notes ? notes.trim() : '', typeof latitude === 'number' ? latitude : null, typeof longitude === 'number' ? longitude : null, !!isDefault]
+  );
+  res.json({ address: result.rows[0] });
+}));
+
+app.put('/api/addresses/:id', requireLogin, asyncHandler(async (req, res) => {
+  const { label, addressText, notes, isDefault } = req.body;
+  if (label && !['home', 'work', 'other'].includes(label)) {
+    return res.status(400).json({ error: 'Please choose a valid address label.' });
+  }
+  if (isDefault) {
+    await pool.query('UPDATE addresses SET is_default = FALSE WHERE user_id = $1', [req.session.userId]);
+  }
+  const result = await pool.query(
+    `UPDATE addresses SET label = COALESCE($1, label), address_text = COALESCE($2, address_text),
+       notes = COALESCE($3, notes), is_default = COALESCE($4, is_default)
+     WHERE id = $5 AND user_id = $6 RETURNING *`,
+    [label || null, isNonEmpty(addressText) ? addressText.trim() : null, notes != null ? notes.trim() : null, isDefault, req.params.id, req.session.userId]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Address not found.' });
+  res.json({ address: result.rows[0] });
+}));
+
+app.delete('/api/addresses/:id', requireLogin, asyncHandler(async (req, res) => {
+  const result = await pool.query('DELETE FROM addresses WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.id, req.session.userId]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Address not found.' });
+  res.json({ message: 'Address removed.' });
+}));
+
+// --- Saved handymen (favorites) ---
+
+app.get('/api/favorites', requireRole('client'), asyncHandler(async (req, res) => {
+  const result = await pool.query(`
+    SELECT p.id, p.name, p.category, p.location, p.rating, p.photo, f.created_at AS saved_at
+    FROM favorites f JOIN providers p ON p.id = f.provider_id
+    WHERE f.client_user_id = $1 ORDER BY f.created_at DESC
+  `, [req.session.userId]);
+  res.json({ favorites: result.rows });
+}));
+
+app.post('/api/favorites', requireRole('client'), asyncHandler(async (req, res) => {
+  const { providerId } = req.body;
+  if (!Number.isInteger(providerId)) {
+    return res.status(400).json({ error: 'Please specify a provider.' });
+  }
+  const providerCheck = await pool.query('SELECT id FROM providers WHERE id = $1', [providerId]);
+  if (providerCheck.rows.length === 0) return res.status(404).json({ error: 'Provider not found.' });
+
+  await pool.query(
+    'INSERT INTO favorites (client_user_id, provider_id) VALUES ($1, $2) ON CONFLICT (client_user_id, provider_id) DO NOTHING',
+    [req.session.userId, providerId]
+  );
+  res.json({ message: 'Saved.' });
+}));
+
+app.delete('/api/favorites/:providerId', requireRole('client'), asyncHandler(async (req, res) => {
+  await pool.query('DELETE FROM favorites WHERE client_user_id = $1 AND provider_id = $2', [req.session.userId, req.params.providerId]);
+  res.json({ message: 'Removed.' });
+}));
+
+// --- Notification preferences ---
+
+app.put('/api/me/notification-preferences', requireLogin, asyncHandler(async (req, res) => {
+  const { notificationsEnabled } = req.body;
+  await pool.query('UPDATE users SET notifications_enabled = $1 WHERE id = $2', [!!notificationsEnabled, req.session.userId]);
+  res.json({ message: 'Preferences updated.' });
+}));
+
+// --- Personal history: reviews written, reports filed, payments made ---
+
+app.get('/api/me/reviews', requireRole('client'), asyncHandler(async (req, res) => {
+  const result = await pool.query(`
+    SELECT r.*, p.name AS provider_name, p.category, jr.description AS job_description
+    FROM reviews r JOIN providers p ON p.id = r.provider_id JOIN job_requests jr ON jr.id = r.job_id
+    WHERE r.client_user_id = $1 ORDER BY r.created_at DESC
+  `, [req.session.userId]);
+  res.json({ reviews: result.rows });
+}));
+
+app.get('/api/me/reports', requireLogin, asyncHandler(async (req, res) => {
+  const result = await pool.query(`
+    SELECT r.*, u.email AS reported_email
+    FROM reports r JOIN users u ON u.id = r.reported_user_id
+    WHERE r.reporter_user_id = $1 ORDER BY r.created_at DESC
+  `, [req.session.userId]);
+  res.json({ reports: result.rows });
+}));
+
+app.get('/api/me/payments', requireRole('client'), asyncHandler(async (req, res) => {
+  const result = await pool.query(`
+    SELECT pay.*, p.name AS provider_name, jr.category, jr.description AS job_description
+    FROM payments pay JOIN providers p ON p.id = pay.provider_id JOIN job_requests jr ON jr.id = pay.job_id
+    WHERE pay.client_user_id = $1 ORDER BY pay.created_at DESC
+  `, [req.session.userId]);
+  res.json({ payments: result.rows });
 }));
 
 app.put('/api/me/password', requireLogin, asyncHandler(async (req, res) => {
@@ -3029,6 +3180,9 @@ app.get('/api/matching/candidates', requireRole('client'), asyncHandler(async (r
   const EXPERIENCE_SCORES = { 'less_than_1': 20, '1_2': 45, '3_5': 65, '6_10': 85, '10_plus': 100 };
   const JOBS_SCORES = { '0_10': 10, '11_25': 30, '26_50': 50, '51_100': 70, '101_250': 85, '250_plus': 100 };
 
+  const favoritesResult = await pool.query('SELECT provider_id FROM favorites WHERE client_user_id = $1', [req.session.userId]);
+  const favoriteIds = new Set(favoritesResult.rows.map(r => r.provider_id));
+
   const scored = candidates.map(p => {
     const dist = (myLat !== null && myLng !== null && p.latitude !== null)
       ? distanceKmServer(myLat, myLng, p.latitude, p.longitude) : null;
@@ -3102,6 +3256,7 @@ app.get('/api/matching/candidates', requireRole('client'), asyncHandler(async (r
       category_verified: p.skill_status === 'VERIFIED', specialties: p.specialties || [],
       identity_status: p.identity_status, phone_status: p.phone_status,
       completed_jobs: p.total_completed_jobs, similar_jobs: p.category_completed_jobs, distanceKm: dist,
+      isFavorite: favoriteIds.has(p.id),
       _scores: { skillScore, reliabilityScore, distanceScore, priceScore, experienceScore, availabilityScore, overall }
     };
   }).filter(Boolean);
