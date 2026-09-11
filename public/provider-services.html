@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Services & Pricing — HandyLink Pro</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap" style="max-width:560px; padding-top:calc(1.5rem + env(safe-area-inset-top));">
+    <a href="/provider-profile.html" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </a>
+    <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:0.4rem;">Services & Pricing</h1>
+    <p class="job-meta" style="margin-bottom:1.25rem;">These settings were set once at signup — you can update them anytime here.</p>
+
+    <div class="error" id="error"></div>
+    <div class="success" id="success"></div>
+
+    <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.5rem;">How far will you travel for a job?</label>
+    <select id="serviceRadius" style="width:100%; padding:0.85rem 1rem; margin-bottom:1.25rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
+      <option value="2">Up to 2 km</option>
+      <option value="5">Up to 5 km</option>
+      <option value="10">Up to 10 km</option>
+      <option value="20">Up to 20 km</option>
+      <option value="30">Up to 30 km</option>
+      <option value="9999">30+ km</option>
+    </select>
+    <label class="role-btn" style="display:flex; flex-direction:row; align-items:center; gap:0.6rem; margin-bottom:1.5rem;">
+      <input type="checkbox" id="longDistance" style="width:auto;"><span>I can travel further for higher-value or emergency jobs</span>
+    </label>
+
+    <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.5rem;">How do you normally charge?</label>
+    <div class="service-check-grid" id="pricingMethodGrid" style="margin-bottom:1.25rem;"></div>
+
+    <input type="number" id="hourlyRate" placeholder="Hourly rate, UGX (optional)">
+    <input type="number" id="calloutFee" placeholder="Call-out fee, UGX (optional)">
+    <input type="number" id="inspectionFee" placeholder="Inspection fee, UGX (optional)">
+    <input type="number" id="minimumCharge" placeholder="Minimum charge, UGX (optional)">
+
+    <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.5rem;">Do you usually provide your own materials?</label>
+    <div class="service-check-grid" id="materialsGrid" style="grid-template-columns:repeat(3,1fr); margin-bottom:1.5rem;">
+      <label class="service-check" style="justify-content:center; text-align:center;"><input type="radio" name="materials" value="yes" style="display:none;"><span>Yes</span></label>
+      <label class="service-check" style="justify-content:center; text-align:center;"><input type="radio" name="materials" value="no" style="display:none;"><span>No</span></label>
+      <label class="service-check" style="justify-content:center; text-align:center;"><input type="radio" name="materials" value="depends" style="display:none;"><span>Depends</span></label>
+    </div>
+
+    <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.5rem;">Your availability right now</label>
+    <select id="availabilityStatus" style="width:100%; padding:0.85rem 1rem; margin-bottom:1.25rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
+      <option value="available_now">Available now</option>
+      <option value="available_today">Available today</option>
+      <option value="available_later">Available later</option>
+      <option value="not_available">Not currently available</option>
+    </select>
+    <label class="role-btn" style="display:flex; flex-direction:row; align-items:center; gap:0.6rem; margin-bottom:0.5rem;">
+      <input type="checkbox" id="acceptsEmergency" style="width:auto;"><span>I accept emergency jobs</span>
+    </label>
+    <label class="role-btn" style="display:flex; flex-direction:row; align-items:center; gap:0.6rem; margin-bottom:1.5rem;">
+      <input type="checkbox" id="acceptsSameDay" style="width:auto;"><span>I accept same-day jobs</span>
+    </label>
+
+    <button type="button" id="saveBtn">Save changes</button>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    const PRICING_METHODS = [['fixed', 'Fixed price'], ['labour_materials', 'Labour + materials'], ['hourly', 'Hourly'], ['callout_repair', 'Call-out + repair'], ['quote_after_inspection', 'Quote after inspection']];
+    let selectedPricingMethods = [];
+
+    function buildPricingGrid(current) {
+      const grid = document.getElementById('pricingMethodGrid');
+      PRICING_METHODS.forEach(([val, label]) => {
+        const el = document.createElement('label');
+        el.className = 'service-check' + (current.includes(val) ? ' checked' : '');
+        el.innerHTML = `<input type="checkbox" value="${val}" ${current.includes(val) ? 'checked' : ''}><span>${label}</span>`;
+        const input = el.querySelector('input');
+        input.addEventListener('change', () => {
+          el.classList.toggle('checked', input.checked);
+          selectedPricingMethods = Array.from(grid.querySelectorAll('input:checked')).map(i => i.value);
+        });
+        grid.appendChild(el);
+      });
+      selectedPricingMethods = [...current];
+    }
+
+    document.querySelectorAll('#materialsGrid .service-check').forEach(label => {
+      label.addEventListener('click', () => {
+        document.querySelectorAll('#materialsGrid .service-check').forEach(l => l.classList.remove('checked'));
+        label.classList.add('checked');
+        label.querySelector('input').checked = true;
+      });
+    });
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'provider') { window.location.href = '/dashboard.html'; return; }
+
+      const provRes = await fetch('/api/provider/me');
+      if (!provRes.ok) return;
+      const p = (await provRes.json()).provider;
+
+      document.getElementById('serviceRadius').value = p.service_radius_km || 10;
+      document.getElementById('longDistance').checked = !!p.long_distance_jobs_enabled;
+      document.getElementById('hourlyRate').value = p.hourly_rate || '';
+      document.getElementById('calloutFee').value = p.callout_fee || '';
+      document.getElementById('inspectionFee').value = p.inspection_fee || '';
+      document.getElementById('minimumCharge').value = p.minimum_charge || '';
+      document.getElementById('availabilityStatus').value = p.availability_status || 'available_later';
+      document.getElementById('acceptsEmergency').checked = !!p.accepts_emergency;
+      document.getElementById('acceptsSameDay').checked = p.accepts_same_day !== false;
+
+      const currentMethods = Array.isArray(p.pricing_methods) ? p.pricing_methods : (typeof p.pricing_methods === 'string' ? JSON.parse(p.pricing_methods || '[]') : []);
+      buildPricingGrid(currentMethods);
+
+      const materialsVal = p.provides_own_materials || 'depends';
+      const targetInput = document.querySelector(`#materialsGrid input[value="${materialsVal}"]`);
+      if (targetInput) {
+        targetInput.checked = true;
+        targetInput.closest('.service-check').classList.add('checked');
+      }
+    })();
+
+    document.getElementById('saveBtn').addEventListener('click', async () => {
+      const errorEl = document.getElementById('error');
+      const successEl = document.getElementById('success');
+      errorEl.textContent = ''; successEl.textContent = '';
+
+      const materialsChoice = document.querySelector('#materialsGrid input:checked')?.value || 'depends';
+      const payload = {
+        serviceRadiusKm: parseInt(document.getElementById('serviceRadius').value, 10),
+        longDistanceJobsEnabled: document.getElementById('longDistance').checked,
+        pricingMethods: selectedPricingMethods,
+        hourlyRate: document.getElementById('hourlyRate').value ? parseInt(document.getElementById('hourlyRate').value, 10) : null,
+        calloutFee: document.getElementById('calloutFee').value ? parseInt(document.getElementById('calloutFee').value, 10) : null,
+        inspectionFee: document.getElementById('inspectionFee').value ? parseInt(document.getElementById('inspectionFee').value, 10) : null,
+        minimumCharge: document.getElementById('minimumCharge').value ? parseInt(document.getElementById('minimumCharge').value, 10) : null,
+        providesOwnMaterials: materialsChoice,
+        availabilityStatus: document.getElementById('availabilityStatus').value,
+        acceptsEmergency: document.getElementById('acceptsEmergency').checked,
+        acceptsSameDay: document.getElementById('acceptsSameDay').checked
+      };
+
+      const res = await fetch('/api/provider/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      successEl.textContent = 'Saved.';
+      showToast('Services & pricing updated.', 'success');
+    });
+  </script>
+</body>
+</html>

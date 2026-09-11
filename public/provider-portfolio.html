@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio — HandyLink Pro</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="dash-wrap" style="max-width:560px; padding-top:calc(1.5rem + env(safe-area-inset-top));">
+    <a href="/provider-profile.html" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </a>
+    <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:0.4rem;">Portfolio</h1>
+    <p class="job-meta" style="margin-bottom:1.25rem;">Show clients examples of your past work. Supporting evidence, not proof of qualification on its own.</p>
+
+    <div id="portfolioGrid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:0.75rem; margin-bottom:1.5rem;"></div>
+
+    <button type="button" id="addBtn" class="btn-outline">+ Add work example</button>
+  </div>
+
+  <div class="modal-overlay" id="addModal" style="display:none;">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h2>Add work example</h2>
+      <div class="error" id="addError"></div>
+      <div class="photo-upload-row">
+        <div class="photo-preview" id="photoPreview">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </div>
+        <label class="photo-upload-label" for="photoInput">Add photo</label>
+        <input type="file" id="photoInput" accept="image/*" style="display:none;">
+      </div>
+      <input type="text" id="jobType" placeholder="Job type — e.g. Kitchen sink leak repair">
+      <textarea id="description" rows="3" placeholder="Short description (optional)"></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelAdd">Cancel</button>
+        <button type="button" id="saveItem">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    let compressedPhoto = null;
+
+    async function loadPortfolio() {
+      const grid = document.getElementById('portfolioGrid');
+      grid.innerHTML = `<div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div>`;
+      const res = await fetch('/api/provider/portfolio');
+      if (!res.ok) { grid.innerHTML = errorStateHtml('loadPortfolio()'); return; }
+      const data = await res.json();
+
+      if (data.items.length === 0) {
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><strong>No work examples yet</strong>Add photos of past jobs to build trust with clients.</div>`;
+        return;
+      }
+      grid.innerHTML = '';
+      data.items.forEach(item => {
+        const card = document.createElement('div');
+        card.style.cssText = 'background:var(--bg); border-radius:var(--radius-sm); box-shadow:var(--shadow-sm); overflow:hidden;';
+        card.innerHTML = `
+          <img src="${item.photo}" alt="" style="width:100%; height:120px; object-fit:cover; display:block;">
+          <div style="padding:0.6rem 0.7rem;">
+            <strong style="font-size:0.82rem; display:block;">${escapeHtml(item.job_type || item.service_name || 'Work example')}</strong>
+            ${item.description ? `<p class="job-meta" style="margin:0.2rem 0 0.4rem;">${escapeHtml(item.description)}</p>` : ''}
+            <button class="small-btn btn-decline" style="width:100%; padding:0.35rem; font-size:0.72rem;" onclick="deleteItem(${item.id})">Remove</button>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    document.getElementById('photoInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        compressedPhoto = await compressImageFile(file, 700, 0.7);
+        document.getElementById('photoPreview').innerHTML = `<img src="${compressedPhoto}" alt="">`;
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+
+    document.getElementById('addBtn').addEventListener('click', () => {
+      compressedPhoto = null;
+      document.getElementById('photoPreview').innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`;
+      document.getElementById('jobType').value = '';
+      document.getElementById('description').value = '';
+      document.getElementById('addError').textContent = '';
+      openModal(document.getElementById('addModal'));
+    });
+    document.getElementById('cancelAdd').addEventListener('click', () => closeModal(document.getElementById('addModal')));
+
+    document.getElementById('saveItem').addEventListener('click', async () => {
+      const errorEl = document.getElementById('addError');
+      if (!compressedPhoto) { errorEl.textContent = 'Please add a photo.'; return; }
+
+      const res = await fetch('/api/provider/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          photo: compressedPhoto,
+          jobType: document.getElementById('jobType').value,
+          description: document.getElementById('description').value
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      closeModal(document.getElementById('addModal'));
+      showToast('Added to your portfolio.', 'success');
+      loadPortfolio();
+    });
+
+    async function deleteItem(id) {
+      if (!confirm('Remove this work example?')) return;
+      const res = await fetch(`/api/provider/portfolio/${id}`, { method: 'DELETE' });
+      if (!res.ok) { showToast('Could not remove this item.', 'error'); return; }
+      showToast('Removed.', 'success');
+      loadPortfolio();
+    }
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'provider') { window.location.href = '/dashboard.html'; return; }
+      await loadPortfolio();
+    })();
+  </script>
+</body>
+</html>

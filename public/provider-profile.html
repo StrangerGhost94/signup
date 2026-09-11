@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Your listing — HandyLink Pro</title>
+<title>Profile — HandyLink Pro</title>
 <link rel="icon" type="image/png" href="images/icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0B6E4F">
@@ -22,95 +22,71 @@
     </nav>
 
     <div class="app-main">
-      <div class="dash-wrap">
-        <header class="dash-header">
-          <h1 style="font-size:1.4rem; font-weight:800; margin:0;">Your listing</h1>
-          <button id="logoutBtn" class="small-btn logout-btn">Log out</button>
-        </header>
-
-        <p class="job-meta" style="margin:-0.5rem 0 1.5rem;" id="welcome"></p>
-        <div id="locationReminder" style="display:none; background:var(--primary-tint); border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem; color:var(--primary-deep);">
-          📍 Set your location so nearby clients can find you faster — use the button below.
+      <div class="dash-wrap" style="max-width:560px; padding-top:calc(1.5rem + env(safe-area-inset-top));">
+        <div class="settings-avatar-block">
+          <div class="avatar" id="profileAvatar" style="width:72px; height:72px;"></div>
+          <strong id="profileName" style="font-size:1.15rem; display:block;"></strong>
+          <span class="job-meta" id="profileMeta"></span>
         </div>
 
         <div id="approvalBanner" style="display:none; border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem;"></div>
 
-        <h2 class="section-title" style="margin-top:0;">Verification status</h2>
-        <div class="job-card" style="margin-bottom:1.25rem;">
-          <div id="verifStatusList"></div>
-          <div id="idUploadPrompt" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--line);">
-            <p class="job-meta" style="margin-bottom:0.6rem;">You haven't submitted an ID yet — clients trust verified pros more.</p>
-            <label class="upload-slot" id="reIdSlot" for="reIdInput" style="margin-bottom:0;">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="11" r="1.5"/><path d="M3 16l4-3 3 2 5-4 6 5"/></svg>
-              <div id="reIdSlotLabel">Upload a national ID or passport photo</div>
-            </label>
-            <input type="file" id="reIdInput" accept="image/*" style="display:none;">
-          </div>
+        <div class="settings-group">
+          <a href="/provider-listing.html" class="settings-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span>
+            <span class="row-label">Business Profile</span>
+            <span class="row-value" id="verifSummary"></span>
+            <svg class="row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+          </a>
+          <a href="/provider-services.html" class="settings-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
+            <span class="row-label">Services & Pricing</span>
+            <svg class="row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+          </a>
+          <a href="/provider-portfolio.html" class="settings-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
+            <span class="row-label">Portfolio</span>
+            <svg class="row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+          </a>
         </div>
 
-        <div class="provider-layout">
-          <form id="editForm" class="provider-form">
-            <div class="error" id="error"></div>
-
-            <div class="photo-upload-row">
-              <div class="photo-preview" id="photoPreview">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-              </div>
-              <label class="photo-upload-label" for="photoInput">Change photo</label>
-              <input type="file" id="photoInput" accept="image/*" style="display:none;">
-            </div>
-
-            <label>Full name</label>
-            <input type="text" id="name" required>
-
-            <label>Category</label>
-            <input type="text" id="category" required>
-
-            <label>Location / area you serve</label>
-            <input type="text" id="location" required>
-            <button type="button" id="useLocationBtn" class="btn-outline" style="margin-top:-0.5rem; margin-bottom:1rem; font-size:0.85rem; padding:0.5rem 0.9rem;">
-              <span id="useLocationLabel">📍 Use my current location</span>
-            </button>
-
-            <label>Phone number</label>
-            <input type="tel" id="phone" required>
-
-            <label>Bio</label>
-            <textarea id="bio" rows="4"></textarea>
-
-            <button type="submit">Save changes</button>
-          </form>
-
-          <div class="preview-col">
-            <span class="preview-label">Live preview</span>
-            <div class="live-badge"><span class="live-dot"></span>Visible to clients now</div>
-            <div class="worker-card" id="previewCard"></div>
-          </div>
+        <div class="settings-group">
+          <a href="/provider-my-jobs.html" class="settings-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg></span>
+            <span class="row-label">My Jobs</span>
+            <svg class="row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+          </a>
+          <a href="/provider-dashboard.html" class="settings-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg></span>
+            <span class="row-label">Open Jobs & Offers</span>
+            <svg class="row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+          </a>
+          <a href="/provider-earnings.html" class="settings-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+            <span class="row-label">Earnings & Reviews</span>
+            <svg class="row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+          </a>
         </div>
 
-        <h2 class="section-title">Settings</h2>
-        <form id="passwordForm" class="provider-form" style="max-width:420px; margin-bottom:1.25rem;">
-          <div class="error" id="pwError"></div>
-          <div class="success" id="pwSuccess"></div>
-          <label>Current password</label>
-          <input type="password" id="currentPassword" required>
-          <label>New password</label>
-          <input type="password" id="newPassword" required>
-          <div class="pw-checklist" id="pwChecklist">
-            <span id="pwLength"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>8+ characters</span>
-            <span id="pwLetter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>A letter</span>
-            <span id="pwNumber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>A number</span>
-          </div>
-          <button type="submit" class="btn-outline">Change password</button>
-        </form>
-
-        <div class="job-card" style="max-width:420px; margin-bottom:1.25rem;">
-          <a href="/support.html" style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0;"><span>Help & Support</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M9 6l6 6-6 6"/></svg></a>
-          <a href="/terms.html" style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0;"><span>Terms of Service</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M9 6l6 6-6 6"/></svg></a>
-          <a href="/privacy.html" style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0;"><span>Privacy Policy</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M9 6l6 6-6 6"/></svg></a>
+        <div class="settings-group">
+          <a href="/notification-settings.html" class="settings-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
+            <span class="row-label">Notifications</span>
+            <svg class="row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+          </a>
+          <a href="/help-safety.html" class="settings-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6z"/></svg></span>
+            <span class="row-label">Help & Safety</span>
+            <svg class="row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+          </a>
+          <a href="/settings.html" class="settings-row">
+            <span class="row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h0A1.7 1.7 0 0 0 10 3.2V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z"/></svg></span>
+            <span class="row-label">Settings</span>
+            <svg class="row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+          </a>
         </div>
 
-        <button id="deleteAccountBtn" style="max-width:420px; background:transparent; color:var(--danger); border:1.5px solid var(--danger);">Delete account</button>
+        <button type="button" id="logoutBtn" class="btn-outline" style="margin-top:0.5rem;">Log out</button>
       </div>
     </div>
   </div>
@@ -125,300 +101,45 @@
 
   <script src="js/categories.js"></script>
   <script>
-    let currentPhoto = null;
-    let currentExperienceYears = null;
-    let currentRating = null;
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'provider') { window.location.href = '/dashboard.html'; return; }
 
-    const STATUS_COLORS = {
-      VERIFIED: { color: '#0B6E4F', bg: '#E6F4EC', label: 'Verified' },
-      PENDING: { color: '#B45309', bg: '#FEF3C7', label: 'Pending' },
-      IN_REVIEW: { color: '#1D4ED8', bg: '#DBEAFE', label: 'In review' },
-      REJECTED: { color: '#B91C1C', bg: '#FEE2E2', label: 'Rejected' },
-      SUSPENDED: { color: '#6B7280', bg: '#F3F4F6', label: 'Suspended' },
-      EXPIRED: { color: '#6B7280', bg: '#F3F4F6', label: 'Expired' }
-    };
-
-    function statusBadge(status) {
-      const s = STATUS_COLORS[status] || STATUS_COLORS.PENDING;
-      return `<span class="verif-badge" style="color:${s.color}; background:${s.bg};">${s.label}</span>`;
-    }
-
-    async function loadVerificationStatus() {
-      const res = await fetch('/api/provider/verification-status');
-      if (!res.ok) return;
-      const data = await res.json();
-
-      const identity = data.verifications.find(v => v.type === 'identity');
-      const phone = data.verifications.find(v => v.type === 'phone');
-      verificationSnapshot = {
-        identity_status: identity?.status,
-        phone_status: phone?.status,
-        services: data.services,
-        completed_jobs: data.completedJobs
-      };
-      if (document.getElementById('name').value) renderPreview(fieldsFromForm());
-
-      const banner = document.getElementById('approvalBanner');
-      if (data.approvalStatus !== 'APPROVED') {
-        banner.style.display = 'block';
-        const msgs = {
-          PENDING: { bg: 'var(--primary-tint)', color: 'var(--primary-deep)', text: '⏳ Your application is under review. You\u2019ll be notified once approved — you can\u2019t receive jobs until then.' },
-          REJECTED: { bg: '#FEE2E2', color: '#B91C1C', text: '✗ Your application was not approved. Contact Support for details.' },
-          SUSPENDED: { bg: '#F3F4F6', color: '#6B7280', text: '⚠ Your account is currently suspended.' }
-        };
-        const m = msgs[data.approvalStatus] || msgs.PENDING;
-        banner.style.background = m.bg;
-        banner.style.color = m.color;
-        banner.textContent = m.text;
-      } else {
-        banner.style.display = 'none';
+      const provRes = await fetch('/api/provider/me');
+      if (provRes.ok) {
+        const p = (await provRes.json()).provider;
+        document.getElementById('profileName').textContent = p.name;
+        document.getElementById('profileMeta').textContent = `${p.category} · ${p.location}`;
+        document.getElementById('profileAvatar').innerHTML = p.photo ? `<img class="avatar-img" src="${p.photo}" alt="">` : initials(p.name);
       }
 
-      const list = document.getElementById('verifStatusList');
-      list.innerHTML = `
-        <div class="verif-status-row"><span>Identity</span>${identity ? statusBadge(identity.status) : statusBadge('PENDING')}</div>
-        <div class="verif-status-row"><span>Phone</span>${phone ? statusBadge(phone.status) : statusBadge('PENDING')}</div>
-        ${data.services.map(s => `
-          <div class="verif-status-row">
-            <span>${escapeHtml(s.name)}</span>
-            <span>
-              ${statusBadge(s.verification_status)}
-              ${s.verification_status === 'REJECTED' ? `<button class="small-btn" style="width:auto; padding:0.3rem 0.6rem; font-size:0.75rem; margin-left:0.4rem;" onclick="resubmitSkill(${s.id})">Resubmit</button>` : ''}
-            </span>
-          </div>
-        `).join('')}
-      `;
-
-      document.getElementById('idUploadPrompt').style.display = identity ? 'none' : 'block';
-    }
-
-    async function resubmitSkill(workerServiceId) {
-      const res = await fetch(`/api/provider/services/${workerServiceId}/resubmit`, { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) { showToast(data.error, 'error'); return; }
-      showToast('Resubmitted for review.', 'success');
-      loadVerificationStatus(); // pulls the fresh backend state right away
-    }
-
-    document.getElementById('reIdInput').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        const compressed = await compressImageFile(file, 800, 0.7);
-        const res = await fetch('/api/provider/verification/identity', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idDocument: compressed })
-        });
-        const data = await res.json();
-        if (!res.ok) { showToast(data.error, 'error'); return; }
-        showToast('Submitted for review.', 'success');
-        loadVerificationStatus();
-      } catch (err) {
-        showToast(err.message, 'error');
+      const verRes = await fetch('/api/provider/verification-status');
+      if (verRes.ok) {
+        const v = await verRes.json();
+        if (v.approvalStatus !== 'APPROVED') {
+          const banner = document.getElementById('approvalBanner');
+          const msgs = {
+            PENDING: { bg: 'var(--primary-tint)', color: 'var(--primary-deep)', text: '⏳ Your application is under review.' },
+            REJECTED: { bg: '#FEE2E2', color: '#B91C1C', text: '✗ Your application was not approved.' },
+            SUSPENDED: { bg: '#F3F4F6', color: '#6B7280', text: '⚠ Your account is currently suspended.' }
+          };
+          const m = msgs[v.approvalStatus] || msgs.PENDING;
+          banner.style.display = 'block';
+          banner.style.background = m.bg;
+          banner.style.color = m.color;
+          banner.textContent = m.text;
+        }
+        const verifiedCount = v.services.filter(s => s.verification_status === 'VERIFIED').length;
+        document.getElementById('verifSummary').textContent = `${verifiedCount}/${v.services.length} verified`;
       }
-    });
-
-    document.getElementById('useLocationBtn').addEventListener('click', () => {
-      if (!navigator.geolocation) {
-        showToast('Your browser doesn\u2019t support location.', 'error');
-        return;
-      }
-      document.getElementById('useLocationLabel').textContent = 'Getting your location...';
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const { latitude, longitude, accuracy } = pos.coords;
-          const res = await fetch('/api/me/location', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ latitude, longitude, accuracy })
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            document.getElementById('useLocationLabel').textContent = '📍 Use my current location';
-            showToast(data.error || 'Couldn\u2019t save your location.', 'error');
-            return;
-          }
-          document.getElementById('useLocationLabel').textContent = `✓ Location set — ${data.city || data.district || 'saved'}`;
-          document.getElementById('locationReminder').style.display = 'none';
-          showToast('Location saved.', 'success');
-        },
-        (err) => {
-          document.getElementById('useLocationLabel').textContent = '📍 Use my current location';
-          showToast('Couldn\u2019t get your location. Check permissions.', 'error');
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    });
-    let pendingPhoto = null;
-
-    let verificationSnapshot = {};
-
-    function renderPreview(p) {
-      const color = categoryColor(p.category);
-      const card = document.getElementById('previewCard');
-      card.style.setProperty('--cat-color', color);
-      const avatarHtml = (pendingPhoto || p.photo)
-        ? `<img class="avatar-img" src="${pendingPhoto || p.photo}" alt="">`
-        : initials(p.name);
-      const trustInput = {
-        identity_status: verificationSnapshot.identity_status,
-        phone_status: verificationSnapshot.phone_status,
-        category: p.category,
-        category_verified: (verificationSnapshot.services || []).some(s => s.name === p.category && s.verification_status === 'VERIFIED'),
-        completed_jobs: verificationSnapshot.completed_jobs || 0,
-        experience_years: p.experience_years
-      };
-      card.innerHTML = `
-        <div class="worker-head">
-          <div class="avatar">${avatarHtml}</div>
-          <div class="worker-name-block">
-            <strong>${escapeHtml(p.name) || 'Your name'}</strong>
-            <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(p.category)}</svg>${escapeHtml(p.category) || 'Category'}</span>
-          </div>
-          <span class="rating"><span class="star">★</span> ${p.rating || '5.0'}</span>
-        </div>
-        <p class="location">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-          ${escapeHtml(p.location) || 'Location'}
-        </p>
-        <p class="trust-meta-line">${renderTrustMeta(trustInput)}</p>
-        ${renderTrustBadges(trustInput)}
-        <p class="bio">${escapeHtml(p.bio) || 'Your bio will appear here.'}</p>
-        <button class="small-btn contact-btn" disabled>Contact ${escapeHtml(p.phone) || ''}</button>
-      `;
-    }
-
-    document.getElementById('photoInput').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        pendingPhoto = await compressImageFile(file, 320, 0.75);
-        document.getElementById('photoPreview').innerHTML = `<img src="${pendingPhoto}" alt="">`;
-        renderPreview(fieldsFromForm());
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    function fieldsFromForm() {
-      return {
-        name: document.getElementById('name').value,
-        category: document.getElementById('category').value,
-        location: document.getElementById('location').value,
-        phone: document.getElementById('phone').value,
-        bio: document.getElementById('bio').value,
-        photo: currentPhoto,
-        experience_years: currentExperienceYears,
-        rating: currentRating
-      };
-    }
-
-    ['name', 'category', 'location', 'phone', 'bio'].forEach(id => {
-      document.getElementById(id).addEventListener('input', () => renderPreview(fieldsFromForm()));
-    });
-
-    document.getElementById('editForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = document.getElementById('error');
-      errorEl.textContent = '';
-
-      const payload = fieldsFromForm();
-      if (pendingPhoto) payload.photo = pendingPhoto;
-      else delete payload.photo;
-
-      const res = await fetch('/api/provider/me', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        errorEl.textContent = data.error;
-        return;
-      }
-      pendingPhoto = null;
-      currentPhoto = data.provider.photo;
-      showToast('Listing saved.', 'success');
-      renderPreview(data.provider);
-    });
-
-    document.getElementById('newPassword').addEventListener('input', (e) => {
-      const strength = checkPasswordStrength(e.target.value);
-      ['length', 'letter', 'number'].forEach(key => {
-        document.getElementById('pw' + key.charAt(0).toUpperCase() + key.slice(1)).classList.toggle('met', strength[key]);
-      });
-    });
-
-    document.getElementById('passwordForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = document.getElementById('pwError');
-      const successEl = document.getElementById('pwSuccess');
-      errorEl.textContent = '';
-      successEl.textContent = '';
-
-      const res = await fetch('/api/me/password', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          currentPassword: document.getElementById('currentPassword').value,
-          newPassword: document.getElementById('newPassword').value
-        })
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        errorEl.textContent = data.error;
-        return;
-      }
-      document.getElementById('passwordForm').reset();
-      successEl.textContent = 'Password changed.';
-      showToast('Password changed.', 'success');
-    });
-
-    document.getElementById('deleteAccountBtn').addEventListener('click', async () => {
-      if (!confirm('Delete your account permanently? This removes your listing, bookings, messages, and reviews. This cannot be undone.')) {
-        return;
-      }
-      const res = await fetch('/api/me', { method: 'DELETE' });
-      if (res.ok) {
-        window.location.href = '/index.html';
-      } else {
-        showToast('Something went wrong deleting your account.', 'error');
-      }
-    });
+    })();
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {
       await fetch('/api/logout', { method: 'POST' });
       window.location.href = '/login.html';
     });
-
-    (async () => {
-      const meRes = await fetch('/api/me');
-      if (!meRes.ok) { window.location.href = '/login.html'; return; }
-      const me = await meRes.json();
-      if (me.role !== 'provider') { window.location.href = '/dashboard.html'; return; }
-      document.getElementById('welcome').textContent = me.email;
-
-      const provRes = await fetch('/api/provider/me');
-      const provData = await provRes.json();
-      if (provRes.ok) {
-        const p = provData.provider;
-        document.getElementById('name').value = p.name;
-        document.getElementById('category').value = p.category;
-        document.getElementById('location').value = p.location;
-        document.getElementById('phone').value = p.phone;
-        document.getElementById('bio').value = p.bio;
-        currentPhoto = p.photo;
-        currentExperienceYears = p.experience_years;
-        currentRating = p.rating;
-        if (p.photo) document.getElementById('photoPreview').innerHTML = `<img src="${p.photo}" alt="">`;
-        if (!p.latitude) document.getElementById('locationReminder').style.display = 'block';
-        renderPreview(p);
-      }
-      await loadVerificationStatus();
-    })();
   </script>
 </body>
 </html>

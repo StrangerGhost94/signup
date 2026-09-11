@@ -43,6 +43,28 @@
     <a href="/provider-profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
   </nav>
 
+  <div class="modal-overlay" id="priceChangeModal" style="display:none;">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h2>Request a price change</h2>
+      <p class="job-meta" id="pcCurrentNote" style="margin-top:-0.5rem; margin-bottom:1rem;"></p>
+      <div class="error" id="pcError"></div>
+      <label>Labour (UGX)</label>
+      <input type="number" id="pcLabour" min="0">
+      <label>Materials (UGX)</label>
+      <input type="number" id="pcMaterials" min="0" value="0">
+      <div class="est-cost-box" style="margin-bottom:1rem;">
+        <span class="est-label">New total</span>
+        <div class="est-total" id="pcTotalDisplay">UGX 0</div>
+      </div>
+      <label>Reason (shown to the client)</label>
+      <textarea id="pcReason" rows="3" placeholder="e.g. Found additional damage that needs a part replacement."></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelPc">Cancel</button>
+        <button type="button" id="submitPc">Send request</button>
+      </div>
+    </div>
+  </div>
+
   <script src="js/categories.js"></script>
   <script>
     let allJobs = [];
@@ -131,26 +153,54 @@
       });
     }
 
-    function openPriceChangeModal(jobId, currentAmount) {
-      const labour = prompt(`Current price: UGX ${currentAmount.toLocaleString()}\n\nNew labour amount (UGX):`);
-      if (labour === null) return;
-      const materials = prompt('New materials amount (UGX):');
-      if (materials === null) return;
-      const reason = prompt('Why is the price changing? (shown to the client)');
-      if (!reason) return;
+    let currentPcJobId = null;
 
-      fetch(`/api/jobs/${jobId}/price-change`, {
+    function openPriceChangeModal(jobId, currentAmount) {
+      currentPcJobId = jobId;
+      document.getElementById('pcCurrentNote').textContent = `Current price: UGX ${currentAmount.toLocaleString()}`;
+      document.getElementById('pcLabour').value = '';
+      document.getElementById('pcMaterials').value = '0';
+      document.getElementById('pcReason').value = '';
+      document.getElementById('pcError').textContent = '';
+      updatePcTotal();
+      openModal(document.getElementById('priceChangeModal'));
+    }
+
+    function updatePcTotal() {
+      const labour = parseInt(document.getElementById('pcLabour').value, 10) || 0;
+      const materials = parseInt(document.getElementById('pcMaterials').value, 10) || 0;
+      document.getElementById('pcTotalDisplay').textContent = `UGX ${(labour + materials).toLocaleString()}`;
+    }
+    document.getElementById('pcLabour').addEventListener('input', updatePcTotal);
+    document.getElementById('pcMaterials').addEventListener('input', updatePcTotal);
+
+    document.getElementById('cancelPc').addEventListener('click', () => closeModal(document.getElementById('priceChangeModal')));
+
+    document.getElementById('submitPc').addEventListener('click', async () => {
+      const errorEl = document.getElementById('pcError');
+      const labour = parseInt(document.getElementById('pcLabour').value, 10);
+      const materials = parseInt(document.getElementById('pcMaterials').value, 10);
+      if (!Number.isInteger(labour) || labour < 0 || !Number.isInteger(materials) || materials < 0) {
+        errorEl.textContent = 'Please enter valid labour and materials amounts.';
+        return;
+      }
+      const reason = document.getElementById('pcReason').value.trim();
+      if (!reason) {
+        errorEl.textContent = 'Please explain the price change to the client.';
+        return;
+      }
+
+      const res = await fetch(`/api/jobs/${currentPcJobId}/price-change`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labourAmount: parseInt(labour, 10), materialsAmount: parseInt(materials, 10), reason })
-      })
-        .then(r => r.json().then(data => ({ ok: r.ok, data })))
-        .then(({ ok, data }) => {
-          if (!ok) { showToast(data.error, 'error'); return; }
-          showToast('Price change request sent to the client.', 'success');
-          loadJobs();
-        });
-    }
+        body: JSON.stringify({ labourAmount: labour, materialsAmount: materials, reason })
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      closeModal(document.getElementById('priceChangeModal'));
+      showToast('Price change request sent to the client.', 'success');
+      loadJobs();
+    });
 
     async function markPaid(jobId) {
       if (!confirm('Confirm you have received cash payment for this job?')) return;

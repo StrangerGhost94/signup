@@ -56,6 +56,28 @@
     <a href="/provider-profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
   </nav>
 
+  <div class="modal-overlay" id="offerModal" style="display:none;">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h2>Submit your offer</h2>
+      <p class="job-meta" id="offerEstimateNote" style="margin-top:-0.5rem; margin-bottom:1rem;"></p>
+      <div class="error" id="offerError"></div>
+      <label>Labour (UGX)</label>
+      <input type="number" id="offerLabour" min="0">
+      <label>Materials (UGX)</label>
+      <input type="number" id="offerMaterials" min="0" value="0">
+      <div class="est-cost-box" style="margin-bottom:1rem;">
+        <span class="est-label">Your total</span>
+        <div class="est-total" id="offerTotalDisplay">UGX 0</div>
+      </div>
+      <label>Message to the customer (optional)</label>
+      <textarea id="offerMessage" rows="3" placeholder="e.g. I can start tomorrow morning and bring all materials."></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelOffer">Cancel</button>
+        <button type="button" id="submitOffer">Submit offer</button>
+      </div>
+    </div>
+  </div>
+
   <script src="js/categories.js"></script>
   <script>
     document.querySelectorAll('#jobTabBar .filter-btn').forEach(btn => {
@@ -115,25 +137,50 @@
       });
     }
 
-    function openOfferModal(jobId, estimateAmount) {
-      const labour = prompt(`This job is estimated around UGX ${estimateAmount.toLocaleString()} total.\n\nYour labour amount (UGX):`);
-      if (labour === null) return;
-      const materials = prompt('Your materials amount (UGX, or 0 if none):');
-      if (materials === null) return;
-      const message = prompt('A short message to the customer (optional):') || '';
+    let currentOfferJobId = null;
 
-      fetch(`/api/jobs/${jobId}/offers`, {
+    function openOfferModal(jobId, estimateAmount) {
+      currentOfferJobId = jobId;
+      document.getElementById('offerEstimateNote').textContent = `Estimated around UGX ${estimateAmount.toLocaleString()} total.`;
+      document.getElementById('offerLabour').value = '';
+      document.getElementById('offerMaterials').value = '0';
+      document.getElementById('offerMessage').value = '';
+      document.getElementById('offerError').textContent = '';
+      updateOfferTotal();
+      openModal(document.getElementById('offerModal'));
+    }
+
+    function updateOfferTotal() {
+      const labour = parseInt(document.getElementById('offerLabour').value, 10) || 0;
+      const materials = parseInt(document.getElementById('offerMaterials').value, 10) || 0;
+      document.getElementById('offerTotalDisplay').textContent = `UGX ${(labour + materials).toLocaleString()}`;
+    }
+    document.getElementById('offerLabour').addEventListener('input', updateOfferTotal);
+    document.getElementById('offerMaterials').addEventListener('input', updateOfferTotal);
+
+    document.getElementById('cancelOffer').addEventListener('click', () => closeModal(document.getElementById('offerModal')));
+
+    document.getElementById('submitOffer').addEventListener('click', async () => {
+      const errorEl = document.getElementById('offerError');
+      const labour = parseInt(document.getElementById('offerLabour').value, 10);
+      if (!Number.isInteger(labour) || labour < 0) {
+        errorEl.textContent = 'Please enter a valid labour amount.';
+        return;
+      }
+      const materials = parseInt(document.getElementById('offerMaterials').value, 10) || 0;
+      const message = document.getElementById('offerMessage').value;
+
+      const res = await fetch(`/api/jobs/${currentOfferJobId}/offers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labourAmount: parseInt(labour, 10), materialsAmount: parseInt(materials, 10) || 0, message })
-      })
-        .then(r => r.json().then(data => ({ ok: r.ok, data })))
-        .then(({ ok, data }) => {
-          if (!ok) { showToast(data.error, 'error'); return; }
-          showToast('Offer submitted.', 'success');
-          loadOpenJobs();
-        });
-    }
+        body: JSON.stringify({ labourAmount: labour, materialsAmount: materials, message })
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      closeModal(document.getElementById('offerModal'));
+      showToast('Offer submitted.', 'success');
+      loadOpenJobs();
+    });
 
     async function loadJobs() {
       const res = await fetch('/api/provider/jobs');

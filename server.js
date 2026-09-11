@@ -2179,6 +2179,99 @@ app.put('/api/provider/me', requireRole('provider'), async (req, res) => {
   }
 });
 
+// Fixes a real gap: service radius, pricing preferences, and availability
+// were only ever collected once at signup with no way to change them
+// afterward. This is the one place they can be updated.
+app.put('/api/provider/settings', requireRole('provider'), asyncHandler(async (req, res) => {
+  const {
+    serviceRadiusKm, longDistanceJobsEnabled, emergencyTravelEnabled,
+    pricingMethods, calloutFee, inspectionFee, hourlyRate, minimumCharge, providesOwnMaterials,
+    availabilityStatus, acceptsEmergency, acceptsSameDay
+  } = req.body;
+
+  const validPricingMethods = ['fixed', 'labour_materials', 'hourly', 'callout_repair', 'quote_after_inspection'];
+  const cleanPricingMethods = Array.isArray(pricingMethods) ? pricingMethods.filter(m => validPricingMethods.includes(m)) : [];
+  const validAvailability = ['available_now', 'available_today', 'available_later', 'not_available'];
+
+  const result = await pool.query(
+    `UPDATE providers SET
+       service_radius_km = COALESCE($1, service_radius_km),
+       long_distance_jobs_enabled = COALESCE($2, long_distance_jobs_enabled),
+       emergency_travel_enabled = COALESCE($3, emergency_travel_enabled),
+       pricing_methods = $4,
+       callout_fee = $5, inspection_fee = $6, hourly_rate = $7, minimum_charge = $8,
+       provides_own_materials = COALESCE($9, provides_own_materials),
+       availability_status = COALESCE($10, availability_status),
+       accepts_emergency = COALESCE($11, accepts_emergency),
+       accepts_same_day = COALESCE($12, accepts_same_day)
+     WHERE user_id = $13 RETURNING *`,
+    [
+      Number.isInteger(serviceRadiusKm) ? serviceRadiusKm : null,
+      typeof longDistanceJobsEnabled === 'boolean' ? longDistanceJobsEnabled : null,
+      typeof emergencyTravelEnabled === 'boolean' ? emergencyTravelEnabled : null,
+      JSON.stringify(cleanPricingMethods),
+      Number.isInteger(calloutFee) ? calloutFee : null,
+      Number.isInteger(inspectionFee) ? inspectionFee : null,
+      Number.isInteger(hourlyRate) ? hourlyRate : null,
+      Number.isInteger(minimumCharge) ? minimumCharge : null,
+      ['yes', 'no', 'depends'].includes(providesOwnMaterials) ? providesOwnMaterials : null,
+      validAvailability.includes(availabilityStatus) ? availabilityStatus : null,
+      typeof acceptsEmergency === 'boolean' ? acceptsEmergency : null,
+      typeof acceptsSameDay === 'boolean' ? acceptsSameDay : null,
+      req.session.userId
+    ]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'No provider profile found.' });
+  res.json({ provider: result.rows[0] });
+}));
+
+// --- Portfolio ---
+
+app.get('/api/provider/portfolio', requireRole('provider'), asyncHandler(async (req, res) => {
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+  const result = await pool.query(
+    `SELECT pi.*, s.name AS service_name FROM portfolio_items pi
+     LEFT JOIN services s ON s.id = pi.service_id
+     WHERE pi.provider_id = $1 ORDER BY pi.created_at DESC`,
+    [providerId]
+  );
+  res.json({ items: result.rows });
+}));
+
+app.post('/api/provider/portfolio', requireRole('provider'), asyncHandler(async (req, res) => {
+  const { photo, serviceName, jobType, description, approxDate } = req.body;
+  if (!isNonEmpty(photo)) {
+    return res.status(400).json({ error: 'Please add a photo.' });
+  }
+  if (!isValidPhoto(photo)) {
+    return res.status(400).json({ error: 'That photo is too large or in an unsupported format.' });
+  }
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+
+  let serviceId = null;
+  if (isNonEmpty(serviceName)) {
+    const svc = await pool.query('SELECT id FROM services WHERE name = $1', [serviceName]);
+    serviceId = svc.rows[0]?.id || null;
+  }
+
+  const result = await pool.query(
+    `INSERT INTO portfolio_items (provider_id, service_id, photo, job_type, description, approx_date)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [providerId, serviceId, photo, isNonEmpty(jobType) ? jobType.trim() : null, isNonEmpty(description) ? description.trim() : '', isNonEmpty(approxDate) ? approxDate : null]
+  );
+  res.json({ item: result.rows[0] });
+}));
+
+app.delete('/api/provider/portfolio/:id', requireRole('provider'), asyncHandler(async (req, res) => {
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+  const result = await pool.query('DELETE FROM portfolio_items WHERE id = $1 AND provider_id = $2 RETURNING id', [req.params.id, providerId]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Item not found.' });
+  res.json({ message: 'Removed.' });
+}));
+
 // --- Client-facing: create and view bookings ---
 
 const VALID_URGENCY = ['now', 'today', 'schedule'];
