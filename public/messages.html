@@ -25,37 +25,58 @@
 
   <script src="js/categories.js"></script>
   <script>
-    const BRAND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/></svg>';
-
-    const CLIENT_LINKS = [
+    const CLIENT_SIDEBAR_LINKS = [
       { href: '/dashboard.html', label: 'Home', icon: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>' },
       { href: '/client-jobs.html', label: 'Jobs', icon: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/>' },
       { href: '/messages.html', label: 'Messages', icon: '<path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/>', active: true },
       { href: '/profile.html', label: 'Profile', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>' }
     ];
+    const CLIENT_BOTTOM_LINKS = [
+      { href: '/dashboard.html', label: 'Home', icon: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>' },
+      { href: '/client-jobs.html', label: 'Jobs', icon: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/>' },
+      { href: '/dashboard.html', label: 'Post a Job', icon: '<path d="M12 5v14M5 12h14"/>', isPost: true },
+      { href: '/messages.html', label: 'Messages', icon: '<path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/>', active: true },
+      { href: '/profile.html', label: 'Profile', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>' }
+    ];
 
-    const PROVIDER_LINKS = [
+    const PROVIDER_SIDEBAR_LINKS = [
       { href: '/provider-dashboard.html', label: 'Jobs', icon: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/>' },
       { href: '/provider-my-jobs.html', label: 'My Jobs', icon: '<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/>' },
       { href: '/provider-earnings.html', label: 'Earnings', icon: '<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>' },
       { href: '/messages.html', label: 'Messages', icon: '<path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/>', active: true },
       { href: '/provider-profile.html', label: 'Profile', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>' }
     ];
+    const PROVIDER_BOTTOM_LINKS = [
+      { href: '/provider-dashboard.html', label: 'Jobs', icon: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/>' },
+      { href: '/provider-my-jobs.html', label: 'My Jobs', icon: '<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/>' },
+      { href: '/provider-dashboard.html?tab=open', label: 'Open Jobs', icon: '<path d="M12 5v14M5 12h14"/>', isPost: true },
+      { href: '/messages.html', label: 'Messages', icon: '<path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/>', active: true },
+      { href: '/provider-profile.html', label: 'Profile', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>' }
+    ];
 
-    function buildNav(links, isProvider) {
+    function buildNav(isProvider) {
       const sidebar = document.getElementById('sidebarNav');
       const bottom = document.getElementById('bottomNav');
       const homeHref = isProvider ? '/provider-dashboard.html' : '/dashboard.html';
+      const sidebarLinks = isProvider ? PROVIDER_SIDEBAR_LINKS : CLIENT_SIDEBAR_LINKS;
+      const bottomLinks = isProvider ? PROVIDER_BOTTOM_LINKS : CLIENT_BOTTOM_LINKS;
+
       sidebar.innerHTML = `<a href="${homeHref}" class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo">${isProvider ? '<span class="pro-badge">PRO</span>' : ''}</a>` +
-        links.map(l => `<a href="${l.href}" class="${l.active ? 'active' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${l.icon}</svg>${l.label}</a>`).join('');
-      bottom.innerHTML = links.map(l => `<a href="${l.href}" class="nav-item ${l.active ? 'active' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${l.icon}</svg>${l.label}</a>`).join('');
+        sidebarLinks.map(l => `<a href="${l.href}" class="${l.active ? 'active' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${l.icon}</svg>${l.label}</a>`).join('') +
+        (isProvider ? '' : `<button type="button" class="sidebar-post" onclick="window.location.href='/dashboard.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Post a job</button>`);
+
+      bottom.innerHTML = bottomLinks.map(l => `
+        <a href="${l.href}" class="nav-item ${l.active ? 'active' : ''} ${l.isPost ? 'nav-post' : ''}" ${l.isPost ? `aria-label="${l.label}"` : ''}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${l.isPost ? '2.5' : '2'}">${l.icon}</svg>${l.isPost ? '' : l.label}
+        </a>
+      `).join('');
     }
 
     (async () => {
       const res = await fetch('/api/me');
       if (!res.ok) { window.location.href = '/login.html'; return; }
       const me = await res.json();
-      buildNav(me.role === 'provider' ? PROVIDER_LINKS : CLIENT_LINKS, me.role === 'provider');
+      buildNav(me.role === 'provider');
       await loadConversations();
       setInterval(loadConversations, 10000);
     })();
