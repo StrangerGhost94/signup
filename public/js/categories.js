@@ -41,8 +41,13 @@ window.CATEGORY_ESTIMATES = {
 };
 
 window.STATUS_META = {
+  'awaiting_offers': { label: 'Awaiting Offers', color: '#7C3AED', bg: '#F1E9FE' },
   'requested': { label: 'Requested', color: '#D97706', bg: '#FDF3E3' },
-  'accepted': { label: 'Accepted', color: '#0B6E4F', bg: '#E6F4EC' },
+  'accepted': { label: 'Booked', color: '#0B6E4F', bg: '#E6F4EC' },
+  'on_the_way': { label: 'On the Way', color: '#1D4ED8', bg: '#DBEAFE' },
+  'arrived': { label: 'Arrived', color: '#1D4ED8', bg: '#DBEAFE' },
+  'in_progress': { label: 'In Progress', color: '#B45309', bg: '#FEF3C7' },
+  'awaiting_payment': { label: 'Awaiting Payment', color: '#B45309', bg: '#FEF3C7' },
   'declined': { label: 'Declined', color: '#DC2626', bg: '#FCE9E9' },
   'completed': { label: 'Completed', color: '#374151', bg: '#F0F1F0' },
   'cancelled': { label: 'Cancelled', color: '#6B7280', bg: '#F0F1F0' }

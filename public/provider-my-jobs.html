@@ -52,14 +52,16 @@
       const res = await fetch('/api/provider/jobs');
       if (!res.ok) return;
       const data = await res.json();
-      allJobs = data.jobs.filter(j => j.status === 'accepted' || j.status === 'completed');
+      const ACTIVE_STATUSES = ['accepted', 'on_the_way', 'arrived', 'in_progress', 'awaiting_payment'];
+      allJobs = data.jobs.filter(j => ACTIVE_STATUSES.includes(j.status) || j.status === 'completed');
       render();
     }
 
     function render() {
       const list = document.getElementById('jobsList');
       list.innerHTML = '';
-      const filtered = allJobs.filter(j => activeTab === 'active' ? j.status === 'accepted' : j.status === 'completed');
+      const ACTIVE_STATUSES = ['accepted', 'on_the_way', 'arrived', 'in_progress', 'awaiting_payment'];
+      const filtered = allJobs.filter(j => activeTab === 'active' ? ACTIVE_STATUSES.includes(j.status) : j.status === 'completed');
 
       if (filtered.length === 0) {
         list.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>Nothing here yet</strong>${activeTab === 'active' ? 'Accepted jobs will show up here.' : 'Completed jobs will show up here.'}</div>`;
@@ -85,22 +87,29 @@
           <div class="job-actions" data-actions></div>
         `;
         const actions = card.querySelector('[data-actions]');
-        if (j.status === 'accepted') {
+
+        const PROGRESS_ACTIONS = {
+          accepted: { next: 'on-the-way', label: 'On my way' },
+          on_the_way: { next: 'arrived', label: 'Arrived' },
+          arrived: { next: 'start', label: 'Start job' },
+          in_progress: { next: 'complete', label: 'Mark completed' }
+        };
+        if (PROGRESS_ACTIONS[j.status]) {
+          const { next, label } = PROGRESS_ACTIONS[j.status];
           const btn = document.createElement('button');
           btn.className = 'small-btn contact-btn';
-          btn.textContent = 'Mark completed';
-          btn.onclick = () => complete(j.id);
+          btn.textContent = label;
+          btn.onclick = () => progressJob(j.id, next);
           actions.appendChild(btn);
-
-          if (!j.pending_price_change_id) {
-            const priceBtn = document.createElement('button');
-            priceBtn.className = 'small-btn btn-outline';
-            priceBtn.textContent = 'Request price change';
-            priceBtn.onclick = () => openPriceChangeModal(j.id, currentAmount);
-            actions.appendChild(priceBtn);
-          }
         }
-        if (j.status === 'completed' && !j.payment_id) {
+        if (j.status === 'accepted' && !j.pending_price_change_id) {
+          const priceBtn = document.createElement('button');
+          priceBtn.className = 'small-btn btn-outline';
+          priceBtn.textContent = 'Request price change';
+          priceBtn.onclick = () => openPriceChangeModal(j.id, currentAmount);
+          actions.appendChild(priceBtn);
+        }
+        if (j.status === 'awaiting_payment' && !j.payment_id) {
           const payBtn = document.createElement('button');
           payBtn.className = 'small-btn contact-btn';
           payBtn.textContent = 'Mark as paid (cash)';
@@ -154,11 +163,12 @@
       loadJobs();
     }
 
-    async function complete(id) {
-      const res = await fetch(`/api/provider/jobs/${id}/complete`, { method: 'PUT' });
+    async function progressJob(id, action) {
+      const res = await fetch(`/api/provider/jobs/${id}/${action}`, { method: 'PUT' });
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
-      showToast('Job marked completed.', 'success');
+      const labels = { 'on-the-way': 'Marked as on the way.', 'arrived': 'Marked as arrived.', 'start': 'Job started.', 'complete': 'Job marked completed — awaiting payment.' };
+      showToast(labels[action] || 'Updated.', 'success');
       loadJobs();
     }
 

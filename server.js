@@ -219,6 +219,62 @@ async function initDb() {
     ALTER TABLE job_requests ADD COLUMN IF NOT EXISTS estimate_amount INTEGER DEFAULT 0
   `);
 
+  // ============================================================
+  // JOB STATE MACHINE, TIMELINE & OFFERS
+  // Real states matching the full service-management lifecycle, a
+  // system-events timeline kept separate from Messages, and genuine
+  // multi-provider quote comparison. All additive/safe — the existing
+  // direct-booking flow (a job created with one provider already chosen)
+  // keeps working exactly as before; "awaiting_offers" is a new,
+  // optional path for jobs posted without picking a provider first.
+  // ============================================================
+
+  // provider_id becomes nullable — an open job (awaiting offers) has no
+  // assigned provider yet. Every existing job already has one, so this
+  // is safe: nothing currently NULL becomes NULL as a result.
+  await pool.query(`ALTER TABLE job_requests ALTER COLUMN provider_id DROP NOT NULL`);
+
+  // Widen the status enum to the full real lifecycle.
+  await pool.query(`ALTER TABLE job_requests DROP CONSTRAINT IF EXISTS job_requests_status_check`);
+  await pool.query(`
+    ALTER TABLE job_requests ADD CONSTRAINT job_requests_status_check CHECK (status IN (
+      'awaiting_offers', 'requested', 'accepted', 'on_the_way', 'arrived', 'in_progress',
+      'awaiting_payment', 'completed', 'declined', 'cancelled'
+    ))
+  `);
+
+  // Timeline: every meaningful state change or system event on a job,
+  // shown to the customer as a job timeline — deliberately separate
+  // from the messages table, which stays for actual conversation.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS job_events (
+      id SERIAL PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES job_requests(id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Competing quotes from multiple providers on an open (awaiting_offers)
+  // job. Kept distinct from price_change_requests, which is for
+  // renegotiating an already-accepted, already-assigned job.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS job_offers (
+      id SERIAL PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES job_requests(id) ON DELETE CASCADE,
+      provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      labour_amount INTEGER NOT NULL,
+      materials_amount INTEGER NOT NULL DEFAULT 0,
+      total_amount INTEGER NOT NULL,
+      message TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACCEPTED', 'DECLINED', 'WITHDRAWN')),
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(job_id, provider_id)
+    )
+  `);
+
   // Migration: the actually-agreed price, separate from the original
   // estimate. NULL means "no price change has ever been approved — the
   // original estimate stands." Only ever set via an accepted price-change
@@ -818,6 +874,20 @@ async function createNotification(userId, type, body, link) {
     );
   } catch (err) {
     console.error('Notification creation failed:', err);
+  }
+}
+
+// The one place a job timeline entry gets written — kept deliberately
+// separate from messages, which stay for actual conversation between
+// the two parties. Every real state change calls this.
+async function recordJobEvent(jobId, eventType, description, actorUserId) {
+  try {
+    await pool.query(
+      'INSERT INTO job_events (job_id, event_type, description, actor_user_id) VALUES ($1, $2, $3, $4)',
+      [jobId, eventType, description, actorUserId || null]
+    );
+  } catch (err) {
+    console.error('Job event recording failed:', err);
   }
 }
 
@@ -2180,6 +2250,228 @@ app.post('/api/jobs/assess', requireRole('client'), aiAssessLimiter, asyncHandle
   res.json({ assessment: clientSafeAssessment });
 }));
 
+// --- Open jobs & multi-provider offers (customer posts without picking
+// one specific provider; several providers can quote, customer compares
+// and picks). Coexists with the direct-booking flow above — neither
+// replaces the other. ---
+
+app.post('/api/jobs/open', requireRole('client'), asyncHandler(async (req, res) => {
+  const { category, description, urgency, location, locationNotes, assessmentId } = req.body;
+  if (!isNonEmpty(category) || !isNonEmpty(description) || !isNonEmpty(location)) {
+    return res.status(400).json({ error: 'Please fill in the job description and location.' });
+  }
+  if (!VALID_URGENCY.includes(urgency)) {
+    return res.status(400).json({ error: 'Please choose when you need this done.' });
+  }
+
+  let estimateAmount = ESTIMATE_MIDPOINTS[category.trim()] || 40000;
+  let linkedAssessment = null;
+  if (assessmentId) {
+    const assessResult = await pool.query('SELECT * FROM job_assessments WHERE id = $1 AND client_user_id = $2', [assessmentId, req.session.userId]);
+    if (assessResult.rows.length > 0) {
+      linkedAssessment = assessResult.rows[0];
+      estimateAmount = Math.round((linkedAssessment.total_min + linkedAssessment.total_max) / 2);
+    }
+  }
+
+  const result = await pool.query(
+    `INSERT INTO job_requests (client_user_id, provider_id, category, description, urgency, location, location_notes, estimate_amount, status)
+     VALUES ($1, NULL, $2,$3,$4,$5,$6,$7,'awaiting_offers') RETURNING *`,
+    [req.session.userId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '', estimateAmount]
+  );
+  const job = result.rows[0];
+
+  if (linkedAssessment) {
+    await pool.query('UPDATE job_assessments SET job_id = $1 WHERE id = $2', [job.id, linkedAssessment.id]);
+  }
+  await recordJobEvent(job.id, 'posted', `Job posted — open for offers: ${category.trim()}`, req.session.userId);
+
+  // Notify eligible providers: approved, offering this service, and
+  // (for high-risk services) verified specifically for it.
+  const eligibleQuery = HIGH_RISK_SERVICES.includes(category.trim())
+    ? `SELECT p.user_id FROM providers p JOIN worker_services ws ON ws.provider_id = p.id JOIN services s ON s.id = ws.service_id
+       WHERE p.approval_status = 'APPROVED' AND s.name = $1 AND ws.verification_status = 'VERIFIED'`
+    : `SELECT p.user_id FROM providers p WHERE p.approval_status = 'APPROVED' AND p.category = $1`;
+  const eligible = await pool.query(eligibleQuery, [category.trim()]);
+  eligible.rows.forEach(p => {
+    createNotification(p.user_id, 'new_open_job', `New ${category.trim()} job open for offers`, '/provider-dashboard.html');
+  });
+
+  res.json({ job });
+}));
+
+app.get('/api/jobs/open', requireRole('provider'), asyncHandler(async (req, res) => {
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+  const providerRow = await pool.query('SELECT category FROM providers WHERE id = $1', [providerId]);
+  const category = providerRow.rows[0]?.category;
+
+  const result = await pool.query(`
+    SELECT jr.*, u.email AS client_email,
+      (SELECT id FROM job_offers WHERE job_id = jr.id AND provider_id = $2) AS my_offer_id,
+      (SELECT status FROM job_offers WHERE job_id = jr.id AND provider_id = $2) AS my_offer_status
+    FROM job_requests jr JOIN users u ON u.id = jr.client_user_id
+    WHERE jr.status = 'awaiting_offers' AND jr.category = $1
+    ORDER BY jr.created_at DESC
+  `, [category, providerId]);
+  res.json({ jobs: result.rows });
+}));
+
+app.post('/api/jobs/:id/offers', requireRole('provider'), asyncHandler(async (req, res) => {
+  const { labourAmount, materialsAmount, message } = req.body;
+  const labour = parseInt(labourAmount, 10);
+  const materials = parseInt(materialsAmount, 10) || 0;
+  if (!Number.isInteger(labour) || labour < 0) {
+    return res.status(400).json({ error: 'Please enter a valid labour amount.' });
+  }
+
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+
+  const statusCheck = await pool.query('SELECT approval_status FROM providers WHERE id = $1', [providerId]);
+  if (statusCheck.rows[0]?.approval_status !== 'APPROVED') {
+    return res.status(403).json({ error: 'Your account isn\u2019t approved to submit offers right now.' });
+  }
+
+  const jobResult = await pool.query(`SELECT * FROM job_requests WHERE id = $1 AND status = 'awaiting_offers'`, [req.params.id]);
+  if (jobResult.rows.length === 0) {
+    return res.status(404).json({ error: 'This job is no longer open for offers.' });
+  }
+  const job = jobResult.rows[0];
+
+  if (HIGH_RISK_SERVICES.includes(job.category)) {
+    const skillCheck = await pool.query(
+      `SELECT verification_status FROM worker_services ws JOIN services s ON s.id = ws.service_id
+       WHERE ws.provider_id = $1 AND s.name = $2`,
+      [providerId, job.category]
+    );
+    if (skillCheck.rows.length === 0 || skillCheck.rows[0].verification_status !== 'VERIFIED') {
+      return res.status(403).json({ error: `${job.category} requires verified skill to submit an offer.` });
+    }
+  }
+
+  const total = labour + materials;
+  const result = await pool.query(
+    `INSERT INTO job_offers (job_id, provider_id, labour_amount, materials_amount, total_amount, message)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (job_id, provider_id) DO UPDATE SET labour_amount = $3, materials_amount = $4, total_amount = $5, message = $6, status = 'PENDING'
+     RETURNING *`,
+    [req.params.id, providerId, labour, materials, total, isNonEmpty(message) ? message.trim() : '']
+  );
+
+  await recordJobEvent(req.params.id, 'offer_submitted', `New offer received: UGX ${total.toLocaleString()}`, req.session.userId);
+  createNotification(job.client_user_id, 'new_offer', `New offer for your ${job.category} job: UGX ${total.toLocaleString()}`, '/client-jobs.html');
+  res.json({ offer: result.rows[0] });
+}));
+
+app.get('/api/jobs/:id/offers', requireLogin, asyncHandler(async (req, res) => {
+  const jobResult = await pool.query('SELECT * FROM job_requests WHERE id = $1', [req.params.id]);
+  if (jobResult.rows.length === 0) return res.status(404).json({ error: 'Job not found.' });
+  const job = jobResult.rows[0];
+
+  if (req.session.role === 'client') {
+    if (job.client_user_id !== req.session.userId) return res.status(403).json({ error: 'Not authorized.' });
+    const result = await pool.query(`
+      SELECT jo.*, p.name AS provider_name, p.photo AS provider_photo, p.rating, p.experience_years
+      FROM job_offers jo JOIN providers p ON p.id = jo.provider_id
+      WHERE jo.job_id = $1 AND jo.status != 'WITHDRAWN' ORDER BY jo.total_amount ASC
+    `, [req.params.id]);
+    return res.json({ offers: result.rows });
+  }
+
+  const providerId = await getProviderIdForUser(req.session.userId);
+  const result = await pool.query('SELECT * FROM job_offers WHERE job_id = $1 AND provider_id = $2', [req.params.id, providerId]);
+  res.json({ offers: result.rows });
+}));
+
+app.post('/api/jobs/:id/offers/:offerId/accept', requireRole('client'), asyncHandler(async (req, res) => {
+  const jobResult = await pool.query(
+    `SELECT * FROM job_requests WHERE id = $1 AND client_user_id = $2 AND status = 'awaiting_offers'`,
+    [req.params.id, req.session.userId]
+  );
+  if (jobResult.rows.length === 0) return res.status(404).json({ error: 'This job can\u2019t accept an offer right now.' });
+
+  const offerResult = await pool.query(
+    `SELECT * FROM job_offers WHERE id = $1 AND job_id = $2 AND status = 'PENDING'`,
+    [req.params.offerId, req.params.id]
+  );
+  if (offerResult.rows.length === 0) return res.status(404).json({ error: 'This offer is no longer available.' });
+  const offer = offerResult.rows[0];
+
+  await pool.query(
+    `UPDATE job_requests SET provider_id = $1, status = 'accepted', final_amount = $2, updated_at = NOW() WHERE id = $3`,
+    [offer.provider_id, offer.total_amount, req.params.id]
+  );
+  await pool.query(`UPDATE job_offers SET status = 'ACCEPTED' WHERE id = $1`, [offer.id]);
+  const declined = await pool.query(
+    `UPDATE job_offers SET status = 'DECLINED' WHERE job_id = $1 AND id != $2 AND status = 'PENDING' RETURNING provider_id`,
+    [req.params.id, offer.id]
+  );
+
+  const providerUser = await pool.query('SELECT user_id, name FROM providers WHERE id = $1', [offer.provider_id]);
+  await recordJobEvent(req.params.id, 'offer_accepted', `Offer accepted: UGX ${offer.total_amount.toLocaleString()} — ${providerUser.rows[0]?.name}`, req.session.userId);
+  if (providerUser.rows[0]) {
+    createNotification(providerUser.rows[0].user_id, 'offer_accepted', 'Your offer was accepted! The job is booked.', '/provider-dashboard.html');
+  }
+  for (const d of declined.rows) {
+    const declinedProvider = await pool.query('SELECT user_id FROM providers WHERE id = $1', [d.provider_id]);
+    if (declinedProvider.rows[0]) {
+      createNotification(declinedProvider.rows[0].user_id, 'offer_declined', 'A customer chose another pro for this job.', '/provider-dashboard.html');
+    }
+  }
+
+  res.json({ message: 'Offer accepted — job booked.' });
+}));
+
+app.get('/api/jobs/:id/timeline', requireLogin, asyncHandler(async (req, res) => {
+  const jobResult = await pool.query(
+    `SELECT jr.client_user_id, p.user_id AS provider_user_id FROM job_requests jr LEFT JOIN providers p ON p.id = jr.provider_id WHERE jr.id = $1`,
+    [req.params.id]
+  );
+  if (jobResult.rows.length === 0) return res.status(404).json({ error: 'Job not found.' });
+  const job = jobResult.rows[0];
+  if (job.client_user_id !== req.session.userId && job.provider_user_id !== req.session.userId) {
+    return res.status(403).json({ error: 'Not authorized.' });
+  }
+  const result = await pool.query('SELECT * FROM job_events WHERE job_id = $1 ORDER BY created_at ASC', [req.params.id]);
+  res.json({ events: result.rows });
+}));
+
+// Backs the customer Jobs dashboard's four filters. Mapping:
+//   offers    -> awaiting_offers (posted, comparing quotes)
+//   upcoming  -> requested, accepted (booked/confirmed, work not started)
+//   active    -> on_the_way, arrived, in_progress, awaiting_payment (underway or just finished)
+//   completed -> completed, declined, cancelled (terminal)
+const JOB_FILTER_STATUSES = {
+  offers: ['awaiting_offers'],
+  upcoming: ['requested', 'accepted'],
+  active: ['on_the_way', 'arrived', 'in_progress', 'awaiting_payment'],
+  completed: ['completed', 'declined', 'cancelled']
+};
+
+app.get('/api/jobs/mine', requireRole('client'), asyncHandler(async (req, res) => {
+  const filter = req.query.filter;
+  const statuses = JOB_FILTER_STATUSES[filter];
+  if (filter && !statuses) {
+    return res.status(400).json({ error: 'Invalid filter.' });
+  }
+
+  const result = await pool.query(
+    `SELECT jr.*, p.name AS provider_name, p.phone AS provider_phone, p.photo AS provider_photo, p.user_id AS provider_user_id,
+            (r.id IS NOT NULL) AS reviewed,
+            pcr.id AS pending_price_change_id, pcr.new_amount AS pending_new_amount, pcr.reason AS pending_price_reason,
+            (SELECT COUNT(*)::int FROM job_offers WHERE job_id = jr.id AND status = 'PENDING') AS offer_count
+     FROM job_requests jr
+     LEFT JOIN providers p ON p.id = jr.provider_id
+     LEFT JOIN reviews r ON r.job_id = jr.id
+     LEFT JOIN price_change_requests pcr ON pcr.job_id = jr.id AND pcr.status = 'PENDING'
+     WHERE jr.client_user_id = $1 ${statuses ? 'AND jr.status = ANY($2)' : ''}
+     ORDER BY jr.created_at DESC`,
+    statuses ? [req.session.userId, statuses] : [req.session.userId]
+  );
+  res.json({ jobs: result.rows });
+}));
+
 app.post('/api/bookings', requireRole('client'), async (req, res) => {
   const { providerId, category, description, urgency, location, locationNotes, assessmentId } = req.body;
 
@@ -2238,6 +2530,8 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
     if (linkedAssessment) {
       await pool.query('UPDATE job_assessments SET job_id = $1 WHERE id = $2', [result.rows[0].id, linkedAssessment.id]);
     }
+
+    await recordJobEvent(result.rows[0].id, 'posted', `Job posted — ${category.trim()}, matched to ${providerCheck.rows[0].name}`, req.session.userId);
 
     if (providerCheck.rows[0].user_id) {
       createNotification(
@@ -2298,6 +2592,16 @@ app.get('/api/provider/jobs', requireRole('provider'), asyncHandler(async (req, 
   res.json({ jobs: result.rows });
 }));
 
+const JOB_EVENT_LABELS = {
+  accepted: 'Job accepted — booked',
+  declined: 'Job declined',
+  on_the_way: 'Pro is on the way',
+  arrived: 'Pro has arrived',
+  in_progress: 'Work started',
+  awaiting_payment: 'Work completed — awaiting payment',
+  cancelled: 'Job cancelled'
+};
+
 async function updateJobStatus(req, res, { from, to }) {
   const providerId = await getProviderIdForUser(req.session.userId);
   if (!providerId) {
@@ -2311,11 +2615,12 @@ async function updateJobStatus(req, res, { from, to }) {
     }
   }
 
+  const fromStates = Array.isArray(from) ? from : [from];
   const result = await pool.query(
     `UPDATE job_requests SET status = $1, updated_at = NOW()
-     WHERE id = $2 AND provider_id = $3 AND status = $4
+     WHERE id = $2 AND provider_id = $3 AND status = ANY($4)
      RETURNING *`,
-    [to, req.params.id, providerId, from]
+    [to, req.params.id, providerId, fromStates]
   );
 
   if (result.rows.length === 0) {
@@ -2323,13 +2628,19 @@ async function updateJobStatus(req, res, { from, to }) {
   }
 
   const job = result.rows[0];
+  await recordJobEvent(job.id, `status_${to}`, JOB_EVENT_LABELS[to] || `Status changed to ${to}`, req.session.userId);
+
   const messages = {
     accepted: 'Your job request was accepted',
     declined: 'Your job request was declined',
-    completed: 'Your job was marked completed'
+    on_the_way: 'Your pro is on the way',
+    arrived: 'Your pro has arrived',
+    in_progress: 'Your job has started',
+    awaiting_payment: 'Your job is complete — payment is now due',
+    cancelled: 'Your job was cancelled'
   };
   if (messages[to]) {
-    createNotification(job.client_user_id, `job_${to}`, `${messages[to]} — ${job.category}`, '/dashboard.html#recentJobs');
+    createNotification(job.client_user_id, `job_${to}`, `${messages[to]} — ${job.category}`, '/client-jobs.html');
   }
 
   res.json({ job });
@@ -2371,6 +2682,15 @@ app.put('/api/provider/jobs/:id/accept', requireRole('provider'), (req, res) =>
 );
 app.put('/api/provider/jobs/:id/decline', requireRole('provider'), (req, res) =>
   updateJobStatus(req, res, { from: 'requested', to: 'declined' })
+);
+app.put('/api/provider/jobs/:id/on-the-way', requireRole('provider'), (req, res) =>
+  updateJobStatus(req, res, { from: 'accepted', to: 'on_the_way' })
+);
+app.put('/api/provider/jobs/:id/arrived', requireRole('provider'), (req, res) =>
+  updateJobStatus(req, res, { from: ['accepted', 'on_the_way'], to: 'arrived' })
+);
+app.put('/api/provider/jobs/:id/start', requireRole('provider'), (req, res) =>
+  updateJobStatus(req, res, { from: ['accepted', 'on_the_way', 'arrived'], to: 'in_progress' })
 );
 
 // Handyman quote system (AI spec Phase 5): instead of only Accept/Decline,
@@ -2417,6 +2737,7 @@ app.put('/api/provider/jobs/:id/accept-with-quote', requireRole('provider'), asy
   );
 
   await createAuditLog(req.session.userId, 'JOB_ACCEPTED_WITH_QUOTE', 'job', job.id, `${job.estimate_amount} -> ${newAmount}`);
+  await recordJobEvent(job.id, 'status_accepted', 'Job accepted — booked, with a revised quote pending your approval', req.session.userId);
   await createNotification(
     job.client_user_id,
     'quote_submitted',
@@ -2427,7 +2748,7 @@ app.put('/api/provider/jobs/:id/accept-with-quote', requireRole('provider'), asy
   res.json({ job, priceChange: pcResult.rows[0] });
 }));
 app.put('/api/provider/jobs/:id/complete', requireRole('provider'), (req, res) =>
-  updateJobStatus(req, res, { from: 'accepted', to: 'completed' })
+  updateJobStatus(req, res, { from: ['accepted', 'on_the_way', 'arrived', 'in_progress'], to: 'awaiting_payment' })
 );
 
 // --- Price change protection ---
@@ -2477,6 +2798,7 @@ app.post('/api/jobs/:id/price-change', requireRole('provider'), asyncHandler(asy
   );
 
   await createAuditLog(req.session.userId, 'PRICE_CHANGE_REQUESTED', 'job', req.params.id, `${originalAmount} -> ${newAmount}: ${reason.trim()}`);
+  await recordJobEvent(req.params.id, 'price_change_requested', `Price change requested: UGX ${newAmount.toLocaleString()} — ${reason.trim()}`, req.session.userId);
   await createNotification(job.client_user_id, 'price_change_requested', `Your pro requested a price change for ${job.category}: UGX ${newAmount.toLocaleString()}`, '/dashboard.html#recentJobs');
 
   res.json({ priceChange: result.rows[0] });
@@ -2527,6 +2849,7 @@ app.post('/api/price-changes/:id/decide', requireRole('client'), asyncHandler(as
   }
 
   await createAuditLog(req.session.userId, `PRICE_CHANGE_${decision}`, 'job', pc.job_id, `UGX ${pc.new_amount}`);
+  await recordJobEvent(pc.job_id, `price_change_${decision.toLowerCase()}`, `Price change of UGX ${pc.new_amount.toLocaleString()} ${decision === 'ACCEPTED' ? 'accepted' : 'declined'}`, req.session.userId);
 
   const providerUser = await pool.query(
     `SELECT p.user_id FROM job_requests jr JOIN providers p ON p.id = jr.provider_id WHERE jr.id = $1`,
@@ -2556,11 +2879,11 @@ app.post('/api/jobs/:id/payment', requireRole('provider'), asyncHandler(async (r
   if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
 
   const jobResult = await pool.query(
-    `SELECT * FROM job_requests WHERE id = $1 AND provider_id = $2 AND status = 'completed'`,
+    `SELECT * FROM job_requests WHERE id = $1 AND provider_id = $2 AND status = 'awaiting_payment'`,
     [req.params.id, providerId]
   );
   if (jobResult.rows.length === 0) {
-    return res.status(404).json({ error: 'This job isn\u2019t completed yet, or doesn\u2019t belong to you.' });
+    return res.status(404).json({ error: 'This job isn\u2019t awaiting payment, or doesn\u2019t belong to you.' });
   }
   const job = jobResult.rows[0];
   const existingPayment = await pool.query('SELECT id FROM payments WHERE job_id = $1', [req.params.id]);
@@ -2574,9 +2897,12 @@ app.post('/api/jobs/:id/payment', requireRole('provider'), asyncHandler(async (r
      VALUES ($1,$2,$3,$4,'cash','COMPLETED') RETURNING *`,
     [req.params.id, job.client_user_id, providerId, amount]
   );
+  await pool.query(`UPDATE job_requests SET status = 'completed', updated_at = NOW() WHERE id = $1`, [req.params.id]);
+  await recordJobEvent(job.id, 'payment_recorded', `Payment of UGX ${amount.toLocaleString()} recorded (cash)`, req.session.userId);
+  await recordJobEvent(job.id, 'status_completed', 'Job completed', req.session.userId);
 
   await createAuditLog(req.session.userId, 'PAYMENT_RECORDED_CASH', 'job', req.params.id, `UGX ${amount}`);
-  await createNotification(job.client_user_id, 'payment_recorded', `Your pro marked UGX ${amount.toLocaleString()} as paid in cash for ${job.category}.`, '/dashboard.html#recentJobs');
+  await createNotification(job.client_user_id, 'payment_recorded', `Your pro marked UGX ${amount.toLocaleString()} as paid in cash for ${job.category}.`, '/client-jobs.html');
 
   res.json({ payment: result.rows[0] });
 }));

@@ -5,51 +5,267 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>My Jobs — HandyLink</title>
 <link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B6E4F">
 <link rel="stylesheet" href="style.css">
 </head>
-<body class="app-body">
-  <div class="dash-wrap" style="max-width:560px;">
-    <a href="/profile.html" class="chat-back" style="margin-bottom:1rem;" aria-label="Back">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-    </a>
-    <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:1.25rem;">My Jobs</h1>
-    <div id="jobsList"></div>
+<body class="app-body has-bottom-nav">
+  <div class="app-shell">
+    <nav class="sidebar-nav">
+      <a href="/dashboard.html" class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo"></a>
+      <a href="/dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
+      <a href="/client-jobs.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+      <a href="/messages.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
+      <a href="/profile.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
+    </nav>
+
+    <div class="app-main">
+      <div class="dash-wrap" style="padding-top:calc(1.5rem + env(safe-area-inset-top));">
+        <div class="jobs-hero">
+          <h1 style="font-size:1.4rem; font-weight:800;">Jobs</h1>
+          <button type="button" class="post-job-btn" onclick="window.location.href='/dashboard.html'">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            Post a Job
+          </button>
+        </div>
+
+        <div class="filters" id="filterBar">
+          <button class="filter-btn active" data-filter="active">Active</button>
+          <button class="filter-btn" data-filter="upcoming">Upcoming</button>
+          <button class="filter-btn" data-filter="offers">Offers</button>
+          <button class="filter-btn" data-filter="completed">Completed</button>
+        </div>
+
+        <div id="jobsList"></div>
+      </div>
+    </div>
   </div>
+
+  <nav class="bottom-nav">
+    <a href="/dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
+    <a href="/client-jobs.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+    <a href="/dashboard.html" class="nav-item nav-post"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></a>
+    <a href="/messages.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
+    <a href="/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
+  </nav>
 
   <script src="js/categories.js"></script>
   <script>
+    let activeFilter = 'active';
+
+    const EVENT_ICONS = {
+      posted: '📝', status_accepted: '✅', status_on_the_way: '🚗', status_arrived: '📍',
+      status_in_progress: '🔧', status_awaiting_payment: '💳', status_completed: '🎉',
+      status_declined: '✗', status_cancelled: '✗', price_change_requested: '💰',
+      price_change_accepted: '✅', price_change_declined: '✗', offer_submitted: '📨',
+      offer_accepted: '✅', payment_recorded: '💳'
+    };
+
+    document.querySelectorAll('#filterBar .filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#filterBar .filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeFilter = btn.dataset.filter;
+        loadJobs();
+      });
+    });
+
+    function nextActionFor(j) {
+      if (j.status === 'awaiting_offers') {
+        return j.offer_count > 0
+          ? { label: `Compare ${j.offer_count} offer${j.offer_count === 1 ? '' : 's'}`, fn: () => openOffers(j.id) }
+          : null;
+      }
+      if (j.status === 'completed' && !j.reviewed) {
+        return { label: 'Rate this job', fn: () => window.location.href = '/dashboard.html#recentJobs' };
+      }
+      if (['accepted', 'on_the_way', 'arrived', 'in_progress', 'awaiting_payment'].includes(j.status)) {
+        return { label: 'Message', fn: () => window.location.href = `/message-thread.html?jobId=${j.id}` };
+      }
+      return null;
+    }
+
+    function statusSubtext(j) {
+      const subs = {
+        awaiting_offers: j.offer_count > 0 ? `${j.offer_count} offer${j.offer_count === 1 ? '' : 's'} received` : 'Waiting for pros to respond',
+        requested: 'Waiting for your pro to respond',
+        accepted: 'Booked — work hasn\u2019t started yet',
+        on_the_way: 'Your pro is on the way',
+        arrived: 'Your pro has arrived',
+        in_progress: 'Work is underway',
+        awaiting_payment: 'Work is done — payment pending',
+        completed: 'Completed',
+        declined: 'Your pro couldn\u2019t take this job',
+        cancelled: 'This job was cancelled'
+      };
+      return subs[j.status] || '';
+    }
+
     async function loadJobs() {
       const list = document.getElementById('jobsList');
       list.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
-      const res = await fetch('/api/bookings/mine');
+      const res = await fetch('/api/jobs/mine?filter=' + activeFilter);
       if (!res.ok) { list.innerHTML = errorStateHtml('loadJobs()'); return; }
       const data = await res.json();
-      if (data.bookings.length === 0) {
-        list.innerHTML = `<div class="empty-state"><strong>No jobs yet</strong>Post a job from your home screen to get started.</div>`;
-        return;
-      }
-      list.innerHTML = '';
-      data.bookings.forEach(b => {
-        const meta = STATUS_META[b.status] || STATUS_META.requested;
-        const currentAmount = b.final_amount != null ? b.final_amount : b.estimate_amount;
-        const card = document.createElement('div');
-        card.className = 'job-card';
-        card.innerHTML = `
-          <div class="job-top">
-            <div>
-              <strong>${escapeHtml(b.category)} — ${escapeHtml(b.provider_name)}</strong>
-              <p class="job-meta">${escapeHtml(b.location)} · UGX ${currentAmount.toLocaleString()} · ${new Date(b.created_at).toLocaleDateString()}</p>
-            </div>
-            <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
-          </div>
-          <p class="job-desc">${escapeHtml(b.description)}</p>
-          <div class="action-row">
-            <button class="small-btn btn-outline" onclick="window.location.href='/message-thread.html?jobId=${b.id}'">Message</button>
-            ${b.status === 'completed' && !b.reviewed ? `<button class="small-btn" onclick="window.location.href='/dashboard.html#recentJobs'">Rate this job</button>` : ''}
+
+      if (data.jobs.length === 0) {
+        const EMPTY_COPY = {
+          active: 'Jobs currently underway will show up here.',
+          upcoming: 'Booked jobs waiting to start will show up here.',
+          offers: 'Post an open job to start comparing offers from pros.',
+          completed: 'Finished jobs will show up here.'
+        };
+        list.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg>
+            <strong>No ${activeFilter} jobs</strong>${EMPTY_COPY[activeFilter]}
+            <button type="button" class="small-btn" style="margin-top:1rem;" onclick="window.location.href='/dashboard.html'">Post a Job</button>
           </div>
         `;
+        return;
+      }
+
+      list.innerHTML = '';
+      data.jobs.forEach(j => {
+        const meta = STATUS_META[j.status] || { color: 'var(--ink-soft)', bg: 'var(--surface)', label: j.status };
+        const color = categoryColor(j.category);
+        const amount = j.final_amount != null ? j.final_amount : j.estimate_amount;
+        const card = document.createElement('div');
+        card.className = 'job-card-v2';
+        card.innerHTML = `
+          <div class="job-card-v2-top">
+            <div>
+              <div class="job-card-v2-service"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" style="width:14px;height:14px;">${categoryIcon(j.category)}</svg>${escapeHtml(j.category)}</div>
+              <p class="job-card-v2-title">${escapeHtml(j.description.slice(0, 60))}${j.description.length > 60 ? '…' : ''}</p>
+            </div>
+            <span class="status-badge" style="color:${meta.color}; background:${meta.bg}; flex-shrink:0;">${meta.label}</span>
+          </div>
+          <p class="job-card-v2-meta">${j.provider_name ? escapeHtml(j.provider_name) + ' · ' : ''}${new Date(j.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${statusSubtext(j)}</p>
+          <div class="job-card-v2-price">UGX ${amount.toLocaleString()}</div>
+          ${j.pending_price_change_id ? `
+            <div style="background:#FEF3C7; border-radius:var(--radius-sm); padding:0.75rem 0.9rem; margin-top:0.65rem;">
+              <p style="font-size:0.84rem; font-weight:700; color:#92400E; margin:0 0 0.5rem;">Price change requested: UGX ${j.pending_new_amount.toLocaleString()}</p>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="small-btn" style="width:auto; padding:0.4rem 0.8rem; font-size:0.78rem;" data-decide="ACCEPTED" data-pcid="${j.pending_price_change_id}">Accept</button>
+                <button class="small-btn btn-decline" style="width:auto; padding:0.4rem 0.8rem; font-size:0.78rem;" data-decide="DECLINED" data-pcid="${j.pending_price_change_id}">Decline</button>
+              </div>
+            </div>
+          ` : ''}
+          <div class="job-card-v2-actions" data-actions></div>
+        `;
+        const action = nextActionFor(j);
+        if (action) {
+          const btn = document.createElement('button');
+          btn.className = 'small-btn';
+          btn.textContent = action.label;
+          btn.onclick = (e) => { e.stopPropagation(); action.fn(); };
+          card.querySelector('[data-actions]').appendChild(btn);
+        }
+        card.querySelectorAll('[data-decide]').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            decidePriceChange(btn.dataset.pcid, btn.dataset.decide);
+          });
+        });
+        card.addEventListener('click', () => openTimeline(j));
         list.appendChild(card);
       });
+    }
+
+    async function decidePriceChange(id, decision) {
+      const res = await fetch(`/api/price-changes/${id}/decide`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast(decision === 'ACCEPTED' ? 'Price change accepted.' : 'Price change declined.', 'success');
+      loadJobs();
+    }
+
+    // --- Job Timeline modal ---
+    async function openTimeline(job) {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal-box" role="dialog" aria-modal="true" style="max-height:80vh; overflow-y:auto;">
+          <h2>${escapeHtml(job.category)} job</h2>
+          <p class="job-meta" style="margin-top:-0.5rem; margin-bottom:1.25rem;">${escapeHtml(job.description)}</p>
+          <div id="timelineContent"><div class="skeleton skeleton-row"></div></div>
+          <div class="modal-actions"><button type="button" id="closeTimeline" class="btn-outline">Close</button></div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      openModal(overlay);
+      overlay.querySelector('#closeTimeline').addEventListener('click', () => { closeModal(overlay); overlay.remove(); });
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) { closeModal(overlay); overlay.remove(); } });
+
+      const res = await fetch(`/api/jobs/${job.id}/timeline`);
+      const content = overlay.querySelector('#timelineContent');
+      if (!res.ok) { content.innerHTML = errorStateHtml(''); return; }
+      const data = await res.json();
+      if (data.events.length === 0) {
+        content.innerHTML = `<p class="job-meta">No timeline events yet.</p>`;
+        return;
+      }
+      content.innerHTML = `<div class="timeline-list">${data.events.map(e => `
+        <div class="timeline-item">
+          <strong>${EVENT_ICONS[e.event_type] || '•'} ${escapeHtml(e.description)}</strong>
+          <span>${new Date(e.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+        </div>
+      `).join('')}</div>`;
+    }
+
+    // --- Offers comparison modal ---
+    async function openOffers(jobId) {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal-box" role="dialog" aria-modal="true" style="max-height:80vh; overflow-y:auto;">
+          <h2>Compare offers</h2>
+          <p class="job-meta" style="margin-top:-0.5rem; margin-bottom:1.25rem;">Lowest price is listed first.</p>
+          <div id="offersContent"><div class="skeleton skeleton-row"></div></div>
+          <div class="modal-actions"><button type="button" id="closeOffers" class="btn-outline">Close</button></div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      openModal(overlay);
+      overlay.querySelector('#closeOffers').addEventListener('click', () => { closeModal(overlay); overlay.remove(); });
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) { closeModal(overlay); overlay.remove(); } });
+
+      const res = await fetch(`/api/jobs/${jobId}/offers`);
+      const content = overlay.querySelector('#offersContent');
+      if (!res.ok) { content.innerHTML = errorStateHtml(''); return; }
+      const data = await res.json();
+      if (data.offers.length === 0) {
+        content.innerHTML = `<p class="job-meta">No offers yet — check back soon.</p>`;
+        return;
+      }
+      content.innerHTML = data.offers.map((o, i) => `
+        <div class="offer-row${i === 0 ? ' best' : ''}">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+            <div style="display:flex; align-items:center; gap:0.6rem;">
+              <div class="avatar" style="width:36px;height:36px;">${o.provider_photo ? `<img class="avatar-img" src="${o.provider_photo}" alt="">` : initials(o.provider_name)}</div>
+              <div>
+                <strong>${escapeHtml(o.provider_name)}</strong>
+                <p class="job-meta">★ ${o.rating}${o.experience_years != null ? ` · ${o.experience_years} yrs` : ''}</p>
+              </div>
+            </div>
+            <strong style="color:var(--primary-deep); font-size:1.05rem;">UGX ${o.total_amount.toLocaleString()}</strong>
+          </div>
+          ${o.message ? `<p class="job-desc" style="margin-bottom:0.6rem;">${escapeHtml(o.message)}</p>` : ''}
+          <button class="small-btn" style="width:100%;" onclick="acceptOffer(${jobId}, ${o.id})">Select this pro</button>
+        </div>
+      `).join('');
+    }
+
+    async function acceptOffer(jobId, offerId) {
+      if (!confirm('Book this pro for the job? Other offers will be declined.')) return;
+      const res = await fetch(`/api/jobs/${jobId}/offers/${offerId}/accept`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      document.querySelectorAll('.modal-overlay').forEach(m => m.remove());
+      showToast('Job booked!', 'success');
+      loadJobs();
     }
 
     (async () => {

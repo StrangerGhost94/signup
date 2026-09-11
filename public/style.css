@@ -1069,6 +1069,7 @@ body.app-body {
 
 /* --- App shell: sidebar on desktop, bottom nav on mobile --- */
 .app-shell { display: flex; min-height: 100vh; }
+.app-main { flex: 1 1 auto; min-width: 0; }
 .sidebar-nav { display: none; }
 
 @media (min-width: 900px) {
@@ -1848,3 +1849,77 @@ html, body { max-width: 100%; overflow-x: hidden; }
 }
 .toggle-switch input:checked + .toggle-switch-track { background: var(--primary); }
 .toggle-switch input:checked + .toggle-switch-track::before { transform: translateX(20px); }
+
+/* --- Premium Jobs dashboard --- */
+.jobs-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  gap: 1rem;
+}
+.jobs-hero h1 { margin: 0; }
+.post-job-btn {
+  width: auto;
+  padding: 0.65rem 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.post-job-btn svg { width: 16px; height: 16px; }
+
+.job-card-v2 {
+  background: var(--bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1rem;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.job-card-v2:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.job-card-v2-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.5rem; }
+.job-card-v2-service { display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; font-weight: 700; color: var(--ink-soft); }
+.job-card-v2-title { font-size: 0.98rem; font-weight: 800; margin: 0.3rem 0 0.2rem; }
+.job-card-v2-meta { font-size: 0.82rem; color: var(--ink-soft); margin-bottom: 0.65rem; }
+.job-card-v2-price { font-size: 1.05rem; font-weight: 800; color: var(--primary-deep); }
+.job-card-v2-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap; }
+.job-card-v2-actions button { width: auto; padding: 0.5rem 0.9rem; font-size: 0.82rem; }
+
+/* Timeline modal */
+.timeline-list { position: relative; padding-left: 1.5rem; }
+.timeline-item { position: relative; padding-bottom: 1.5rem; }
+.timeline-item:last-child { padding-bottom: 0; }
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -1.15rem;
+  top: 0.2rem;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-tint);
+}
+.timeline-item::after {
+  content: '';
+  position: absolute;
+  left: -1.02rem;
+  top: 1rem;
+  bottom: 0;
+  width: 2px;
+  background: var(--line);
+}
+.timeline-item:last-child::after { display: none; }
+.timeline-item strong { display: block; font-size: 0.9rem; }
+.timeline-item span { font-size: 0.76rem; color: var(--ink-soft); }
+
+.offer-row {
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.offer-row.best { border-color: var(--primary); background: var(--primary-tint); }

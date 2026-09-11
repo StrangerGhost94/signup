@@ -15,7 +15,7 @@
     <nav class="sidebar-nav">
       <a href="/dashboard.html" class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo"></a>
       <a href="/dashboard.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
-      <a href="#recentJobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+      <a href="/client-jobs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
       <a href="/messages.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
       <a href="/profile.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
       <button type="button" class="sidebar-post" onclick="openPostModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Post a job</button>
@@ -58,7 +58,10 @@
         <button type="button" id="getHelpNowBtn">Get Help Now</button>
       </div>
 
-      <h2 class="section-title" id="recentJobs">Recent jobs</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 class="section-title" id="recentJobs" style="margin-bottom:0;">Recent jobs</h2>
+        <a href="/client-jobs.html" style="font-size:0.82rem; font-weight:700; color:var(--primary);">View all</a>
+      </div>
       <div id="bookingsList" class="stagger"></div>
     </div>
 
@@ -73,7 +76,7 @@
 
   <nav class="bottom-nav">
     <a href="/dashboard.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
-    <a href="#recentJobs" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+    <a href="/client-jobs.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
     <a href="#homeCatGrid" class="nav-item nav-post"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></a>
     <a href="/messages.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
     <a href="/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
