@@ -89,11 +89,28 @@
         <button type="button" data-v="4">★</button>
         <button type="button" data-v="5">★</button>
       </div>
+
+      <div id="subRatings" style="margin-bottom:1rem;"></div>
+
       <textarea id="reviewComment" rows="3" placeholder="Tell us about your experience (optional)"></textarea>
       <div class="error" id="rateError"></div>
       <div class="modal-actions">
         <button type="button" class="btn-outline" id="cancelRate">Cancel</button>
         <button type="button" id="submitRate">Submit review</button>
+      </div>
+      <p class="switch" style="margin-top:1rem;"><a href="#" id="fileDisputeLink" style="color:var(--danger); font-weight:600;">Something went seriously wrong? File a dispute instead</a></p>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="disputeModal" style="display:none;">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h2>File a dispute</h2>
+      <p class="subtext" style="margin-top:-0.5rem;">Our team will review this job and get back to you.</p>
+      <textarea id="disputeReason" rows="4" placeholder="What went wrong?"></textarea>
+      <div class="error" id="disputeError"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelDispute">Cancel</button>
+        <button type="button" id="submitDispute">Submit dispute</button>
       </div>
     </div>
   </div>
@@ -227,6 +244,9 @@
             <button class="small-btn" style="width:auto; padding:0.35rem; margin-top:0.4rem; background:var(--surface); color:var(--ink);" onclick="event.stopPropagation(); window.location.href='/message-thread.html?jobId=${b.id}';" aria-label="Message">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>
             </button>
+            <button class="small-btn" style="width:auto; padding:0.35rem; margin-top:0.3rem; background:var(--surface); color:var(--danger);" onclick="event.stopPropagation(); openReportModal(${b.provider_user_id}, ${b.id}, false);" aria-label="Report">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+            </button>
           </div>
         `;
         item.style.cursor = 'pointer';
@@ -280,9 +300,45 @@
       loadBookings();
     };
 
+    const SUB_RATING_FIELDS = [
+      ['qualityRating', 'Work quality'],
+      ['punctualityRating', 'Punctuality'],
+      ['professionalismRating', 'Professionalism'],
+      ['communicationRating', 'Communication'],
+      ['priceFairnessRating', 'Price fairness']
+    ];
+    let subRatingValues = {};
+
+    function buildSubRatings() {
+      const container = document.getElementById('subRatings');
+      if (container.dataset.built) return;
+      container.dataset.built = '1';
+      SUB_RATING_FIELDS.forEach(([key]) => { subRatingValues[key] = 0; });
+      container.innerHTML = SUB_RATING_FIELDS.map(([key, label]) => `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+          <span style="font-size:0.82rem; color:var(--ink-soft);">${label}</span>
+          <div class="star-picker" data-key="${key}" style="gap:0.15rem;">
+            ${[1,2,3,4,5].map(n => `<button type="button" data-v="${n}" style="font-size:1.2rem;">★</button>`).join('')}
+          </div>
+        </div>
+      `).join('');
+      container.querySelectorAll('.star-picker').forEach(picker => {
+        const key = picker.dataset.key;
+        picker.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            subRatingValues[key] = parseInt(btn.dataset.v, 10);
+            picker.querySelectorAll('button').forEach(b => b.classList.toggle('selected', parseInt(b.dataset.v, 10) <= subRatingValues[key]));
+          });
+        });
+      });
+    }
+
     window.openRateModal = function (jobId) {
       ratingJobId = jobId;
       selectedStars = 0;
+      buildSubRatings();
+      SUB_RATING_FIELDS.forEach(([key]) => { subRatingValues[key] = 0; });
+      document.querySelectorAll('#subRatings .star-picker button').forEach(b => b.classList.remove('selected'));
       document.querySelectorAll('#starPicker button').forEach(b => b.classList.remove('selected'));
       document.getElementById('reviewComment').value = '';
       document.getElementById('rateError').textContent = '';
@@ -308,15 +364,44 @@
         errorEl.textContent = 'Please choose a star rating.';
         return;
       }
+      const payload = { jobId: ratingJobId, rating: selectedStars, comment: document.getElementById('reviewComment').value };
+      SUB_RATING_FIELDS.forEach(([key]) => { if (subRatingValues[key] > 0) payload[key] = subRatingValues[key]; });
       const res = await fetch('/api/reviews', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: ratingJobId, rating: selectedStars, comment: document.getElementById('reviewComment').value })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (!res.ok) { errorEl.textContent = data.error; return; }
       closeModal(document.getElementById('rateModal'));
       loadBookings();
+    });
+
+    document.getElementById('fileDisputeLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      closeModal(document.getElementById('rateModal'));
+      document.getElementById('disputeReason').value = '';
+      document.getElementById('disputeError').textContent = '';
+      openModal(document.getElementById('disputeModal'));
+    });
+
+    document.getElementById('cancelDispute').addEventListener('click', () => {
+      closeModal(document.getElementById('disputeModal'));
+    });
+
+    document.getElementById('submitDispute').addEventListener('click', async () => {
+      const errorEl = document.getElementById('disputeError');
+      const reason = document.getElementById('disputeReason').value.trim();
+      if (!reason) { errorEl.textContent = 'Please explain what went wrong.'; return; }
+      const res = await fetch('/api/disputes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: ratingJobId, reason })
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      closeModal(document.getElementById('disputeModal'));
+      showToast('Dispute filed. Our team will review it.', 'success');
     });
 
     function setMode(searching) {

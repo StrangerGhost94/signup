@@ -112,6 +112,12 @@
         messageBtn.textContent = 'Message';
         messageBtn.onclick = () => window.location.href = `/message-thread.html?jobId=${j.id}`;
         actions.appendChild(messageBtn);
+        const reportBtn = document.createElement('button');
+        reportBtn.className = 'small-btn';
+        reportBtn.style.cssText = 'background:var(--bg); border:1.5px solid var(--danger); color:var(--danger);';
+        reportBtn.textContent = 'Report';
+        reportBtn.onclick = () => openReportModal(j.client_user_id, j.id, true);
+        actions.appendChild(reportBtn);
         list.appendChild(card);
       });
     }

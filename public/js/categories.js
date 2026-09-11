@@ -291,6 +291,80 @@ window.errorStateHtml = function (retryFnName) {
 let _modalLastFocus = null;
 let _modalKeyHandler = null;
 
+window.CLIENT_REPORT_CATEGORIES = [
+  ['identity_mismatch', 'Worker identity doesn\u2019t match profile'],
+  ['suspected_scam', 'Suspected scam'],
+  ['unsafe_behavior', 'Unsafe behavior'],
+  ['harassment', 'Harassment'],
+  ['threatening_behavior', 'Threatening behavior'],
+  ['unauthorized_price_increase', 'Unauthorized price increase'],
+  ['poor_workmanship', 'Poor workmanship'],
+  ['property_damage', 'Property damage'],
+  ['worker_did_not_arrive', 'Worker didn\u2019t arrive'],
+  ['other', 'Other']
+];
+window.PROVIDER_REPORT_CATEGORIES = [
+  ['customer_fraud', 'Customer fraud'],
+  ['unsafe_location', 'Unsafe location'],
+  ['harassment', 'Harassment'],
+  ['non_payment', 'Non-payment'],
+  ['fake_job', 'Fake job'],
+  ['suspicious_behavior', 'Suspicious behavior'],
+  ['other', 'Other']
+];
+
+window.openReportModal = function (reportedUserId, jobId, isProvider) {
+  const existing = document.getElementById('sharedReportOverlay');
+  if (existing) existing.remove();
+
+  const categories = isProvider ? window.PROVIDER_REPORT_CATEGORIES : window.CLIENT_REPORT_CATEGORIES;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'sharedReportOverlay';
+  overlay.innerHTML = `
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h2>Report an issue</h2>
+      <div class="error" id="reportModalError"></div>
+      <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.4rem;">What happened?</label>
+      <select id="reportCategory" style="width:100%; padding:0.75rem; margin-bottom:1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit;">
+        ${categories.map(([val, label]) => `<option value="${val}">${label}</option>`).join('')}
+      </select>
+      <textarea id="reportDescription" rows="4" placeholder="Please describe what happened..."></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelReport">Cancel</button>
+        <button type="button" id="submitReport">Submit report</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  window.openModal(overlay);
+
+  overlay.querySelector('#cancelReport').addEventListener('click', () => window.closeModal(overlay));
+  overlay.querySelector('#submitReport').addEventListener('click', async () => {
+    const errorEl = overlay.querySelector('#reportModalError');
+    const description = overlay.querySelector('#reportDescription').value.trim();
+    if (!description) {
+      errorEl.textContent = 'Please describe what happened.';
+      return;
+    }
+    const res = await fetch('/api/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reportedUserId,
+        jobId: jobId || null,
+        category: overlay.querySelector('#reportCategory').value,
+        description
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) { errorEl.textContent = data.error; return; }
+    window.closeModal(overlay);
+    overlay.remove();
+    window.showToast('Report submitted. Our team will review it.', 'success');
+  });
+};
+
 window.openModal = function (overlayEl) {
   _modalLastFocus = document.activeElement;
   overlayEl.style.display = 'flex';

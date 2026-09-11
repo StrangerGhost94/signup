@@ -215,6 +215,27 @@ async function initDb() {
     )
   `);
 
+  // Migration: sub-category ratings (spec section 9) and a lightweight
+  // suspicious-pattern flag for admin review — never auto-hides a review,
+  // just marks it for a human to look at.
+  await pool.query(`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS quality_rating INTEGER CHECK (quality_rating BETWEEN 1 AND 5)`);
+  await pool.query(`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS punctuality_rating INTEGER CHECK (punctuality_rating BETWEEN 1 AND 5)`);
+  await pool.query(`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS professionalism_rating INTEGER CHECK (professionalism_rating BETWEEN 1 AND 5)`);
+  await pool.query(`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS communication_rating INTEGER CHECK (communication_rating BETWEEN 1 AND 5)`);
+  await pool.query(`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS price_fairness_rating INTEGER CHECK (price_fairness_rating BETWEEN 1 AND 5)`);
+  await pool.query(`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS flagged_suspicious BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE reviews ADD COLUMN IF NOT EXISTS flag_reason TEXT`);
+
+  // Migration: account-level status, usable for both clients and
+  // providers — distinct from providers.approval_status, which only
+  // governs whether a provider can appear in search/receive jobs.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status TEXT NOT NULL DEFAULT 'NORMAL'`);
+
+  // Migration: lightweight off-platform-payment / scam-language flag on
+  // messages — detected, never auto-blocked, visible to admins only.
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS flagged BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS flag_reason TEXT`);
+
   // ============================================================
   // TRUST, VERIFICATION, SAFETY & ANTI-FRAUD — PHASE 1
   // Schema and architecture only. No onboarding/admin/UI wiring
@@ -497,6 +518,13 @@ async function initDb() {
     )
   `);
 
+  // Migration: track where the shown price actually came from (pricing
+  // rules vs real historical job data), for admin transparency. Uses
+  // ALTER, not the CREATE TABLE above, since that table may already
+  // exist from an earlier deploy.
+  await pool.query(`ALTER TABLE job_assessments ADD COLUMN IF NOT EXISTS pricing_source TEXT`);
+  await pool.query(`ALTER TABLE job_assessments ADD COLUMN IF NOT EXISTS pricing_sample_count INTEGER`);
+
   // Seed pricing rules from the existing static estimate ranges, split
   // roughly 60% labour / 40% materials as an editable starting point —
   // this is exactly the "existing pricing" the pricing engine now reads
@@ -571,12 +599,20 @@ const aiAssessLimiter = rateLimit({
   message: { error: 'Too many assessment requests. Please wait a few minutes and try again.' }
 });
 
-function requireLogin(req, res, next) {
+async function requireLogin(req, res, next) {
   if (!req.session.userId) {
     return res.status(401).json({ error: 'Not logged in.' });
   }
-  // Fire-and-forget presence update — don't block the request on it.
-  pool.query('UPDATE users SET last_active_at = NOW() WHERE id = $1', [req.session.userId]).catch(() => {});
+  // Combined into one query: checks account status (must be current, not
+  // stale from when they logged in) and updates presence in the same trip.
+  const result = await pool.query(
+    'UPDATE users SET last_active_at = NOW() WHERE id = $1 RETURNING account_status',
+    [req.session.userId]
+  ).catch(() => null);
+  if (result && result.rows[0] && (result.rows[0].account_status === 'SUSPENDED' || result.rows[0].account_status === 'BANNED')) {
+    req.session.destroy(() => {});
+    return res.status(403).json({ error: 'This account has been suspended.' });
+  }
   next();
 }
 
@@ -626,6 +662,10 @@ const identityVerificationProvider = {
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || null;
 const VALID_SERVICES = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Gardening', 'Moving', 'Mechanical', 'General Handyman', 'Other'];
+// Spec section 17: work that can injure someone or cause real damage if
+// done badly — booking one of these requires the provider to be VERIFIED
+// for that exact service, not just generally approved on the platform.
+const HIGH_RISK_SERVICES = ['Electrical', 'Mechanical'];
 const VALID_COMPLEXITY = ['EASY', 'MEDIUM', 'COMPLEX', 'UNKNOWN'];
 const VALID_CONFIDENCE = ['HIGH', 'MEDIUM', 'LOW'];
 
@@ -675,6 +715,8 @@ async function callAiJobClassifier(description, photos) {
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -687,8 +729,10 @@ async function callAiJobClassifier(description, photos) {
           max_tokens: 700,
           system: AI_SYSTEM_PROMPT,
           messages: [{ role: 'user', content }]
-        })
+        }),
+        signal: controller.signal
       });
+      clearTimeout(timeout);
       if (!response.ok) {
         console.error('AI classifier HTTP error:', response.status, await response.text().catch(() => ''));
         continue;
@@ -717,6 +761,34 @@ async function callAiJobClassifier(description, photos) {
 // The pricing engine: the only thing allowed to produce the numbers shown
 // to a customer. Reads admin-configurable pricing_rules; if none exist
 // for a service, falls back to the flat ESTIMATE_MIDPOINTS-derived range.
+// Historical marketplace pricing (AI spec Phase 7). Excludes any job with
+// a dispute record, or a report against either party that hasn't been
+// dismissed — a conservative reading of "don't use suspicious
+// transactions." Uses percentiles rather than a mean so one unusually
+// expensive job can't drag the estimate around.
+const HISTORICAL_MIN_SAMPLE = 5;
+
+async function getHistoricalPricing(serviceName) {
+  const result = await pool.query(
+    `SELECT
+       COUNT(*)::int AS sample_size,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY amount)::int AS median,
+       percentile_cont(0.25) WITHIN GROUP (ORDER BY amount)::int AS p25,
+       percentile_cont(0.75) WITHIN GROUP (ORDER BY amount)::int AS p75
+     FROM (
+       SELECT COALESCE(jr.final_amount, jr.estimate_amount) AS amount
+       FROM job_requests jr
+       WHERE jr.category = $1 AND jr.status = 'completed'
+         AND NOT EXISTS (SELECT 1 FROM disputes d WHERE d.job_id = jr.id)
+         AND NOT EXISTS (
+           SELECT 1 FROM reports r WHERE r.job_id = jr.id AND r.status != 'DISMISSED'
+         )
+     ) sub`,
+    [serviceName]
+  );
+  return result.rows[0];
+}
+
 async function computePricingEngine({ serviceName, urgency, distanceKm }) {
   const svc = await pool.query('SELECT id FROM services WHERE name = $1', [serviceName]);
   let rule = null;
@@ -749,6 +821,25 @@ async function computePricingEngine({ serviceName, urgency, distanceKm }) {
     else if (distanceKm > 5) distanceFee = rule.distance_5_10_fee;
   }
 
+  const historical = await getHistoricalPricing(serviceName);
+  if (historical && historical.sample_size >= HISTORICAL_MIN_SAMPLE) {
+    // Real completed-job data exists and passed the exclusion filters —
+    // prefer it over the static formula, but keep the labour/materials
+    // split proportioned the same way the admin-configured rule does,
+    // so the breakdown shown to a customer stays coherent.
+    const ruleLabourShare = rule.labour_min / (rule.labour_min + rule.materials_min || 1);
+    return {
+      labourMin: Math.round(historical.p25 * ruleLabourShare),
+      labourMax: Math.round(historical.p75 * ruleLabourShare),
+      materialsMin: Math.round(historical.p25 * (1 - ruleLabourShare)),
+      materialsMax: Math.round(historical.p75 * (1 - ruleLabourShare)),
+      totalMin: historical.p25,
+      totalMax: historical.p75,
+      source: 'historical',
+      historicalSampleSize: historical.sample_size
+    };
+  }
+
   return {
     labourMin: rule.labour_min + urgencyFee,
     labourMax: rule.labour_max + urgencyFee,
@@ -761,14 +852,21 @@ async function computePricingEngine({ serviceName, urgency, distanceKm }) {
 }
 
 function requireRole(role) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.session.userId) {
       return res.status(401).json({ error: 'Not logged in.' });
     }
     if (req.session.role !== role) {
       return res.status(403).json({ error: 'Not authorized for this action.' });
     }
-    pool.query('UPDATE users SET last_active_at = NOW() WHERE id = $1', [req.session.userId]).catch(() => {});
+    const result = await pool.query(
+      'UPDATE users SET last_active_at = NOW() WHERE id = $1 RETURNING account_status',
+      [req.session.userId]
+    ).catch(() => null);
+    if (result && result.rows[0] && (result.rows[0].account_status === 'SUSPENDED' || result.rows[0].account_status === 'BANNED')) {
+      req.session.destroy(() => {});
+      return res.status(403).json({ error: 'This account has been suspended.' });
+    }
     next();
   };
 }
@@ -981,6 +1079,10 @@ app.post('/api/login', authLimiter, async (req, res) => {
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    if (user.account_status === 'SUSPENDED' || user.account_status === 'BANNED') {
+      return res.status(403).json({ error: 'This account has been suspended. Contact Support if you think this is a mistake.' });
     }
 
     // One-time, config-driven admin bootstrap: an account whose email is
@@ -1369,8 +1471,11 @@ app.post('/api/jobs/assess', requireRole('client'), aiAssessLimiter, asyncHandle
   if (!isNonEmpty(description)) {
     return res.status(400).json({ error: 'Please describe the job.' });
   }
-  if (photos && (!Array.isArray(photos) || photos.some(p => !isValidPhoto(p)))) {
-    return res.status(400).json({ error: 'One of your photos is too large or in an unsupported format.' });
+  if (description.length > 3000) {
+    return res.status(400).json({ error: 'Please keep the description under 3000 characters.' });
+  }
+  if (photos && (!Array.isArray(photos) || photos.length > 5 || photos.some(p => !isValidPhoto(p)))) {
+    return res.status(400).json({ error: 'Please upload at most 5 photos, each a reasonable size.' });
   }
   if (urgency && !VALID_URGENCY.includes(urgency)) {
     return res.status(400).json({ error: 'Invalid urgency value.' });
@@ -1406,8 +1511,8 @@ app.post('/api/jobs/assess', requireRole('client'), aiAssessLimiter, asyncHandle
     `INSERT INTO job_assessments
        (client_user_id, description, photos, service, job_type, problem_summary, complexity, likely_materials,
         labour_min, labour_max, materials_min, materials_max, total_min, total_max, confidence, requires_inspection,
-        questions, ai_raw_response, source)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        questions, ai_raw_response, source, pricing_source, pricing_sample_count)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
      RETURNING *`,
     [
       req.session.userId, description.trim(), JSON.stringify(photos || []),
@@ -1417,11 +1522,15 @@ app.post('/api/jobs/assess', requireRole('client'), aiAssessLimiter, asyncHandle
       pricing.totalMin, pricing.totalMax, assessment.confidence, assessment.requires_inspection,
       JSON.stringify(assessment.questions || []),
       aiResult.ok ? JSON.stringify(aiResult.raw) : null,
-      source
+      source,
+      pricing.source,
+      pricing.historicalSampleSize || null
     ]
   );
 
-  res.json({ assessment: result.rows[0] });
+  const row = result.rows[0];
+  const { ai_raw_response, photos: _photos, ...clientSafeAssessment } = row;
+  res.json({ assessment: clientSafeAssessment });
 }));
 
 app.post('/api/bookings', requireRole('client'), async (req, res) => {
@@ -1441,6 +1550,23 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
     }
     if (providerCheck.rows[0].approval_status !== 'APPROVED') {
       return res.status(403).json({ error: 'This provider isn\u2019t approved to receive jobs yet.' });
+    }
+
+    // High-risk services (spec section 17): electrical/mechanical work can
+    // injure someone or damage property if done badly. Only a provider
+    // specifically VERIFIED for that exact service — not just APPROVED
+    // in general — can be booked for it. Enforced here server-side, not
+    // just hidden in the UI.
+    if (HIGH_RISK_SERVICES.includes(category.trim())) {
+      const skillCheck = await pool.query(
+        `SELECT ws.verification_status FROM worker_services ws
+         JOIN services s ON s.id = ws.service_id
+         WHERE ws.provider_id = $1 AND s.name = $2`,
+        [providerId, category.trim()]
+      );
+      if (skillCheck.rows.length === 0 || skillCheck.rows[0].verification_status !== 'VERIFIED') {
+        return res.status(403).json({ error: `${category.trim()} is a higher-risk service — this provider isn\u2019t verified for it yet. Please choose a verified pro.` });
+      }
     }
 
     let estimateAmount = ESTIMATE_MIDPOINTS[category.trim()] || 40000;
@@ -1484,7 +1610,7 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
 
 app.get('/api/bookings/mine', requireRole('client'), asyncHandler(async (req, res) => {
   const result = await pool.query(
-    `SELECT jr.*, p.name AS provider_name, p.phone AS provider_phone,
+    `SELECT jr.*, p.name AS provider_name, p.phone AS provider_phone, p.user_id AS provider_user_id,
             (r.id IS NOT NULL) AS reviewed,
             pcr.id AS pending_price_change_id, pcr.new_amount AS pending_new_amount, pcr.reason AS pending_price_reason
      FROM job_requests jr
@@ -1811,11 +1937,17 @@ app.post('/api/jobs/:id/payment', requireRole('provider'), asyncHandler(async (r
 // --- Reviews ---
 
 app.post('/api/reviews', requireRole('client'), async (req, res) => {
-  const { jobId, rating, comment } = req.body;
+  const { jobId, rating, comment, qualityRating, punctualityRating, professionalismRating, communicationRating, priceFairnessRating } = req.body;
   const ratingNum = parseInt(rating, 10);
 
   if (!jobId || !Number.isInteger(ratingNum) || ratingNum < 1 || ratingNum > 5) {
     return res.status(400).json({ error: 'Please give a rating between 1 and 5.' });
+  }
+  const subRatings = { qualityRating, punctualityRating, professionalismRating, communicationRating, priceFairnessRating };
+  for (const [key, val] of Object.entries(subRatings)) {
+    if (val !== undefined && val !== null && (!Number.isInteger(val) || val < 1 || val > 5)) {
+      return res.status(400).json({ error: `${key} must be between 1 and 5.` });
+    }
   }
 
   const client = await pool.connect();
@@ -1832,9 +1964,27 @@ app.post('/api/reviews', requireRole('client'), async (req, res) => {
     }
     const job = jobResult.rows[0];
 
+    // Suspicious-pattern flag (spec section 9's "fraud detection for
+    // review patterns"): flags, never blocks. A real job — booking,
+    // travel, doing the work — realistically takes longer than a few
+    // minutes end to end.
+    const minutesFromCreationToCompletion = (new Date(job.updated_at) - new Date(job.created_at)) / 60000;
+    let flagReason = null;
+    if (minutesFromCreationToCompletion < 10) {
+      flagReason = 'Job was created and completed within 10 minutes.';
+    }
+
     await client.query(
-      'INSERT INTO reviews (job_id, client_user_id, provider_id, rating, comment) VALUES ($1,$2,$3,$4,$5)',
-      [jobId, req.session.userId, job.provider_id, ratingNum, isNonEmpty(comment) ? comment.trim() : '']
+      `INSERT INTO reviews (job_id, client_user_id, provider_id, rating, comment,
+         quality_rating, punctuality_rating, professionalism_rating, communication_rating, price_fairness_rating,
+         flagged_suspicious, flag_reason)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        jobId, req.session.userId, job.provider_id, ratingNum, isNonEmpty(comment) ? comment.trim() : '',
+        qualityRating || null, punctualityRating || null, professionalismRating || null,
+        communicationRating || null, priceFairnessRating || null,
+        !!flagReason, flagReason
+      ]
     );
 
     await client.query(
@@ -1934,9 +2084,22 @@ app.post('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => 
     return res.status(400).json({ error: 'Message is too long.' });
   }
 
+  // Detect, never auto-block, attempts to move the transaction off-platform
+  // or other scam-pattern language (spec section 12). A human reviews
+  // flagged messages — this never censors or delays delivery.
+  const SUSPICIOUS_PATTERNS = [
+    /pay(ment)? (me |him |her )?(directly|outside|off.?the.?app|off.?platform)/i,
+    /\bwhats ?app\b.{0,15}(me|number|contact)/i,
+    /send (money|cash) (to|via)/i,
+    /\bmobile ?money\b.{0,20}\b(0\d{9}|\+256\d{9})\b/i,
+    /\b(0\d{9}|\+256\d{9})\b.{0,20}\bmobile ?money\b/i,
+    /avoid (the )?(fee|commission|platform)/i
+  ];
+  const matchedPattern = SUSPICIOUS_PATTERNS.find(p => p.test(req.body.body));
+
   const result = await pool.query(
-    'INSERT INTO messages (job_id, sender_user_id, body) VALUES ($1, $2, $3) RETURNING *',
-    [job.id, req.session.userId, req.body.body.trim()]
+    'INSERT INTO messages (job_id, sender_user_id, body, flagged, flag_reason) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+    [job.id, req.session.userId, req.body.body.trim(), !!matchedPattern, matchedPattern ? 'Possible off-platform payment language' : null]
   );
 
   const recipientUserId = job.client_user_id === req.session.userId ? job.provider_user_id : job.client_user_id;
@@ -1946,6 +2109,79 @@ app.post('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => 
   }
 
   res.json({ message: result.rows[0] });
+}));
+
+// --- Admin: pricing controls (AI spec Phase 8) ---
+
+app.get('/api/admin/pricing-rules', requireRole('admin'), asyncHandler(async (req, res) => {
+  const result = await pool.query(
+    `SELECT pr.*, s.name AS service_name FROM pricing_rules pr
+     JOIN services s ON s.id = pr.service_id ORDER BY s.name`
+  );
+  res.json({ rules: result.rows });
+}));
+
+app.put('/api/admin/pricing-rules/:id', requireRole('admin'), asyncHandler(async (req, res) => {
+  const numericFields = ['labour_min', 'labour_max', 'materials_min', 'materials_max',
+    'urgency_now_fee', 'urgency_today_fee', 'urgency_schedule_fee',
+    'distance_5_10_fee', 'distance_10plus_fee'];
+  const updates = [];
+  const values = [];
+  for (const f of numericFields) {
+    if (req.body[f] !== undefined) {
+      const n = Number(req.body[f]);
+      if (!Number.isInteger(n) || n < 0) {
+        return res.status(400).json({ error: `${f} must be a non-negative whole number.` });
+      }
+      values.push(n);
+      updates.push(`${f} = $${values.length}`);
+    }
+  }
+  if (req.body.active !== undefined) {
+    values.push(!!req.body.active);
+    updates.push(`active = $${values.length}`);
+  }
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'No fields to update.' });
+  }
+  values.push(req.params.id);
+  const result = await pool.query(
+    `UPDATE pricing_rules SET ${updates.join(', ')} WHERE id = $${values.length} RETURNING *`,
+    values
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Pricing rule not found.' });
+
+  await createAuditLog(req.session.userId, 'PRICING_RULE_UPDATED', 'pricing_rule', req.params.id, JSON.stringify(req.body));
+  res.json({ rule: result.rows[0] });
+}));
+
+app.get('/api/admin/pricing-insights', requireRole('admin'), asyncHandler(async (req, res) => {
+  const services = await pool.query('SELECT id, name FROM services ORDER BY name');
+  const insights = [];
+  for (const s of services.rows) {
+    const historical = await getHistoricalPricing(s.name);
+    insights.push({ service: s.name, ...historical });
+  }
+
+  // Jobs where the AI/pricing-engine estimate diverged significantly
+  // (>25%) from what the job actually settled at — the spec's "jobs
+  // where AI estimates were significantly different from final prices."
+  const divergent = await pool.query(`
+    SELECT ja.id AS assessment_id, jr.id AS job_id, ja.service, ja.job_type,
+           ja.total_min, ja.total_max, COALESCE(jr.final_amount, jr.estimate_amount) AS final_amount,
+           jr.updated_at
+    FROM job_assessments ja
+    JOIN job_requests jr ON jr.id = ja.job_id
+    WHERE jr.status = 'completed'
+      AND (
+        COALESCE(jr.final_amount, jr.estimate_amount) < ja.total_min * 0.75
+        OR COALESCE(jr.final_amount, jr.estimate_amount) > ja.total_max * 1.25
+      )
+    ORDER BY jr.updated_at DESC
+    LIMIT 20
+  `);
+
+  res.json({ insights, divergentJobs: divergent.rows });
 }));
 
 // --- Admin: verification & trust dashboard ---
@@ -2157,6 +2393,247 @@ app.post('/api/admin/worker-services/:id/decide', requireRole('admin'), asyncHan
     );
   }
   res.json({ message: 'Service verification updated.' });
+}));
+
+// --- Reports & disputes (spec sections 13-14) ---
+
+const REPORT_CATEGORIES = [
+  'identity_mismatch', 'suspected_scam', 'unsafe_behavior', 'harassment', 'threatening_behavior',
+  'unauthorized_price_increase', 'poor_workmanship', 'property_damage', 'worker_did_not_arrive',
+  'customer_fraud', 'unsafe_location', 'non_payment', 'fake_job', 'suspicious_behavior', 'other'
+];
+
+app.post('/api/reports', requireLogin, asyncHandler(async (req, res) => {
+  const { reportedUserId, jobId, category, description, attachment } = req.body;
+  if (!Number.isInteger(reportedUserId)) {
+    return res.status(400).json({ error: 'Please specify who this report is about.' });
+  }
+  if (!REPORT_CATEGORIES.includes(category)) {
+    return res.status(400).json({ error: 'Please choose a valid report category.' });
+  }
+  if (!isNonEmpty(description)) {
+    return res.status(400).json({ error: 'Please describe what happened.' });
+  }
+  if (description.length > 2000) {
+    return res.status(400).json({ error: 'Please keep the description under 2000 characters.' });
+  }
+  if (attachment && !isValidPhoto(attachment)) {
+    return res.status(400).json({ error: 'That attachment is too large or in an unsupported format.' });
+  }
+  if (reportedUserId === req.session.userId) {
+    return res.status(400).json({ error: 'You can\u2019t report yourself.' });
+  }
+
+  const reportedUser = await pool.query('SELECT id FROM users WHERE id = $1', [reportedUserId]);
+  if (reportedUser.rows.length === 0) {
+    return res.status(404).json({ error: 'That user doesn\u2019t exist.' });
+  }
+
+  // If a jobId is provided, the reporter must actually be a participant.
+  if (jobId) {
+    const jobCheck = await pool.query(
+      `SELECT jr.id FROM job_requests jr JOIN providers p ON p.id = jr.provider_id
+       WHERE jr.id = $1 AND (jr.client_user_id = $2 OR p.user_id = $2)`,
+      [jobId, req.session.userId]
+    );
+    if (jobCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'You\u2019re not a participant on that job.' });
+    }
+  }
+
+  const result = await pool.query(
+    `INSERT INTO reports (reporter_user_id, reported_user_id, job_id, category, description, attachment)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [req.session.userId, reportedUserId, jobId || null, category, description.trim(), isNonEmpty(attachment) ? attachment : null]
+  );
+
+  await createAuditLog(req.session.userId, 'REPORT_FILED', 'report', result.rows[0].id, category);
+  res.json({ message: 'Report submitted. Our team will review it.', reportId: result.rows[0].id });
+}));
+
+app.post('/api/disputes', requireLogin, asyncHandler(async (req, res) => {
+  const { jobId, reason } = req.body;
+  if (!isNonEmpty(reason)) {
+    return res.status(400).json({ error: 'Please explain the issue.' });
+  }
+  if (reason.length > 2000) {
+    return res.status(400).json({ error: 'Please keep this under 2000 characters.' });
+  }
+
+  const jobCheck = await pool.query(
+    `SELECT jr.id FROM job_requests jr JOIN providers p ON p.id = jr.provider_id
+     WHERE jr.id = $1 AND (jr.client_user_id = $2 OR p.user_id = $2)`,
+    [jobId, req.session.userId]
+  );
+  if (jobCheck.rows.length === 0) {
+    return res.status(403).json({ error: 'You\u2019re not a participant on that job.' });
+  }
+
+  const existing = await pool.query(`SELECT id FROM disputes WHERE job_id = $1 AND status IN ('OPEN','UNDER_REVIEW')`, [jobId]);
+  if (existing.rows.length > 0) {
+    return res.status(409).json({ error: 'There\u2019s already an open dispute for this job.' });
+  }
+
+  const result = await pool.query(
+    'INSERT INTO disputes (job_id, raised_by, reason) VALUES ($1,$2,$3) RETURNING id',
+    [jobId, req.session.userId, reason.trim()]
+  );
+  await createAuditLog(req.session.userId, 'DISPUTE_RAISED', 'dispute', result.rows[0].id, `job ${jobId}`);
+  res.json({ message: 'Dispute filed. Our team will review it.', disputeId: result.rows[0].id });
+}));
+
+app.get('/api/admin/reports', requireRole('admin'), asyncHandler(async (req, res) => {
+  const statusFilter = req.query.status;
+  const params = [];
+  let where = '';
+  if (statusFilter) { where = 'WHERE r.status = $1'; params.push(statusFilter); }
+  const result = await pool.query(
+    `SELECT r.*, ru.email AS reporter_email, rd.email AS reported_email
+     FROM reports r
+     JOIN users ru ON ru.id = r.reporter_user_id
+     JOIN users rd ON rd.id = r.reported_user_id
+     ${where}
+     ORDER BY r.created_at DESC`,
+    params
+  );
+  res.json({ reports: result.rows });
+}));
+
+app.post('/api/admin/reports/:id/resolve', requireRole('admin'), asyncHandler(async (req, res) => {
+  const { status, adminNotes } = req.body;
+  if (!['UNDER_REVIEW', 'RESOLVED', 'DISMISSED'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status.' });
+  }
+  const result = await pool.query(
+    'UPDATE reports SET status = $1, admin_notes = $2 WHERE id = $3 RETURNING id',
+    [status, adminNotes || '', req.params.id]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Report not found.' });
+  await createAuditLog(req.session.userId, 'REPORT_RESOLVED', 'report', req.params.id, `${status}: ${adminNotes || ''}`);
+  res.json({ message: 'Report updated.' });
+}));
+
+app.get('/api/admin/disputes', requireRole('admin'), asyncHandler(async (req, res) => {
+  const statusFilter = req.query.status;
+  const params = [];
+  let where = '';
+  if (statusFilter) { where = 'WHERE d.status = $1'; params.push(statusFilter); }
+  const result = await pool.query(
+    `SELECT d.*, u.email AS raised_by_email, jr.category, jr.description AS job_description
+     FROM disputes d
+     JOIN users u ON u.id = d.raised_by
+     JOIN job_requests jr ON jr.id = d.job_id
+     ${where}
+     ORDER BY d.created_at DESC`,
+    params
+  );
+  res.json({ disputes: result.rows });
+}));
+
+app.post('/api/admin/disputes/:id/resolve', requireRole('admin'), asyncHandler(async (req, res) => {
+  const { status, resolutionNotes } = req.body;
+  if (!['UNDER_REVIEW', 'RESOLVED', 'DISMISSED'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status.' });
+  }
+  const result = await pool.query(
+    `UPDATE disputes SET status = $1, resolution_notes = $2, resolved_by = $3,
+       resolved_at = CASE WHEN $1 IN ('RESOLVED','DISMISSED') THEN NOW() ELSE resolved_at END
+     WHERE id = $4 RETURNING id`,
+    [status, resolutionNotes || '', req.session.userId, req.params.id]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Dispute not found.' });
+  await createAuditLog(req.session.userId, 'DISPUTE_RESOLVED', 'dispute', req.params.id, `${status}: ${resolutionNotes || ''}`);
+  res.json({ message: 'Dispute updated.' });
+}));
+
+// --- Fraud detection & reliability scoring (spec sections 15-16) ---
+
+// Server-side only, never user-editable. Weighted from real data:
+// completion history, responsiveness (decline rate), customer ratings,
+// disputes against them, and whether they're actually verified.
+async function computeReliabilityScore(providerId) {
+  const stats = await pool.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
+       COUNT(*) FILTER (WHERE status = 'declined')::int AS declined,
+       COUNT(*)::int AS total
+     FROM job_requests WHERE provider_id = $1`,
+    [providerId]
+  );
+  const s = stats.rows[0];
+
+  const providerResult = await pool.query('SELECT rating, approval_status FROM providers WHERE id = $1', [providerId]);
+  const provider = providerResult.rows[0];
+  if (!provider) return null;
+
+  const disputeCount = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM disputes d JOIN job_requests jr ON jr.id = d.job_id WHERE jr.provider_id = $1`,
+    [providerId]
+  );
+  const verifiedServiceCount = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM worker_services WHERE provider_id = $1 AND verification_status = 'VERIFIED'`,
+    [providerId]
+  );
+
+  let score = 50; // baseline
+  score += Math.min(s.completed * 2, 30); // up to +30 for a solid completion history
+  const declineRate = s.total > 0 ? s.declined / s.total : 0;
+  score -= Math.round(declineRate * 20); // penalize frequent declines
+  if (provider.rating) score += Math.round((provider.rating - 3) * 5); // rating above/below 3 shifts score
+  score -= Math.min(disputeCount.rows[0].count * 8, 24); // disputes hurt, capped
+  if (provider.approval_status === 'APPROVED') score += 5;
+  score += Math.min(verifiedServiceCount.rows[0].count * 3, 9); // verified skills help, capped
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return { score, completed: s.completed, declined: s.declined, disputes: disputeCount.rows[0].count, verifiedServices: verifiedServiceCount.rows[0].count };
+}
+
+app.get('/api/provider/reliability', requireRole('provider'), asyncHandler(async (req, res) => {
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+  const result = await computeReliabilityScore(providerId);
+  res.json(result);
+}));
+
+app.post('/api/admin/users/:id/suspend', requireRole('admin'), asyncHandler(async (req, res) => {
+  if (!isNonEmpty(req.body.reason)) {
+    return res.status(400).json({ error: 'Please provide a reason.' });
+  }
+  const result = await pool.query(
+    `UPDATE users SET account_status = 'SUSPENDED' WHERE id = $1 RETURNING id, role`,
+    [req.params.id]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
+
+  await pool.query(
+    'INSERT INTO suspensions (user_id, reason, admin_id, notes) VALUES ($1,$2,$3,$4)',
+    [req.params.id, req.body.reason, req.session.userId, req.body.notes || '']
+  );
+  await createAuditLog(req.session.userId, 'USER_SUSPENDED', 'user', req.params.id, req.body.reason);
+  createNotification(req.params.id, 'account_suspended', `Your account has been suspended: ${req.body.reason}`, '/support.html');
+  res.json({ message: 'User suspended.' });
+}));
+
+app.post('/api/admin/users/:id/reinstate', requireRole('admin'), asyncHandler(async (req, res) => {
+  const result = await pool.query(
+    `UPDATE users SET account_status = 'NORMAL' WHERE id = $1 RETURNING id`,
+    [req.params.id]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
+  await pool.query(`UPDATE suspensions SET active = FALSE, end_date = NOW() WHERE user_id = $1 AND active = TRUE`, [req.params.id]);
+  await createAuditLog(req.session.userId, 'USER_REINSTATED', 'user', req.params.id, req.body.notes || '');
+  createNotification(req.params.id, 'account_reinstated', 'Your account has been reinstated.', '/dashboard.html');
+  res.json({ message: 'User reinstated.' });
+}));
+
+app.get('/api/admin/flagged-messages', requireRole('admin'), asyncHandler(async (req, res) => {
+  const result = await pool.query(`
+    SELECT m.id, m.job_id, m.body, m.flag_reason, m.created_at, u.email AS sender_email
+    FROM messages m JOIN users u ON u.id = m.sender_user_id
+    WHERE m.flagged = TRUE
+    ORDER BY m.created_at DESC LIMIT 50
+  `);
+  res.json({ messages: result.rows });
 }));
 
 // --- Notifications ---

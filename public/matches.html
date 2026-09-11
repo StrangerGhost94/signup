@@ -16,6 +16,9 @@
     <h1 id="pageTitle" style="font-size:1.35rem; margin:0 0 0.75rem;"></h1>
 
     <div class="estimate-banner" id="estimateBanner"></div>
+    <div id="highRiskNote" style="display:none; background:#FEF3C7; color:#92400E; border-radius:var(--radius-sm); padding:0.75rem 1rem; margin-bottom:1rem; font-size:0.85rem;">
+      This is a higher-risk service — only pros verified specifically for it are shown here.
+    </div>
 
     <p class="status-line" id="statusLine"></p>
     <div class="worker-grid stagger" id="workerGrid"></div>
@@ -85,6 +88,11 @@
 
     let lastFetchedWorkers = [];
 
+    const HIGH_RISK_SERVICES = ['Electrical', 'Mechanical'];
+    if (HIGH_RISK_SERVICES.includes(category)) {
+      document.getElementById('highRiskNote').style.display = 'block';
+    }
+
     async function loadMatches() {
       document.getElementById('statusLine').textContent = 'Finding pros…';
       captureMyLocation().then(() => {
@@ -92,7 +100,9 @@
       });
       const res = await fetch('/api/workers?category=' + encodeURIComponent(category));
       const data = await res.json();
-      lastFetchedWorkers = data.workers;
+      lastFetchedWorkers = HIGH_RISK_SERVICES.includes(category)
+        ? data.workers.filter(w => w.category_verified)
+        : data.workers;
       sortAndRender(lastFetchedWorkers);
     }
 

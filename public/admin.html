@@ -13,26 +13,49 @@
     <button id="logoutBtn" class="small-btn logout-btn" style="width:auto;">Log out</button>
   </div>
 
-  <div class="admin-tabs" id="adminTabs">
-    <button class="admin-tab active" data-filter="PENDING">Pending</button>
-    <button class="admin-tab" data-filter="">All</button>
-    <button class="admin-tab" data-filter="APPROVED">Approved</button>
-    <button class="admin-tab" data-filter="REJECTED">Rejected</button>
-    <button class="admin-tab" data-filter="SUSPENDED">Suspended</button>
+  <div class="admin-tabs" style="padding-top:1rem;">
+    <button class="admin-tab active" data-section="applications">Applications</button>
+    <button class="admin-tab" data-section="pricing">Pricing</button>
+    <button class="admin-tab" data-section="safety">Safety</button>
   </div>
 
-  <div class="admin-list" id="adminList"></div>
+  <div id="applicationsSection">
+    <div class="admin-tabs" id="adminTabs">
+      <button class="admin-tab active" data-filter="PENDING">Pending</button>
+      <button class="admin-tab" data-filter="">All</button>
+      <button class="admin-tab" data-filter="APPROVED">Approved</button>
+      <button class="admin-tab" data-filter="REJECTED">Rejected</button>
+      <button class="admin-tab" data-filter="SUSPENDED">Suspended</button>
+    </div>
+    <div class="admin-list" id="adminList"></div>
+  </div>
+
+  <div id="pricingSection" class="admin-list" style="display:none;"></div>
+  <div id="safetySection" class="admin-list" style="display:none;"></div>
 
   <script src="js/categories.js"></script>
   <script>
     let currentFilter = 'PENDING';
 
-    document.querySelectorAll('.admin-tab').forEach(tab => {
+    document.querySelectorAll('#adminTabs .admin-tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('#adminTabs .admin-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         currentFilter = tab.dataset.filter;
         loadApplications();
+      });
+    });
+
+    document.querySelectorAll('[data-section]').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('[data-section]').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const section = tab.dataset.section;
+        document.getElementById('applicationsSection').style.display = section === 'applications' ? 'block' : 'none';
+        document.getElementById('pricingSection').style.display = section === 'pricing' ? 'block' : 'none';
+        document.getElementById('safetySection').style.display = section === 'safety' ? 'block' : 'none';
+        if (section === 'pricing') loadPricing();
+        if (section === 'safety') loadSafety();
       });
     });
 
@@ -242,6 +265,209 @@
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast('Request sent.', 'success');
       document.querySelector('.admin-detail-overlay')?.remove();
+    }
+
+    async function loadPricing() {
+      const section = document.getElementById('pricingSection');
+      section.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+
+      const [rulesRes, insightsRes] = await Promise.all([
+        fetch('/api/admin/pricing-rules'),
+        fetch('/api/admin/pricing-insights')
+      ]);
+      if (!rulesRes.ok || !insightsRes.ok) {
+        section.innerHTML = errorStateHtml('loadPricing()');
+        return;
+      }
+      const rulesData = await rulesRes.json();
+      const insightsData = await insightsRes.json();
+      const insightsByService = {};
+      insightsData.insights.forEach(i => { insightsByService[i.service] = i; });
+
+      section.innerHTML = '<h3 style="margin-bottom:0.75rem;">Pricing rules</h3>';
+      rulesData.rules.forEach(rule => {
+        const hist = insightsByService[rule.service_name];
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <div class="job-top">
+            <strong>${escapeHtml(rule.service_name)}</strong>
+            <span class="status-badge" style="color:${rule.active ? '#0B6E4F' : '#6B7280'}; background:${rule.active ? '#E6F4EC' : '#F3F4F6'};">${rule.active ? 'Active' : 'Inactive'}</span>
+          </div>
+          ${hist && hist.sample_size > 0 ? `<p class="job-meta">Historical: ${hist.sample_size} completed job(s), median UGX ${Number(hist.median).toLocaleString()}, typical range UGX ${Number(hist.p25).toLocaleString()}–${Number(hist.p75).toLocaleString()}${hist.sample_size >= 5 ? ' — being used for live estimates' : ' (need 5+ for live use)'}</p>` : `<p class="job-meta">No completed jobs yet — using configured rule below.</p>`}
+          <div class="stat-mini-grid" style="grid-template-columns:repeat(2,1fr); margin:0.75rem 0;">
+            <div><label class="job-meta">Labour min<input type="number" data-field="labour_min" value="${rule.labour_min}" style="width:100%; padding:0.4rem; border:1px solid var(--line); border-radius:6px; margin-top:0.2rem;"></label></div>
+            <div><label class="job-meta">Labour max<input type="number" data-field="labour_max" value="${rule.labour_max}" style="width:100%; padding:0.4rem; border:1px solid var(--line); border-radius:6px; margin-top:0.2rem;"></label></div>
+            <div><label class="job-meta">Materials min<input type="number" data-field="materials_min" value="${rule.materials_min}" style="width:100%; padding:0.4rem; border:1px solid var(--line); border-radius:6px; margin-top:0.2rem;"></label></div>
+            <div><label class="job-meta">Materials max<input type="number" data-field="materials_max" value="${rule.materials_max}" style="width:100%; padding:0.4rem; border:1px solid var(--line); border-radius:6px; margin-top:0.2rem;"></label></div>
+            <div><label class="job-meta">"Now" fee<input type="number" data-field="urgency_now_fee" value="${rule.urgency_now_fee}" style="width:100%; padding:0.4rem; border:1px solid var(--line); border-radius:6px; margin-top:0.2rem;"></label></div>
+            <div><label class="job-meta">"Today" fee<input type="number" data-field="urgency_today_fee" value="${rule.urgency_today_fee}" style="width:100%; padding:0.4rem; border:1px solid var(--line); border-radius:6px; margin-top:0.2rem;"></label></div>
+          </div>
+          <div class="action-row">
+            <button class="small-btn" onclick="savePricingRule(${rule.id}, this)">Save changes</button>
+            <button class="small-btn ${rule.active ? 'btn-decline' : ''}" onclick="toggleRuleActive(${rule.id}, ${!rule.active})">${rule.active ? 'Deactivate' : 'Activate'}</button>
+          </div>
+        `;
+        section.appendChild(card);
+      });
+
+      if (insightsData.divergentJobs.length > 0) {
+        const divHeader = document.createElement('h3');
+        divHeader.style = 'margin:1.5rem 0 0.75rem;';
+        divHeader.textContent = 'Estimates that differed significantly from the final price';
+        section.appendChild(divHeader);
+        insightsData.divergentJobs.forEach(d => {
+          const item = document.createElement('div');
+          item.className = 'job-card';
+          item.innerHTML = `<p class="job-desc">${escapeHtml(d.service)} — ${escapeHtml(d.job_type)}</p><p class="job-meta">Estimated UGX ${d.total_min.toLocaleString()}–${d.total_max.toLocaleString()}, actual UGX ${d.final_amount.toLocaleString()} (job #${d.job_id})</p>`;
+          section.appendChild(item);
+        });
+      }
+    }
+
+    async function savePricingRule(id, btnEl) {
+      const card = btnEl.closest('.job-card');
+      const payload = {};
+      card.querySelectorAll('input[data-field]').forEach(input => {
+        payload[input.dataset.field] = parseInt(input.value, 10);
+      });
+      const res = await fetch(`/api/admin/pricing-rules/${id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Pricing rule updated.', 'success');
+    }
+
+    async function toggleRuleActive(id, active) {
+      const res = await fetch(`/api/admin/pricing-rules/${id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast(active ? 'Rule activated.' : 'Rule deactivated.', 'success');
+      loadPricing();
+    }
+
+    async function loadSafety() {
+      const section = document.getElementById('safetySection');
+      section.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+
+      const [reportsRes, disputesRes, msgRes] = await Promise.all([
+        fetch('/api/admin/reports?status=OPEN'),
+        fetch('/api/admin/disputes?status=OPEN'),
+        fetch('/api/admin/flagged-messages')
+      ]);
+      if (!reportsRes.ok || !disputesRes.ok || !msgRes.ok) {
+        section.innerHTML = errorStateHtml('loadSafety()');
+        return;
+      }
+      const reportsData = await reportsRes.json();
+      const disputesData = await disputesRes.json();
+      const msgData = await msgRes.json();
+
+      section.innerHTML = '';
+
+      const reportsHeader = document.createElement('h3');
+      reportsHeader.textContent = `Open reports (${reportsData.reports.length})`;
+      section.appendChild(reportsHeader);
+      if (reportsData.reports.length === 0) {
+        section.innerHTML += `<p class="job-meta" style="margin-bottom:1.5rem;">Nothing open.</p>`;
+      }
+      reportsData.reports.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <div class="job-top">
+            <div>
+              <strong>${escapeHtml(r.category.replace(/_/g, ' '))}</strong>
+              <p class="job-meta">${escapeHtml(r.reporter_email)} reported ${escapeHtml(r.reported_email)} · ${new Date(r.created_at).toLocaleDateString()}</p>
+            </div>
+          </div>
+          <p class="job-desc">${escapeHtml(r.description)}</p>
+          ${r.attachment ? `<img class="doc-preview" src="${r.attachment}" alt="Attachment">` : ''}
+          <div class="action-row">
+            <button class="small-btn" onclick="resolveReport(${r.id}, 'RESOLVED')">Mark resolved</button>
+            <button class="small-btn btn-outline" onclick="resolveReport(${r.id}, 'DISMISSED')">Dismiss</button>
+            <button class="small-btn btn-decline" onclick="suspendReportedUser(${r.reported_user_id})">Suspend reported user</button>
+          </div>
+        `;
+        section.appendChild(card);
+      });
+
+      const disputesHeader = document.createElement('h3');
+      disputesHeader.style = 'margin-top:1.5rem;';
+      disputesHeader.textContent = `Open disputes (${disputesData.disputes.length})`;
+      section.appendChild(disputesHeader);
+      if (disputesData.disputes.length === 0) {
+        section.innerHTML += `<p class="job-meta" style="margin-bottom:1.5rem;">Nothing open.</p>`;
+      }
+      disputesData.disputes.forEach(d => {
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <div class="job-top">
+            <strong>Job #${d.job_id} — ${escapeHtml(d.category)}</strong>
+          </div>
+          <p class="job-meta">Raised by ${escapeHtml(d.raised_by_email)} · ${new Date(d.created_at).toLocaleDateString()}</p>
+          <p class="job-desc">${escapeHtml(d.reason)}</p>
+          <div class="action-row">
+            <button class="small-btn" onclick="resolveDispute(${d.id}, 'RESOLVED')">Mark resolved</button>
+            <button class="small-btn btn-outline" onclick="resolveDispute(${d.id}, 'DISMISSED')">Dismiss</button>
+          </div>
+        `;
+        section.appendChild(card);
+      });
+
+      const msgHeader = document.createElement('h3');
+      msgHeader.style = 'margin-top:1.5rem;';
+      msgHeader.textContent = `Flagged messages (${msgData.messages.length})`;
+      section.appendChild(msgHeader);
+      if (msgData.messages.length === 0) {
+        section.innerHTML += `<p class="job-meta">Nothing flagged.</p>`;
+      }
+      msgData.messages.forEach(m => {
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.innerHTML = `
+          <p class="job-meta">${escapeHtml(m.sender_email)} · ${new Date(m.created_at).toLocaleDateString()} · ${escapeHtml(m.flag_reason)}</p>
+          <p class="job-desc">"${escapeHtml(m.body)}"</p>
+        `;
+        section.appendChild(card);
+      });
+    }
+
+    async function resolveReport(id, status) {
+      const notes = status === 'RESOLVED' ? (prompt('Any notes on how this was resolved?') || '') : '';
+      const res = await fetch(`/api/admin/reports/${id}/resolve`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, adminNotes: notes })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Report updated.', 'success');
+      loadSafety();
+    }
+
+    async function resolveDispute(id, status) {
+      const notes = status === 'RESOLVED' ? (prompt('Resolution notes:') || '') : '';
+      const res = await fetch(`/api/admin/disputes/${id}/resolve`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, resolutionNotes: notes })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Dispute updated.', 'success');
+      loadSafety();
+    }
+
+    async function suspendReportedUser(userId) {
+      const reason = prompt('Reason for suspending this account:');
+      if (!reason) return;
+      const res = await fetch(`/api/admin/users/${userId}/suspend`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('User suspended.', 'success');
     }
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {

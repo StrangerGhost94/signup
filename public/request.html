@@ -187,14 +187,22 @@
 
           ${materials.length ? `<div class="est-materials">Likely materials<ul>${materials.map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul></div>` : ''}
 
-          <div class="est-cost-box">
-            <span class="est-label">Estimated cost</span>
-            <div class="est-total">UGX ${a.total_min.toLocaleString()} – ${a.total_max.toLocaleString()}</div>
-            <div class="est-breakdown">
-              <div><strong>UGX ${a.labour_min.toLocaleString()} – ${a.labour_max.toLocaleString()}</strong>Labour</div>
-              <div><strong>UGX ${a.materials_min.toLocaleString()} – ${a.materials_max.toLocaleString()}</strong>Materials</div>
+          ${a.confidence === 'LOW' ? `
+            <div class="est-cost-box">
+              <span class="est-label">Estimate</span>
+              <div style="font-size:1rem; font-weight:700; color:var(--ink); margin:0.3rem 0;">More information is needed before we can give a useful cost estimate.</div>
+              <p style="font-size:0.85rem; color:var(--ink-soft); margin:0;">A pro will need to assess this in person to confirm pricing.</p>
             </div>
-          </div>
+          ` : `
+            <div class="est-cost-box">
+              <span class="est-label">Estimated cost</span>
+              <div class="est-total">UGX ${a.total_min.toLocaleString()} – ${a.total_max.toLocaleString()}</div>
+              <div class="est-breakdown">
+                <div><strong>UGX ${a.labour_min.toLocaleString()} – ${a.labour_max.toLocaleString()}</strong>Labour</div>
+                <div><strong>UGX ${a.materials_min.toLocaleString()} – ${a.materials_max.toLocaleString()}</strong>Materials</div>
+              </div>
+            </div>
+          `}
 
           <div class="est-confidence" style="background:${conf.bg}; color:${conf.color};">${conf.label}</div>
 
@@ -206,7 +214,7 @@
 
           ${questions.length ? `
             <div class="est-questions">
-              <strong>A few quick questions could improve this estimate:</strong>
+              <strong>${a.confidence === 'LOW' ? 'Answering these would help a lot:' : 'A few quick questions could improve this estimate:'}</strong>
               <ol>${questions.map(q => `<li>${escapeHtml(q)}</li>`).join('')}</ol>
               <p style="margin:0.5rem 0 0; color:var(--ink-soft);">Feel free to add these details to your description and try again, or continue as-is.</p>
             </div>` : ''}

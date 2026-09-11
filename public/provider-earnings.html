@@ -39,6 +39,10 @@
             <span class="stat-value" id="statRating">—</span>
             <span class="stat-label">Average rating</span>
           </div>
+          <div class="stat-card">
+            <span class="stat-value" id="statReliability">—</span>
+            <span class="stat-label">Reliability score</span>
+          </div>
         </div>
 
         <h2 class="section-title" style="margin-top:0;">Recent completed jobs</h2>
@@ -70,6 +74,14 @@
       animateCount(document.getElementById('statTotal'), data.totalEstimated, { prefix: 'UGX ' });
       animateCount(document.getElementById('statCount'), data.completedCount);
       document.getElementById('statRating').textContent = data.rating ? `★ ${data.rating}` : '—';
+
+      const relRes = await fetch('/api/provider/reliability');
+      if (relRes.ok) {
+        const relData = await relRes.json();
+        if (relData && relData.score != null) {
+          animateCount(document.getElementById('statReliability'), relData.score, { suffix: '/100' });
+        }
+      }
 
       const list = document.getElementById('recentList');
       if (data.recent.length === 0) {
