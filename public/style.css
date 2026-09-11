@@ -64,9 +64,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   color: var(--primary);
 }
 .brand svg { width: 1.15em; height: 1.15em; flex-shrink: 0; }
-.brand-logo { height: 34px; width: auto; display: block; }
+.brand-logo { height: 44px; width: auto; display: block; }
 .brand-logo-light { filter: drop-shadow(0 2px 10px rgba(0,0,0,0.35)); }
-.sidebar-nav .brand-logo { height: 30px; }
+.sidebar-nav .brand-logo { height: 38px; }
+a.brand { transition: opacity 0.15s ease; }
+a.brand:hover { opacity: 0.82; }
 
 /* --- Auth pages (signup / login) --- */
 .auth-page {

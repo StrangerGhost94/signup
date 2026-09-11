@@ -13,9 +13,7 @@
 <body class="app-body has-bottom-nav">
   <div class="app-shell">
     <nav class="sidebar-nav">
-      <span class="brand">
-        <img src="images/logo.png" alt="HandyLink" class="brand-logo"><span class="pro-badge">PRO</span>
-      </span>
+      <a href="/provider-dashboard.html" class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo"><span class="pro-badge">PRO</span></a>
       <a href="/provider-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
       <a href="/provider-my-jobs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>My Jobs</a>
       <a href="/provider-earnings.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Earnings</a>
@@ -52,6 +50,9 @@
 
             <label>Location / area you serve</label>
             <input type="text" id="location" required>
+            <button type="button" id="useLocationBtn" class="btn-outline" style="margin-top:-0.5rem; margin-bottom:1rem; font-size:0.85rem; padding:0.5rem 0.9rem;">
+              <span id="useLocationLabel">📍 Use my current location</span>
+            </button>
 
             <label>Phone number</label>
             <input type="tel" id="phone" required>
@@ -83,6 +84,29 @@
   <script src="js/categories.js"></script>
   <script>
     let currentPhoto = null;
+    let pendingLat = null;
+    let pendingLng = null;
+
+    document.getElementById('useLocationBtn').addEventListener('click', () => {
+      if (!navigator.geolocation) {
+        showToast('Your browser doesn\u2019t support location.', 'error');
+        return;
+      }
+      document.getElementById('useLocationLabel').textContent = 'Getting your location...';
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          pendingLat = pos.coords.latitude;
+          pendingLng = pos.coords.longitude;
+          document.getElementById('useLocationLabel').textContent = '✓ Location set — save to apply';
+          showToast('Location captured. Save changes to apply it.', 'success');
+        },
+        (err) => {
+          document.getElementById('useLocationLabel').textContent = '📍 Use my current location';
+          showToast('Couldn\u2019t get your location. Check permissions.', 'error');
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
     let pendingPhoto = null;
 
     function renderPreview(p) {
@@ -145,6 +169,10 @@
       const payload = fieldsFromForm();
       if (pendingPhoto) payload.photo = pendingPhoto;
       else delete payload.photo;
+      if (pendingLat !== null && pendingLng !== null) {
+        payload.latitude = pendingLat;
+        payload.longitude = pendingLng;
+      }
 
       const res = await fetch('/api/provider/me', {
         method: 'PUT',
@@ -159,6 +187,11 @@
       }
       pendingPhoto = null;
       currentPhoto = data.provider.photo;
+      if (pendingLat !== null) {
+        document.getElementById('useLocationLabel').textContent = '📍 Use my current location';
+        pendingLat = null;
+        pendingLng = null;
+      }
       showToast('Listing saved.', 'success');
       renderPreview(data.provider);
     });

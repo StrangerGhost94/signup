@@ -124,6 +124,31 @@ async function initDb() {
     )
   `);
 
+  // Migration: presence tracking for online/offline status in chat.
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      body TEXT NOT NULL,
+      link TEXT,
+      read_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Migration: provider coordinates for proximity-based search.
+  await pool.query(`
+    ALTER TABLE providers ADD COLUMN IF NOT EXISTS latitude NUMERIC
+  `);
+  await pool.query(`
+    ALTER TABLE providers ADD COLUMN IF NOT EXISTS longitude NUMERIC
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS job_requests (
       id SERIAL PRIMARY KEY,
@@ -209,7 +234,20 @@ function requireLogin(req, res, next) {
   if (!req.session.userId) {
     return res.status(401).json({ error: 'Not logged in.' });
   }
+  // Fire-and-forget presence update — don't block the request on it.
+  pool.query('UPDATE users SET last_active_at = NOW() WHERE id = $1', [req.session.userId]).catch(() => {});
   next();
+}
+
+async function createNotification(userId, type, body, link) {
+  try {
+    await pool.query(
+      'INSERT INTO notifications (user_id, type, body, link) VALUES ($1, $2, $3, $4)',
+      [userId, type, body, link || null]
+    );
+  } catch (err) {
+    console.error('Notification creation failed:', err);
+  }
 }
 
 function requireRole(role) {
@@ -220,6 +258,7 @@ function requireRole(role) {
     if (req.session.role !== role) {
       return res.status(403).json({ error: 'Not authorized for this action.' });
     }
+    pool.query('UPDATE users SET last_active_at = NOW() WHERE id = $1', [req.session.userId]).catch(() => {});
     next();
   };
 }
@@ -584,20 +623,23 @@ app.get('/api/provider/me', requireRole('provider'), asyncHandler(async (req, re
 }));
 
 app.put('/api/provider/me', requireRole('provider'), async (req, res) => {
-  const { name, category, location, phone, bio, photo } = req.body;
+  const { name, category, location, phone, bio, photo, latitude, longitude } = req.body;
   if (!isNonEmpty(name) || !isNonEmpty(category) || !isNonEmpty(location) || !isNonEmpty(phone)) {
     return res.status(400).json({ error: 'Please fill in your name, category, location, and phone number.' });
   }
   if (!isValidPhoto(photo)) {
     return res.status(400).json({ error: 'That photo is too large or in an unsupported format.' });
   }
+  const lat = (typeof latitude === 'number' && !isNaN(latitude)) ? latitude : null;
+  const lng = (typeof longitude === 'number' && !isNaN(longitude)) ? longitude : null;
 
   try {
     // COALESCE keeps the existing photo when none is sent with this update.
     const result = await pool.query(
-      `UPDATE providers SET name=$1, category=$2, location=$3, phone=$4, bio=$5, photo=COALESCE($6, photo)
+      `UPDATE providers SET name=$1, category=$2, location=$3, phone=$4, bio=$5, photo=COALESCE($6, photo),
+              latitude=COALESCE($8, latitude), longitude=COALESCE($9, longitude)
        WHERE user_id=$7 RETURNING *`,
-      [name.trim(), category.trim(), location.trim(), phone.trim(), isNonEmpty(bio) ? bio.trim() : '', isNonEmpty(photo) ? photo : null, req.session.userId]
+      [name.trim(), category.trim(), location.trim(), phone.trim(), isNonEmpty(bio) ? bio.trim() : '', isNonEmpty(photo) ? photo : null, req.session.userId, lat, lng]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'No provider profile found.' });
@@ -624,7 +666,7 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
   }
 
   try {
-    const providerCheck = await pool.query('SELECT id FROM providers WHERE id = $1', [providerId]);
+    const providerCheck = await pool.query('SELECT id, user_id, name FROM providers WHERE id = $1', [providerId]);
     if (providerCheck.rows.length === 0) {
       return res.status(404).json({ error: 'That provider no longer exists.' });
     }
@@ -634,6 +676,16 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [req.session.userId, providerId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '', ESTIMATE_MIDPOINTS[category.trim()] || 40000]
     );
+
+    if (providerCheck.rows[0].user_id) {
+      createNotification(
+        providerCheck.rows[0].user_id,
+        'new_job',
+        `New ${category.trim()} job request`,
+        '/provider-dashboard.html'
+      );
+    }
+
     res.json({ booking: result.rows[0] });
   } catch (err) {
     console.error('Booking error:', err);
@@ -690,7 +742,18 @@ async function updateJobStatus(req, res, { from, to }) {
   if (result.rows.length === 0) {
     return res.status(409).json({ error: 'This job is no longer in a state that allows that action.' });
   }
-  res.json({ job: result.rows[0] });
+
+  const job = result.rows[0];
+  const messages = {
+    accepted: 'Your job request was accepted',
+    declined: 'Your job request was declined',
+    completed: 'Your job was marked completed'
+  };
+  if (messages[to]) {
+    createNotification(job.client_user_id, `job_${to}`, `${messages[to]} — ${job.category}`, '/dashboard.html#recentJobs');
+  }
+
+  res.json({ job });
 }
 
 app.get('/api/provider/earnings', requireRole('provider'), asyncHandler(async (req, res) => {
@@ -789,10 +852,12 @@ app.post('/api/reviews', requireRole('client'), async (req, res) => {
 async function getJobForParticipant(jobId, userId) {
   const result = await pool.query(
     `SELECT jr.id, jr.category, jr.client_user_id, p.user_id AS provider_user_id,
-            p.name AS provider_name, uc.email AS client_email, uc.name AS client_name
+            p.name AS provider_name, uc.email AS client_email, uc.name AS client_name,
+            CASE WHEN jr.client_user_id = $2 THEN up.last_active_at ELSE uc.last_active_at END AS other_last_active
      FROM job_requests jr
      JOIN providers p ON p.id = jr.provider_id
      JOIN users uc ON uc.id = jr.client_user_id
+     LEFT JOIN users up ON up.id = p.user_id
      WHERE jr.id = $1 AND (jr.client_user_id = $2 OR p.user_id = $2)`,
     [jobId, userId]
   );
@@ -838,7 +903,10 @@ app.get('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => {
   );
 
   const otherPartyName = job.client_user_id === req.session.userId ? job.provider_name : (job.client_name || job.client_email);
-  res.json({ messages: result.rows, job: { id: job.id, category: job.category, otherPartyName } });
+  res.json({
+    messages: result.rows,
+    job: { id: job.id, category: job.category, otherPartyName, otherPartyLastActive: job.other_last_active }
+  });
 }));
 
 app.post('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => {
@@ -857,7 +925,36 @@ app.post('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => 
     'INSERT INTO messages (job_id, sender_user_id, body) VALUES ($1, $2, $3) RETURNING *',
     [job.id, req.session.userId, req.body.body.trim()]
   );
+
+  const recipientUserId = job.client_user_id === req.session.userId ? job.provider_user_id : job.client_user_id;
+  if (recipientUserId) {
+    const senderName = job.client_user_id === req.session.userId ? (job.client_name || job.client_email) : job.provider_name;
+    createNotification(recipientUserId, 'new_message', `New message from ${senderName}`, `/message-thread.html?jobId=${job.id}`);
+  }
+
   res.json({ message: result.rows[0] });
+}));
+
+// --- Notifications ---
+
+app.get('/api/notifications', requireLogin, asyncHandler(async (req, res) => {
+  const result = await pool.query(
+    'SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 30',
+    [req.session.userId]
+  );
+  const unreadResult = await pool.query(
+    'SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND read_at IS NULL',
+    [req.session.userId]
+  );
+  res.json({ notifications: result.rows, unreadCount: unreadResult.rows[0].count });
+}));
+
+app.post('/api/notifications/read', requireLogin, asyncHandler(async (req, res) => {
+  await pool.query(
+    'UPDATE notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL',
+    [req.session.userId]
+  );
+  res.json({ message: 'Marked as read.' });
 }));
 
 // --- 404 and error handling (must be last, after all routes) ---

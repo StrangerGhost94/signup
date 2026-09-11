@@ -45,7 +45,8 @@
     function buildNav(links, isProvider) {
       const sidebar = document.getElementById('sidebarNav');
       const bottom = document.getElementById('bottomNav');
-      sidebar.innerHTML = `<span class="brand"><img src="images/logo.png" alt="HandyLink" class="brand-logo">${isProvider ? '<span class="pro-badge">PRO</span>' : ''}</span>` +
+      const homeHref = isProvider ? '/provider-dashboard.html' : '/dashboard.html';
+      sidebar.innerHTML = `<a href="${homeHref}" class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo">${isProvider ? '<span class="pro-badge">PRO</span>' : ''}</a>` +
         links.map(l => `<a href="${l.href}" class="${l.active ? 'active' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${l.icon}</svg>${l.label}</a>`).join('');
       bottom.innerHTML = links.map(l => `<a href="${l.href}" class="nav-item ${l.active ? 'active' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${l.icon}</svg>${l.label}</a>`).join('');
     }

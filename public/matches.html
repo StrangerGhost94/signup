@@ -53,12 +53,37 @@
     `;
 
     let chosenProvider = null;
+    let myLat = null;
+    let myLng = null;
+
+    function captureMyLocation() {
+      return new Promise((resolve) => {
+        if (!navigator.geolocation) { resolve(); return; }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => { myLat = pos.coords.latitude; myLng = pos.coords.longitude; resolve(); },
+          () => resolve(),
+          { timeout: 6000 }
+        );
+      });
+    }
 
     async function loadMatches() {
       document.getElementById('statusLine').textContent = 'Finding pros…';
+      await captureMyLocation();
       const res = await fetch('/api/workers?category=' + encodeURIComponent(category));
       const data = await res.json();
-      renderMatches(data.workers);
+
+      let workers = data.workers;
+      if (myLat !== null) {
+        workers = workers.map(w => ({ ...w, _distance: distanceKm(myLat, myLng, w.latitude, w.longitude) }));
+        workers.sort((a, b) => {
+          if (a._distance === null && b._distance === null) return 0;
+          if (a._distance === null) return 1;
+          if (b._distance === null) return -1;
+          return a._distance - b._distance;
+        });
+      }
+      renderMatches(workers);
     }
 
     function renderMatches(workers) {
@@ -72,13 +97,14 @@
         return;
       }
 
-      statusLine.textContent = `${workers.length} pro${workers.length === 1 ? '' : 's'} available`;
+      statusLine.textContent = `${workers.length} pro${workers.length === 1 ? '' : 's'} available${myLat !== null ? ' · nearest first' : ''}`;
 
       workers.forEach(w => {
         const color = categoryColor(w.category);
         const card = document.createElement('div');
         card.className = 'worker-card';
         card.style.setProperty('--cat-color', color);
+        const distanceLabel = (w._distance !== null && w._distance !== undefined) ? `${w._distance.toFixed(1)} km away` : null;
         card.innerHTML = `
           <div class="worker-head">
             <div class="avatar">${w.photo ? `<img class="avatar-img" src="${w.photo}" alt="">` : initials(w.name)}</div>
@@ -90,9 +116,10 @@
           </div>
           <p class="location">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-            ${escapeHtml(w.location)}
+            ${escapeHtml(w.location)}${distanceLabel ? ` · ${distanceLabel}` : ''}
           </p>
           <p class="bio">${escapeHtml(w.bio)}</p>
+
           <button class="small-btn" data-id="${w.id}" data-name="${escapeHtml(w.name)}">Book ${escapeHtml(w.name.split(' ')[0])}</button>
         `;
         card.querySelector('button').addEventListener('click', () => openConfirm(w));

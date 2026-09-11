@@ -13,9 +13,7 @@
 <body class="app-body has-bottom-nav">
   <div class="app-shell" id="appShell" style="visibility:hidden;">
     <nav class="sidebar-nav">
-      <span class="brand">
-        <img src="images/logo.png" alt="HandyLink" class="brand-logo"><span class="pro-badge">PRO</span>
-      </span>
+      <a href="/provider-dashboard.html" class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo"><span class="pro-badge">PRO</span></a>
       <a href="/provider-dashboard.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
       <a href="/provider-my-jobs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>My Jobs</a>
       <a href="/provider-earnings.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Earnings</a>
@@ -27,8 +25,13 @@
       <div class="dash-wrap">
         <header class="dash-header">
           <h1 style="font-size:1.4rem; font-weight:800; margin:0;">Job requests</h1>
-          <div class="dash-user">
+          <div class="dash-user" style="position:relative;">
             <span id="welcome"></span>
+            <button class="bell-btn" id="bellBtn" aria-label="Notifications">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+              <span class="bell-dot" id="bellDot" style="display:none;"></span>
+            </button>
+            <div id="notifPanel" class="search-suggestions" style="display:none; right:0; left:auto; width:300px; max-width:80vw;"></div>
           </div>
         </header>
 
@@ -110,6 +113,51 @@
       loadJobs();
     }
 
+    async function loadNotifications(render) {
+      const res = await fetch('/api/notifications');
+      if (!res.ok) return;
+      const data = await res.json();
+      document.getElementById('bellDot').style.display = data.unreadCount > 0 ? 'block' : 'none';
+      if (render) {
+        const panel = document.getElementById('notifPanel');
+        if (data.notifications.length === 0) {
+          panel.innerHTML = `<div style="padding:1rem; text-align:center; color:var(--ink-soft); font-size:0.85rem;">No notifications yet.</div>`;
+        } else {
+          panel.innerHTML = data.notifications.map(n => `
+            <div class="suggestion-row" style="align-items:flex-start;" data-link="${n.link || ''}">
+              <div class="icon-chip" style="background:${n.read_at ? 'var(--surface)' : 'var(--primary-tint)'};">
+                <svg viewBox="0 0 24 24" fill="none" stroke="${n.read_at ? 'var(--ink-soft)' : 'var(--primary)'}" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+              </div>
+              <div>
+                <span style="display:block; font-weight:${n.read_at ? '500' : '700'};">${escapeHtml(n.body)}</span>
+                <span style="font-size:0.72rem; color:var(--ink-soft); font-weight:400;">${relativeTime(n.created_at)}</span>
+              </div>
+            </div>
+          `).join('');
+          panel.querySelectorAll('.suggestion-row').forEach(row => {
+            row.addEventListener('click', () => {
+              if (row.dataset.link) window.location.href = row.dataset.link;
+            });
+          });
+        }
+      }
+    }
+
+    document.getElementById('bellBtn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const panel = document.getElementById('notifPanel');
+      const showing = panel.style.display === 'block';
+      panel.style.display = showing ? 'none' : 'block';
+      if (!showing) {
+        await loadNotifications(true);
+        await fetch('/api/notifications/read', { method: 'POST' });
+        document.getElementById('bellDot').style.display = 'none';
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.dash-user')) document.getElementById('notifPanel').style.display = 'none';
+    });
+
     (async () => {
       const res = await fetch('/api/me');
       if (!res.ok) { window.location.href = '/login.html'; return; }
@@ -118,6 +166,8 @@
       document.getElementById('welcome').textContent = me.email;
       document.getElementById('appShell').style.visibility = 'visible';
       await loadJobs();
+      await loadNotifications(false);
+      setInterval(() => loadNotifications(false), 20000);
     })();
   </script>
 </body>

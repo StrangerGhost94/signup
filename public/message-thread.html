@@ -19,6 +19,7 @@
       <div>
         <h1 id="otherPartyName">Conversation</h1>
         <span id="jobCategory"></span>
+        <span id="presenceStatus" class="job-meta" style="display:block;"></span>
       </div>
     </div>
 
@@ -56,6 +57,18 @@
       document.getElementById('otherPartyName').textContent = data.job.otherPartyName;
       document.getElementById('jobCategory').textContent = data.job.category;
 
+      const presenceEl = document.getElementById('presenceStatus');
+      if (data.job.otherPartyLastActive) {
+        const secondsAgo = (Date.now() - new Date(data.job.otherPartyLastActive).getTime()) / 1000;
+        if (secondsAgo < 90) {
+          presenceEl.innerHTML = '<span style="color:var(--primary); font-weight:600;">● Online</span>';
+        } else {
+          presenceEl.textContent = `Last seen ${relativeTime(data.job.otherPartyLastActive)}`;
+        }
+      } else {
+        presenceEl.textContent = '';
+      }
+
       const thread = document.getElementById('chatThread');
       thread.innerHTML = '';
 
@@ -63,11 +76,20 @@
         thread.innerHTML = `<div class="empty-state" style="padding:1.5rem;"><strong>Say hello</strong>Start the conversation about this job.</div>`;
       }
 
-      data.messages.forEach(m => {
+      let lastMineIndex = -1;
+      data.messages.forEach((m, i) => {
+        if (m.sender_user_id === window.currentUserId) lastMineIndex = i;
+      });
+
+      data.messages.forEach((m, i) => {
         const mine = m.sender_user_id === window.currentUserId;
         const bubble = document.createElement('div');
         bubble.className = 'chat-bubble ' + (mine ? 'mine' : 'theirs');
-        bubble.innerHTML = `${escapeHtml(m.body)}<time>${formatTime(m.created_at)}</time>`;
+        let receipt = '';
+        if (mine && i === lastMineIndex) {
+          receipt = m.read_at ? ' · Seen' : ' · Delivered';
+        }
+        bubble.innerHTML = `${escapeHtml(m.body)}<time>${formatTime(m.created_at)}${receipt}</time>`;
         thread.appendChild(bubble);
       });
 
