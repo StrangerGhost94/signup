@@ -1510,7 +1510,10 @@ app.get('/api/provider/jobs', requireRole('provider'), asyncHandler(async (req, 
     `SELECT jr.*, u.email AS client_email,
             pcr.id AS pending_price_change_id, pcr.status AS pending_price_status,
             (SELECT id FROM payments WHERE job_id = jr.id) AS payment_id,
-            ja.complexity AS ai_complexity, ja.likely_materials AS ai_materials, ja.confidence AS ai_confidence
+            ja.complexity AS ai_complexity, ja.likely_materials AS ai_materials, ja.confidence AS ai_confidence,
+            ja.labour_min AS ai_labour_min, ja.labour_max AS ai_labour_max,
+            ja.materials_min AS ai_materials_min, ja.materials_max AS ai_materials_max,
+            ja.total_min AS ai_total_min, ja.total_max AS ai_total_max
      FROM job_requests jr
      JOIN users u ON u.id = jr.client_user_id
      LEFT JOIN price_change_requests pcr ON pcr.job_id = jr.id AND pcr.status = 'PENDING'
@@ -1596,6 +1599,60 @@ app.put('/api/provider/jobs/:id/accept', requireRole('provider'), (req, res) =>
 app.put('/api/provider/jobs/:id/decline', requireRole('provider'), (req, res) =>
   updateJobStatus(req, res, { from: 'requested', to: 'declined' })
 );
+
+// Handyman quote system (AI spec Phase 5): instead of only Accept/Decline,
+// a provider can accept the job while proposing a different price. This
+// deliberately reuses price_change_requests rather than a parallel
+// mechanism — the customer's approval step is identical either way, and
+// "cannot force the customer to accept a different amount" is enforced
+// by the exact same code path already audited in the trust/safety phase.
+app.put('/api/provider/jobs/:id/accept-with-quote', requireRole('provider'), asyncHandler(async (req, res) => {
+  const { labourAmount, materialsAmount, reason } = req.body;
+  const labour = parseInt(labourAmount, 10);
+  const materials = parseInt(materialsAmount, 10);
+  if (!Number.isInteger(labour) || labour < 0 || !Number.isInteger(materials) || materials < 0) {
+    return res.status(400).json({ error: 'Please enter valid labour and materials amounts.' });
+  }
+  if (!isNonEmpty(reason)) {
+    return res.status(400).json({ error: 'Please explain your quote to the client.' });
+  }
+
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+
+  const statusCheck = await pool.query('SELECT approval_status FROM providers WHERE id = $1', [providerId]);
+  if (statusCheck.rows[0]?.approval_status !== 'APPROVED') {
+    return res.status(403).json({ error: 'Your account isn\u2019t approved to accept jobs right now.' });
+  }
+
+  const jobResult = await pool.query(
+    `UPDATE job_requests SET status = 'accepted', updated_at = NOW()
+     WHERE id = $1 AND provider_id = $2 AND status = 'requested'
+     RETURNING *`,
+    [req.params.id, providerId]
+  );
+  if (jobResult.rows.length === 0) {
+    return res.status(409).json({ error: 'This job is no longer in a state that allows that action.' });
+  }
+  const job = jobResult.rows[0];
+  const newAmount = labour + materials;
+
+  const pcResult = await pool.query(
+    `INSERT INTO price_change_requests (job_id, requested_by, original_amount, new_amount, labour_amount, materials_amount, reason)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [job.id, req.session.userId, job.estimate_amount, newAmount, labour, materials, reason.trim()]
+  );
+
+  await createAuditLog(req.session.userId, 'JOB_ACCEPTED_WITH_QUOTE', 'job', job.id, `${job.estimate_amount} -> ${newAmount}`);
+  await createNotification(
+    job.client_user_id,
+    'quote_submitted',
+    `Your pro accepted the ${job.category} job and quoted UGX ${newAmount.toLocaleString()} — review and approve.`,
+    '/dashboard.html#recentJobs'
+  );
+
+  res.json({ job, priceChange: pcResult.rows[0] });
+}));
 app.put('/api/provider/jobs/:id/complete', requireRole('provider'), (req, res) =>
   updateJobStatus(req, res, { from: 'accepted', to: 'completed' })
 );

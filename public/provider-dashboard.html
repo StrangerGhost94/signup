@@ -78,14 +78,32 @@
             <span class="status-badge" style="color:${STATUS_META.requested.color}; background:${STATUS_META.requested.bg};">New</span>
           </div>
           <p class="job-desc">${escapeHtml(j.description)}${j.location_notes ? `<br><span class="job-meta">${escapeHtml(j.location_notes)}</span>` : ''}</p>
-          ${j.ai_complexity ? `<p class="job-meta">AI assessment: ${escapeHtml(j.ai_complexity)} complexity${(() => { try { const m = JSON.parse(j.ai_materials || '[]'); return m.length ? ' · ' + m.map(escapeHtml).join(', ') : ''; } catch (e) { return ''; } })()}</p>` : ''}
+          ${j.ai_complexity ? `<p class="job-meta">AI assessment: ${escapeHtml(j.ai_complexity)} complexity${(() => { try { const m = JSON.parse(j.ai_materials || '[]'); return m.length ? ' · ' + m.map(escapeHtml).join(', ') : ''; } catch (e) { return ''; } })()}${j.ai_total_min != null ? ` · Estimated UGX ${j.ai_total_min.toLocaleString()}–${j.ai_total_max.toLocaleString()}` : ''}</p>` : ''}
           <div class="job-actions" data-actions></div>
         `;
         const actions = card.querySelector('[data-actions]');
-        const acceptBtn = document.createElement('button');
-        acceptBtn.className = 'small-btn';
-        acceptBtn.textContent = 'Accept';
-        acceptBtn.onclick = () => actOnJob(j.id, 'accept');
+
+        if (j.ai_total_min != null) {
+          const acceptEstBtn = document.createElement('button');
+          acceptEstBtn.className = 'small-btn';
+          const midpoint = Math.round((j.ai_total_min + j.ai_total_max) / 2);
+          acceptEstBtn.textContent = `Accept UGX ${midpoint.toLocaleString()}`;
+          acceptEstBtn.onclick = () => actOnJob(j.id, 'accept');
+          actions.appendChild(acceptEstBtn);
+
+          const quoteBtn = document.createElement('button');
+          quoteBtn.className = 'small-btn btn-outline';
+          quoteBtn.textContent = 'Submit different quote';
+          quoteBtn.onclick = () => submitQuote(j.id, midpoint);
+          actions.appendChild(quoteBtn);
+        } else {
+          const acceptBtn = document.createElement('button');
+          acceptBtn.className = 'small-btn';
+          acceptBtn.textContent = 'Accept';
+          acceptBtn.onclick = () => actOnJob(j.id, 'accept');
+          actions.appendChild(acceptBtn);
+        }
+
         const declineBtn = document.createElement('button');
         declineBtn.className = 'small-btn btn-decline';
         declineBtn.textContent = 'Decline';
@@ -94,15 +112,35 @@
             actOnJob(j.id, 'decline');
           }
         };
+        actions.appendChild(declineBtn);
         const messageBtn = document.createElement('button');
         messageBtn.className = 'small-btn btn-outline';
         messageBtn.textContent = 'Message';
         messageBtn.onclick = () => window.location.href = `/message-thread.html?jobId=${j.id}`;
-        actions.appendChild(acceptBtn);
-        actions.appendChild(declineBtn);
         actions.appendChild(messageBtn);
         list.appendChild(card);
       });
+    }
+
+    function submitQuote(jobId, suggestedTotal) {
+      const labour = prompt(`AI estimated around UGX ${suggestedTotal.toLocaleString()} total.\n\nYour labour amount (UGX):`);
+      if (labour === null) return;
+      const materials = prompt('Your materials amount (UGX):');
+      if (materials === null) return;
+      const reason = prompt('Why this amount? (shown to the client)');
+      if (!reason) return;
+
+      fetch(`/api/provider/jobs/${jobId}/accept-with-quote`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ labourAmount: parseInt(labour, 10), materialsAmount: parseInt(materials, 10), reason })
+      })
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok) { showToast(data.error, 'error'); return; }
+          showToast('Job accepted — your quote is awaiting client approval.', 'success');
+          loadJobs();
+        });
     }
 
     async function actOnJob(id, action) {
