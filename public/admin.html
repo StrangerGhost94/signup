@@ -197,9 +197,14 @@
     }
 
     async function decideVerification(id, decision) {
+      let notes = '';
+      if (decision === 'REJECTED') {
+        notes = prompt('Reason for rejecting this verification:');
+        if (!notes) return;
+      }
       const res = await fetch(`/api/admin/verifications/${id}/decide`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision })
+        body: JSON.stringify({ decision, notes })
       });
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
@@ -209,9 +214,14 @@
     }
 
     async function decideService(id, decision) {
+      let notes = '';
+      if (decision === 'REJECTED') {
+        notes = prompt('Reason for rejecting this service:');
+        if (!notes) return;
+      }
       const res = await fetch(`/api/admin/worker-services/${id}/decide`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision })
+        body: JSON.stringify({ decision, notes })
       });
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
@@ -468,6 +478,7 @@
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast('User suspended.', 'success');
+      loadSafety();
     }
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {

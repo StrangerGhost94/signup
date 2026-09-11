@@ -836,6 +836,126 @@ async function createAuditLog(actorUserId, action, targetType, targetId, notes) 
   }
 }
 
+// ============================================================
+// CENTRALIZED APPROVAL ENGINE
+// Every admin approve/reject/suspend/reinstate action in the app —
+// provider applications, identity/phone verification, per-service skill
+// verification, and account-level suspension — goes through this one
+// function. One state machine (PENDING/IN_REVIEW/VERIFIED-or-APPROVED/
+// REJECTED/SUSPENDED), one guaranteed sequence on every decision:
+//   update the record → audit log → notify the affected user
+// No endpoint is allowed to update a status column, write an audit log,
+// or send an approval-related notification outside this function. That
+// is what actually prevents the "different screens, different logic,
+// stale badges" failure mode — not a naming convention.
+// ============================================================
+
+const APPROVAL_ENTITIES = {
+  provider_application: {
+    validDecisions: ['APPROVED', 'REJECTED', 'SUSPENDED'],
+    async apply(entityId, decision) {
+      const result = await pool.query(
+        `UPDATE providers SET approval_status = $1 WHERE id = $2 RETURNING user_id`,
+        [decision, entityId]
+      );
+      if (result.rows.length === 0) return null;
+      return { notifyUserId: result.rows[0].user_id, auditTargetType: 'provider' };
+    },
+    messages: {
+      APPROVED: () => 'Your HandyLink application has been approved! You can now receive jobs.',
+      REJECTED: (reason) => `Your application was not approved: ${reason}`,
+      SUSPENDED: (reason) => `Your account has been suspended: ${reason}`
+    },
+    links: { APPROVED: '/provider-dashboard.html', REJECTED: '/provider-profile.html', SUSPENDED: '/provider-profile.html' },
+    // Reinstating a provider is the same transition as approving them —
+    // one code path, not a separate "reinstate" implementation.
+    reinstateDecision: 'APPROVED'
+  },
+
+  verification: {
+    validDecisions: ['VERIFIED', 'REJECTED'],
+    async apply(entityId, decision, reviewerId, reason) {
+      const result = await pool.query(
+        `UPDATE verifications SET status = $1, reviewed_at = NOW(), reviewed_by = $2, notes = $3
+         WHERE id = $4 RETURNING provider_id, type`,
+        [decision, reviewerId, reason || '', entityId]
+      );
+      if (result.rows.length === 0) return null;
+      const providerUser = await pool.query('SELECT user_id FROM providers WHERE id = $1', [result.rows[0].provider_id]);
+      return { notifyUserId: providerUser.rows[0]?.user_id, auditTargetType: 'verification', extra: result.rows[0].type };
+    },
+    messages: {
+      VERIFIED: (reason, extra) => `Your ${extra} verification was approved.`,
+      REJECTED: (reason, extra) => `Your ${extra} verification was rejected${reason ? `: ${reason}` : '.'}`
+    },
+    links: { VERIFIED: '/provider-profile.html', REJECTED: '/provider-profile.html' }
+  },
+
+  skill_verification: {
+    validDecisions: ['VERIFIED', 'REJECTED'],
+    async apply(entityId, decision, reviewerId, reason) {
+      const result = await pool.query(
+        `UPDATE worker_services SET verification_status = $1, verified_by = $2, verified_at = NOW(), notes = $3
+         WHERE id = $4 RETURNING provider_id, service_id`,
+        [decision, reviewerId, reason || '', entityId]
+      );
+      if (result.rows.length === 0) return null;
+      const svcName = await pool.query('SELECT name FROM services WHERE id = $1', [result.rows[0].service_id]);
+      const providerUser = await pool.query('SELECT user_id FROM providers WHERE id = $1', [result.rows[0].provider_id]);
+      return { notifyUserId: providerUser.rows[0]?.user_id, auditTargetType: 'worker_service', extra: svcName.rows[0]?.name || 'service' };
+    },
+    messages: {
+      VERIFIED: (reason, extra) => `Your ${extra} verification was approved.`,
+      REJECTED: (reason, extra) => `Your ${extra} verification was rejected${reason ? `: ${reason}` : '.'}`
+    },
+    links: { VERIFIED: '/provider-profile.html', REJECTED: '/provider-profile.html' }
+  },
+
+  user_account: {
+    validDecisions: ['SUSPENDED', 'NORMAL'],
+    async apply(entityId, decision, reviewerId, reason) {
+      const result = await pool.query(`UPDATE users SET account_status = $1 WHERE id = $2 RETURNING id`, [decision, entityId]);
+      if (result.rows.length === 0) return null;
+      if (decision === 'SUSPENDED') {
+        await pool.query('INSERT INTO suspensions (user_id, reason, admin_id) VALUES ($1,$2,$3)', [entityId, reason, reviewerId]);
+      } else {
+        await pool.query(`UPDATE suspensions SET active = FALSE, end_date = NOW() WHERE user_id = $1 AND active = TRUE`, [entityId]);
+      }
+      return { notifyUserId: entityId, auditTargetType: 'user' };
+    },
+    messages: {
+      SUSPENDED: (reason) => `Your account has been suspended: ${reason}`,
+      NORMAL: () => 'Your account has been reinstated.'
+    },
+    links: { SUSPENDED: '/support.html', NORMAL: '/dashboard.html' },
+    reinstateDecision: 'NORMAL'
+  }
+};
+
+async function processApprovalDecision({ entityType, entityId, decision, reviewerId, reason }) {
+  const config = APPROVAL_ENTITIES[entityType];
+  if (!config) return { error: 'Unknown approval entity type.', status: 400 };
+  if (!config.validDecisions.includes(decision)) {
+    return { error: 'Invalid decision for this item.', status: 400 };
+  }
+  if (decision === 'REJECTED' && !isNonEmpty(reason)) {
+    return { error: 'Please provide a reason.', status: 400 };
+  }
+
+  const applied = await config.apply(entityId, decision, reviewerId, reason);
+  if (!applied) return { error: 'Item not found.', status: 404 };
+
+  // One guaranteed sequence, every time, for every entity type:
+  await createAuditLog(reviewerId, `${entityType.toUpperCase()}_${decision}`, applied.auditTargetType, entityId, reason || '');
+  if (applied.notifyUserId) {
+    const messageFn = config.messages[decision];
+    const link = config.links[decision];
+    createNotification(applied.notifyUserId, `${entityType}_${decision.toLowerCase()}`, messageFn(reason, applied.extra), link);
+  }
+
+  return { ok: true };
+}
+
 // Clean seam for a real identity-verification provider (e.g. Smile
 // Identity, Onfido). No provider is configured yet, so every submission
 // just lands as PENDING for manual admin review — nothing here fakes an
@@ -1883,7 +2003,7 @@ app.get('/api/provider/verification-status', requireRole('provider'), asyncHandl
 
   const verifications = await pool.query('SELECT type, status, submitted_at, notes FROM verifications WHERE provider_id = $1', [providerId]);
   const services = await pool.query(
-    `SELECT s.name, ws.verification_status, ws.notes FROM worker_services ws
+    `SELECT ws.id, s.name, ws.verification_status, ws.notes FROM worker_services ws
      JOIN services s ON s.id = ws.service_id WHERE ws.provider_id = $1 ORDER BY s.name`,
     [providerId]
   );
@@ -1939,6 +2059,25 @@ app.post('/api/provider/verification/identity', requireRole('provider'), asyncHa
   }
 
   res.json({ message: 'Submitted for review.' });
+}));
+
+// Resubmission for a rejected skill — the same right a rejected identity
+// verification already has (spec's "Allow Resubmission where
+// applicable"). Only moves a REJECTED item back into review; can't be
+// used to touch a VERIFIED or PENDING one.
+app.post('/api/provider/services/:workerServiceId/resubmit', requireRole('provider'), asyncHandler(async (req, res) => {
+  const providerId = await getProviderIdForUser(req.session.userId);
+  if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+
+  const result = await pool.query(
+    `UPDATE worker_services SET verification_status = 'IN_REVIEW', notes = $1, verified_by = NULL, verified_at = NULL
+     WHERE id = $2 AND provider_id = $3 AND verification_status = 'REJECTED' RETURNING service_id`,
+    [isNonEmpty(req.body.notes) ? req.body.notes.trim() : '', req.params.workerServiceId, providerId]
+  );
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: 'This service isn\u2019t in a rejected state, or doesn\u2019t belong to you.' });
+  }
+  res.json({ message: 'Resubmitted for review.' });
 }));
 
 app.put('/api/provider/me', requireRole('provider'), async (req, res) => {
@@ -2776,32 +2915,20 @@ app.get('/api/admin/providers/:id', requireRole('admin'), asyncHandler(async (re
 }));
 
 app.post('/api/admin/providers/:id/approve', requireRole('admin'), asyncHandler(async (req, res) => {
-  const result = await pool.query(
-    `UPDATE providers SET approval_status = 'APPROVED' WHERE id = $1 RETURNING user_id, name`,
-    [req.params.id]
-  );
-  if (result.rows.length === 0) return res.status(404).json({ error: 'Provider not found.' });
-
-  await createAuditLog(req.session.userId, 'PROVIDER_APPROVED', 'provider', req.params.id, req.body.notes || '');
-  await createNotification(result.rows[0].user_id, 'account_approved', 'Your HandyLink application has been approved! You can now receive jobs.', '/provider-dashboard.html');
+  const result = await processApprovalDecision({ entityType: 'provider_application', entityId: req.params.id, decision: 'APPROVED', reviewerId: req.session.userId, reason: req.body.notes });
+  if (result.error) return res.status(result.status).json({ error: result.error });
   res.json({ message: 'Provider approved.' });
 }));
 
 app.post('/api/admin/providers/:id/reject', requireRole('admin'), asyncHandler(async (req, res) => {
-  if (!isNonEmpty(req.body.reason)) {
-    return res.status(400).json({ error: 'Please provide a reason for rejection.' });
-  }
-  const result = await pool.query(
-    `UPDATE providers SET approval_status = 'REJECTED' WHERE id = $1 RETURNING user_id`,
-    [req.params.id]
-  );
-  if (result.rows.length === 0) return res.status(404).json({ error: 'Provider not found.' });
-
-  await createAuditLog(req.session.userId, 'PROVIDER_REJECTED', 'provider', req.params.id, req.body.reason);
-  await createNotification(result.rows[0].user_id, 'account_rejected', `Your application was not approved: ${req.body.reason}`, '/provider-profile.html');
+  const result = await processApprovalDecision({ entityType: 'provider_application', entityId: req.params.id, decision: 'REJECTED', reviewerId: req.session.userId, reason: req.body.reason });
+  if (result.error) return res.status(result.status).json({ error: result.error });
   res.json({ message: 'Provider rejected.' });
 }));
 
+// Not a status transition — no change to the approval state machine, so
+// it stays outside the engine, but still follows the same audit+notify
+// pattern by hand since it's a one-off.
 app.post('/api/admin/providers/:id/request-info', requireRole('admin'), asyncHandler(async (req, res) => {
   if (!isNonEmpty(req.body.message)) {
     return res.status(400).json({ error: 'Please describe what\u2019s needed.' });
@@ -2815,91 +2942,26 @@ app.post('/api/admin/providers/:id/request-info', requireRole('admin'), asyncHan
 }));
 
 app.post('/api/admin/providers/:id/suspend', requireRole('admin'), asyncHandler(async (req, res) => {
-  if (!isNonEmpty(req.body.reason)) {
-    return res.status(400).json({ error: 'Please provide a reason for suspension.' });
-  }
-  const providerResult = await pool.query(
-    `UPDATE providers SET approval_status = 'SUSPENDED' WHERE id = $1 RETURNING user_id`,
-    [req.params.id]
-  );
-  if (providerResult.rows.length === 0) return res.status(404).json({ error: 'Provider not found.' });
-  const userId = providerResult.rows[0].user_id;
-
-  await pool.query(
-    'INSERT INTO suspensions (user_id, reason, admin_id, notes) VALUES ($1, $2, $3, $4)',
-    [userId, req.body.reason, req.session.userId, req.body.notes || '']
-  );
-  await createAuditLog(req.session.userId, 'PROVIDER_SUSPENDED', 'provider', req.params.id, req.body.reason);
-  await createNotification(userId, 'account_suspended', `Your account has been suspended: ${req.body.reason}`, '/provider-profile.html');
+  const result = await processApprovalDecision({ entityType: 'provider_application', entityId: req.params.id, decision: 'SUSPENDED', reviewerId: req.session.userId, reason: req.body.reason });
+  if (result.error) return res.status(result.status).json({ error: result.error });
   res.json({ message: 'Provider suspended.' });
 }));
 
 app.post('/api/admin/providers/:id/reinstate', requireRole('admin'), asyncHandler(async (req, res) => {
-  const providerResult = await pool.query(
-    `UPDATE providers SET approval_status = 'APPROVED' WHERE id = $1 RETURNING user_id`,
-    [req.params.id]
-  );
-  if (providerResult.rows.length === 0) return res.status(404).json({ error: 'Provider not found.' });
-  const userId = providerResult.rows[0].user_id;
-
-  await pool.query(
-    `UPDATE suspensions SET active = FALSE, end_date = NOW() WHERE user_id = $1 AND active = TRUE`,
-    [userId]
-  );
-  await createAuditLog(req.session.userId, 'PROVIDER_REINSTATED', 'provider', req.params.id, req.body.notes || '');
-  await createNotification(userId, 'account_reinstated', 'Your account has been reinstated. You can accept jobs again.', '/provider-dashboard.html');
+  const result = await processApprovalDecision({ entityType: 'provider_application', entityId: req.params.id, decision: APPROVAL_ENTITIES.provider_application.reinstateDecision, reviewerId: req.session.userId, reason: req.body.notes });
+  if (result.error) return res.status(result.status).json({ error: result.error });
   res.json({ message: 'Provider reinstated.' });
 }));
 
 app.post('/api/admin/verifications/:id/decide', requireRole('admin'), asyncHandler(async (req, res) => {
-  const { decision, notes } = req.body; // decision: 'VERIFIED' or 'REJECTED'
-  if (!['VERIFIED', 'REJECTED'].includes(decision)) {
-    return res.status(400).json({ error: 'Invalid decision.' });
-  }
-  const result = await pool.query(
-    `UPDATE verifications SET status = $1, reviewed_at = NOW(), reviewed_by = $2, notes = $3
-     WHERE id = $4 RETURNING provider_id, type`,
-    [decision, req.session.userId, notes || '', req.params.id]
-  );
-  if (result.rows.length === 0) return res.status(404).json({ error: 'Verification record not found.' });
-
-  const { provider_id, type } = result.rows[0];
-  const providerUser = await pool.query('SELECT user_id FROM providers WHERE id = $1', [provider_id]);
-  await createAuditLog(req.session.userId, `VERIFICATION_${decision}`, 'verification', req.params.id, `${type}: ${notes || ''}`);
-  if (providerUser.rows[0]) {
-    createNotification(
-      providerUser.rows[0].user_id,
-      'verification_update',
-      `Your ${type} verification was ${decision === 'VERIFIED' ? 'approved' : 'rejected'}.`,
-      '/provider-profile.html'
-    );
-  }
+  const result = await processApprovalDecision({ entityType: 'verification', entityId: req.params.id, decision: req.body.decision, reviewerId: req.session.userId, reason: req.body.notes });
+  if (result.error) return res.status(result.status).json({ error: result.error });
   res.json({ message: 'Verification updated.' });
 }));
 
 app.post('/api/admin/worker-services/:id/decide', requireRole('admin'), asyncHandler(async (req, res) => {
-  const { decision, notes } = req.body;
-  if (!['VERIFIED', 'REJECTED'].includes(decision)) {
-    return res.status(400).json({ error: 'Invalid decision.' });
-  }
-  const result = await pool.query(
-    `UPDATE worker_services SET verification_status = $1, verified_by = $2, verified_at = NOW(), notes = $3
-     WHERE id = $4 RETURNING provider_id, service_id`,
-    [decision, req.session.userId, notes || '', req.params.id]
-  );
-  if (result.rows.length === 0) return res.status(404).json({ error: 'Service record not found.' });
-
-  const svcName = await pool.query('SELECT name FROM services WHERE id = $1', [result.rows[0].service_id]);
-  const providerUser = await pool.query('SELECT user_id FROM providers WHERE id = $1', [result.rows[0].provider_id]);
-  await createAuditLog(req.session.userId, `SERVICE_${decision}`, 'worker_service', req.params.id, `${svcName.rows[0]?.name || ''}: ${notes || ''}`);
-  if (providerUser.rows[0]) {
-    createNotification(
-      providerUser.rows[0].user_id,
-      'service_verification_update',
-      `Your ${svcName.rows[0]?.name || 'service'} verification was ${decision === 'VERIFIED' ? 'approved' : 'rejected'}.`,
-      '/provider-profile.html'
-    );
-  }
+  const result = await processApprovalDecision({ entityType: 'skill_verification', entityId: req.params.id, decision: req.body.decision, reviewerId: req.session.userId, reason: req.body.notes });
+  if (result.error) return res.status(result.status).json({ error: result.error });
   res.json({ message: 'Service verification updated.' });
 }));
 
@@ -3291,33 +3353,14 @@ app.get('/api/matching/candidates', requireRole('client'), asyncHandler(async (r
 }));
 
 app.post('/api/admin/users/:id/suspend', requireRole('admin'), asyncHandler(async (req, res) => {
-  if (!isNonEmpty(req.body.reason)) {
-    return res.status(400).json({ error: 'Please provide a reason.' });
-  }
-  const result = await pool.query(
-    `UPDATE users SET account_status = 'SUSPENDED' WHERE id = $1 RETURNING id, role`,
-    [req.params.id]
-  );
-  if (result.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
-
-  await pool.query(
-    'INSERT INTO suspensions (user_id, reason, admin_id, notes) VALUES ($1,$2,$3,$4)',
-    [req.params.id, req.body.reason, req.session.userId, req.body.notes || '']
-  );
-  await createAuditLog(req.session.userId, 'USER_SUSPENDED', 'user', req.params.id, req.body.reason);
-  createNotification(req.params.id, 'account_suspended', `Your account has been suspended: ${req.body.reason}`, '/support.html');
+  const result = await processApprovalDecision({ entityType: 'user_account', entityId: req.params.id, decision: 'SUSPENDED', reviewerId: req.session.userId, reason: req.body.reason });
+  if (result.error) return res.status(result.status).json({ error: result.error });
   res.json({ message: 'User suspended.' });
 }));
 
 app.post('/api/admin/users/:id/reinstate', requireRole('admin'), asyncHandler(async (req, res) => {
-  const result = await pool.query(
-    `UPDATE users SET account_status = 'NORMAL' WHERE id = $1 RETURNING id`,
-    [req.params.id]
-  );
-  if (result.rows.length === 0) return res.status(404).json({ error: 'User not found.' });
-  await pool.query(`UPDATE suspensions SET active = FALSE, end_date = NOW() WHERE user_id = $1 AND active = TRUE`, [req.params.id]);
-  await createAuditLog(req.session.userId, 'USER_REINSTATED', 'user', req.params.id, req.body.notes || '');
-  createNotification(req.params.id, 'account_reinstated', 'Your account has been reinstated.', '/dashboard.html');
+  const result = await processApprovalDecision({ entityType: 'user_account', entityId: req.params.id, decision: APPROVAL_ENTITIES.user_account.reinstateDecision, reviewerId: req.session.userId, reason: req.body.notes });
+  if (result.error) return res.status(result.status).json({ error: result.error });
   res.json({ message: 'User reinstated.' });
 }));
 

@@ -178,10 +178,26 @@
       list.innerHTML = `
         <div class="verif-status-row"><span>Identity</span>${identity ? statusBadge(identity.status) : statusBadge('PENDING')}</div>
         <div class="verif-status-row"><span>Phone</span>${phone ? statusBadge(phone.status) : statusBadge('PENDING')}</div>
-        ${data.services.map(s => `<div class="verif-status-row"><span>${escapeHtml(s.name)}</span>${statusBadge(s.verification_status)}</div>`).join('')}
+        ${data.services.map(s => `
+          <div class="verif-status-row">
+            <span>${escapeHtml(s.name)}</span>
+            <span>
+              ${statusBadge(s.verification_status)}
+              ${s.verification_status === 'REJECTED' ? `<button class="small-btn" style="width:auto; padding:0.3rem 0.6rem; font-size:0.75rem; margin-left:0.4rem;" onclick="resubmitSkill(${s.id})">Resubmit</button>` : ''}
+            </span>
+          </div>
+        `).join('')}
       `;
 
       document.getElementById('idUploadPrompt').style.display = identity ? 'none' : 'block';
+    }
+
+    async function resubmitSkill(workerServiceId) {
+      const res = await fetch(`/api/provider/services/${workerServiceId}/resubmit`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Resubmitted for review.', 'success');
+      loadVerificationStatus(); // pulls the fresh backend state right away
     }
 
     document.getElementById('reIdInput').addEventListener('change', async (e) => {
