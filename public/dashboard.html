@@ -28,7 +28,7 @@
         <a href="/dashboard.html" class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo"></a>
         <button class="location-pill" id="locationBtn" style="background:none; border:none; cursor:pointer; width:auto; min-height:auto; padding:0;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-          Kampala
+          <span id="locationLabel">Set location</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;"><path d="M6 9l6 6 6-6"/></svg>
         </button>
       </div>
@@ -141,9 +141,60 @@
       });
     }
 
-    document.getElementById('locationBtn').addEventListener('click', () => {
-      showToast('Location selection isn\u2019t built yet — showing all of Kampala.');
+    async function saveMyLocation() {
+      return new Promise((resolve) => {
+        if (!navigator.geolocation) {
+          showToast('Location isn\u2019t available on this device.', 'error');
+          resolve(null);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          async (pos) => {
+            const { latitude, longitude, accuracy } = pos.coords;
+            myLat = latitude;
+            myLng = longitude;
+            const res = await fetch('/api/me/location', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ latitude, longitude, accuracy })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              showToast(data.error || 'Couldn\u2019t save your location.', 'error');
+              resolve(null);
+              return;
+            }
+            document.getElementById('locationLabel').textContent = data.city || data.district || 'Location set';
+            showToast('Location updated.', 'success');
+            resolve(data);
+          },
+          () => {
+            showToast('Location permission was denied.', 'error');
+            resolve(null);
+          },
+          { timeout: 10000 }
+        );
+      });
+    }
+
+    document.getElementById('locationBtn').addEventListener('click', async () => {
+      document.getElementById('locationLabel').textContent = 'Locating...';
+      const result = await saveMyLocation();
+      if (result) loadWorkers();
     });
+
+    async function loadSavedLocation() {
+      const res = await fetch('/api/me');
+      if (!res.ok) return;
+      const me = await res.json();
+      if (me.city || me.district) {
+        document.getElementById('locationLabel').textContent = me.city || me.district;
+      }
+      if (me.latitude != null && me.longitude != null) {
+        myLat = me.latitude;
+        myLng = me.longitude;
+      }
+    }
 
     async function loadNotifications(render) {
       const res = await fetch('/api/notifications');
@@ -454,13 +505,14 @@
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (activeCategory) params.set('category', activeCategory);
+      if (myLat !== null) { params.set('lat', myLat); params.set('lng', myLng); }
       document.getElementById('statusLine').textContent = '';
       document.getElementById('workerGrid').innerHTML = `<div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div>`;
 
       if (!locationRequested) {
         locationRequested = true;
         captureMyLocation().then(() => {
-          if (myLat !== null) loadWorkers(); // re-sort with distance once available
+          if (myLat !== null) loadWorkers(); // re-fetch with real distance once available
         });
       }
 
@@ -476,14 +528,15 @@
         return;
       }
       const data = await res.json();
+      // Distance is already computed server-side (from coordinates that
+      // never left the server) — just sort on the field it returned.
       let workers = data.workers;
       if (myLat !== null) {
-        workers = workers.map(w => ({ ...w, _distance: distanceKm(myLat, myLng, w.latitude, w.longitude) }));
         workers.sort((a, b) => {
-          if (a._distance === null && b._distance === null) return 0;
-          if (a._distance === null) return 1;
-          if (b._distance === null) return -1;
-          return a._distance - b._distance;
+          if (a.distanceKm === null && b.distanceKm === null) return 0;
+          if (a.distanceKm === null) return 1;
+          if (b.distanceKm === null) return -1;
+          return a.distanceKm - b.distanceKm;
         });
       }
       renderWorkers(workers);
@@ -504,7 +557,7 @@
         const card = document.createElement('div');
         card.className = 'worker-card';
         card.style.setProperty('--cat-color', color);
-        const distanceLabel = (w._distance !== null && w._distance !== undefined) ? `${w._distance.toFixed(1)} km away` : null;
+        const distanceLabel = (w.distanceKm !== null && w.distanceKm !== undefined) ? `${w.distanceKm.toFixed(1)} km away` : null;
         card.innerHTML = `
           <div class="worker-head">
             <div class="avatar">${w.photo ? `<img class="avatar-img" src="${w.photo}" alt="">` : initials(w.name)}</div>
@@ -580,6 +633,7 @@
       if (!me) return;
       document.getElementById('appShell').style.visibility = 'visible';
       buildCategoryGrid();
+      await loadSavedLocation();
       await loadBookings();
       await loadNotifications(false);
       setInterval(() => loadNotifications(false), 20000);

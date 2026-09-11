@@ -266,6 +266,19 @@ async function initDb() {
   // governs whether a provider can appear in search/receive jobs.
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status TEXT NOT NULL DEFAULT 'NORMAL'`);
 
+  // Migration: real location tracking for clients too — previously only
+  // providers had this, and clients had nothing (the UI just showed a
+  // hardcoded "Kampala"). Mirrors the providers.latitude/longitude etc.
+  // fields added earlier.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS latitude NUMERIC`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS longitude NUMERIC`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS location_accuracy NUMERIC`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS location_updated_at TIMESTAMP`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS formatted_address TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS city TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS district TEXT`);
+
+
   // Migration: lightweight off-platform-payment / scam-language flag on
   // messages — detected, never auto-blocked, visible to admins only.
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS flagged BOOLEAN NOT NULL DEFAULT FALSE`);
@@ -795,6 +808,33 @@ async function createAuditLog(actorUserId, action, targetType, targetId, notes) 
 // just lands as PENDING for manual admin review — nothing here fakes an
 // automatic "verified" result. Swap the body of `verify()` for a real
 // API call once credentials exist; nothing else needs to change.
+// Reverse geocoding — turns raw GPS coordinates into a human-readable
+// area, so what's ever shown publicly is "Ntinda, Kampala" rather than
+// exact coordinates. Uses OpenStreetMap's Nominatim, which needs no API
+// key. Their usage policy requires a descriptive User-Agent and asks
+// callers not to hammer it — fine here since this only runs when a user
+// explicitly sets their location, not on every request.
+async function reverseGeocode(lat, lng) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1`,
+      { headers: { 'User-Agent': 'HandyLink-Uganda/1.0 (marketplace app)' }, signal: controller.signal }
+    );
+    clearTimeout(timeout);
+    if (!response.ok) return { formattedAddress: null, city: null, district: null };
+    const data = await response.json();
+    const addr = data.address || {};
+    const city = addr.city || addr.town || addr.village || null;
+    const district = addr.county || addr.state_district || addr.state || null;
+    return { formattedAddress: data.display_name || null, city, district };
+  } catch (err) {
+    console.error('Reverse geocoding failed:', err.message);
+    return { formattedAddress: null, city: null, district: null };
+  }
+}
+
 const identityVerificationProvider = {
   name: 'manual-review-only',
   async verify(/* documentPayload */) {
@@ -1480,7 +1520,10 @@ app.get('/api/me', asyncHandler(async (req, res) => {
   if (!req.session.userId) {
     return res.status(401).json({ error: 'Not logged in.' });
   }
-  const result = await pool.query('SELECT id, email, role, name, phone, created_at FROM users WHERE id = $1', [req.session.userId]);
+  const result = await pool.query(
+    'SELECT id, email, role, name, phone, created_at, latitude, longitude, city, district FROM users WHERE id = $1',
+    [req.session.userId]
+  );
   if (result.rows.length === 0) {
     return res.status(401).json({ error: 'Not logged in.' });
   }
@@ -1500,6 +1543,44 @@ app.put('/api/me', requireLogin, asyncHandler(async (req, res) => {
     [name.trim(), phone.trim(), req.session.userId]
   );
   res.json(result.rows[0]);
+}));
+
+// Unified location capture for BOTH roles — this is the one real place
+// coordinates get saved. Requires an actual GPS fix from the browser
+// (never a hard-coded default), captures accuracy and a timestamp
+// alongside it, and reverse-geocodes into a human-readable area before
+// storing. Raw lat/lng are never returned to any OTHER user — only the
+// reverse-geocoded city/district ever gets shown publicly.
+app.post('/api/me/location', requireLogin, asyncHandler(async (req, res) => {
+  const { latitude, longitude, accuracy } = req.body;
+  if (typeof latitude !== 'number' || typeof longitude !== 'number' || isNaN(latitude) || isNaN(longitude)) {
+    return res.status(400).json({ error: 'A real GPS reading is required — latitude and longitude must be numbers.' });
+  }
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    return res.status(400).json({ error: 'That doesn\u2019t look like a valid coordinate.' });
+  }
+  const acc = (typeof accuracy === 'number' && !isNaN(accuracy)) ? accuracy : null;
+
+  const geo = await reverseGeocode(latitude, longitude);
+
+  if (req.session.role === 'provider') {
+    const providerId = await getProviderIdForUser(req.session.userId);
+    if (!providerId) return res.status(404).json({ error: 'No provider profile found.' });
+    await pool.query(
+      `UPDATE providers SET latitude = $1, longitude = $2, location_accuracy = $3, location_updated_at = NOW(),
+         formatted_address = $4, city = $5, district = $6 WHERE id = $7`,
+      [latitude, longitude, acc, geo.formattedAddress, geo.city, geo.district, providerId]
+    );
+  } else {
+    await pool.query(
+      `UPDATE users SET latitude = $1, longitude = $2, location_accuracy = $3, location_updated_at = NOW(),
+         formatted_address = $4, city = $5, district = $6 WHERE id = $7`,
+      [latitude, longitude, acc, geo.formattedAddress, geo.city, geo.district, req.session.userId]
+    );
+  }
+
+  await createAuditLog(req.session.userId, 'LOCATION_UPDATED', req.session.role, req.session.userId, geo.city || 'reverse-geocode unavailable');
+  res.json({ message: 'Location updated.', city: geo.city, district: geo.district, formattedAddress: geo.formattedAddress });
 }));
 
 app.put('/api/me/password', requireLogin, asyncHandler(async (req, res) => {
@@ -1573,7 +1654,9 @@ app.get('/api/specialties', asyncHandler(async (req, res) => {
 }));
 
 app.get('/api/workers', requireLogin, asyncHandler(async (req, res) => {
-  const { search, category } = req.query;
+  const { search, category, lat, lng } = req.query;
+  const myLat = lat !== undefined ? parseFloat(lat) : null;
+  const myLng = lng !== undefined ? parseFloat(lng) : null;
   const result = await pool.query(`
     SELECT p.*,
       COALESCE((SELECT status FROM verifications WHERE provider_id = p.id AND type = 'identity'), 'PENDING') AS identity_status,
@@ -1594,8 +1677,25 @@ app.get('/api/workers', requireLogin, asyncHandler(async (req, res) => {
   `);
   let results = result.rows;
 
+  // Distance is computed here, server-side, from whatever coordinates
+  // the calling client sent for ITS OWN location — never from the
+  // provider's raw coordinates being sent to the browser to compute
+  // there. Those get stripped below regardless of whether a distance
+  // could be computed.
+  results = results.map(w => ({
+    ...w,
+    distanceKm: (myLat !== null && myLng !== null) ? distanceKmServer(myLat, myLng, w.latitude, w.longitude) : null
+  }));
+
   if (category) {
     results = results.filter(w => w.category.toLowerCase() === category.toLowerCase());
+    // Same rule matches.html already enforces: an unverified provider
+    // shouldn't even be shown for a high-risk service, since they'd be
+    // rejected at booking time anyway. Consistent everywhere, not just
+    // in the job-specific matching flow.
+    if (HIGH_RISK_SERVICES.includes(category)) {
+      results = results.filter(w => w.category_verified);
+    }
   }
   if (search) {
     const q = search.toLowerCase();
@@ -1607,6 +1707,9 @@ app.get('/api/workers', requireLogin, asyncHandler(async (req, res) => {
     );
   }
 
+  // Never send exact coordinates to a customer's browser — only the
+  // already-computed distance and the reverse-geocoded area name.
+  results = results.map(({ latitude, longitude, ...safe }) => safe);
   res.json({ workers: results });
 }));
 
@@ -2994,11 +3097,11 @@ app.get('/api/matching/candidates', requireRole('client'), asyncHandler(async (r
 
     return {
       id: p.id, name: p.name, category: p.category, location: p.location, phone: p.phone, bio: p.bio,
-      photo: p.photo, rating: p.rating, latitude: p.latitude, longitude: p.longitude,
+      photo: p.photo, rating: p.rating,
       experience_years: p.experience_years, availability_status: p.availability_status,
       category_verified: p.skill_status === 'VERIFIED', specialties: p.specialties || [],
       identity_status: p.identity_status, phone_status: p.phone_status,
-      completed_jobs: p.total_completed_jobs, distanceKm: dist,
+      completed_jobs: p.total_completed_jobs, similar_jobs: p.category_completed_jobs, distanceKm: dist,
       _scores: { skillScore, reliabilityScore, distanceScore, priceScore, experienceScore, availabilityScore, overall }
     };
   }).filter(Boolean);

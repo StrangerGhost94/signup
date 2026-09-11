@@ -1732,3 +1732,35 @@ html, body { max-width: 100%; overflow-x: hidden; }
   width: 64px; height: 64px; border-radius: var(--radius-sm); border: 1.5px dashed var(--line);
   display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--ink-soft); flex-shrink: 0;
 }
+
+/* --- Matching engine result polish --- */
+.worker-card.top-match {
+  border: 2px solid var(--primary);
+  box-shadow: 0 4px 20px rgba(11,110,79,0.15);
+  position: relative;
+}
+.worker-card.top-match::before {
+  content: 'TOP PICK';
+  position: absolute;
+  top: -10px;
+  left: 1.25rem;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+.availability-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.availability-line.now { color: var(--primary-deep); }
+.availability-line .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.specialty-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.3rem 0 0.5rem; }
+.specialty-chip { font-size: 0.7rem; background: var(--surface); color: var(--ink-soft); padding: 0.15rem 0.5rem; border-radius: 999px; }

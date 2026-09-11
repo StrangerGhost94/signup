@@ -166,9 +166,13 @@
       workers.forEach(w => {
         const color = categoryColor(w.category);
         const card = document.createElement('div');
-        card.className = 'worker-card';
+        card.className = 'worker-card' + (w.matchLabel === 'Best Match' ? ' top-match' : '');
         card.style.setProperty('--cat-color', color);
         const distanceLabel = (w.distanceKm !== null && w.distanceKm !== undefined) ? `${w.distanceKm.toFixed(1)} km away` : null;
+        const AVAILABILITY_LABELS = { available_now: '● Available now', available_today: 'Available today', available_later: 'Available later', not_available: 'Not currently available' };
+        const availabilityLabel = AVAILABILITY_LABELS[w.availability_status];
+        const jobsCount = (w.similar_jobs != null && w.similar_jobs > 0) ? w.similar_jobs : w.completed_jobs;
+        const jobsLabel = (w.similar_jobs != null && w.similar_jobs > 0) ? `similar ${w.category.toLowerCase()} job${w.similar_jobs === 1 ? '' : 's'}` : 'jobs completed';
         card.innerHTML = `
           <div class="worker-head">
             <div class="avatar">${w.photo ? `<img class="avatar-img" src="${w.photo}" alt="">` : initials(w.name)}</div>
@@ -179,11 +183,13 @@
             <span class="rating"><span class="star">★</span> ${w.rating}</span>
           </div>
           ${w.matchLabel ? `<span class="trust-badge trust-badge-primary" style="margin-bottom:0.5rem;">${escapeHtml(w.matchLabel)}</span>` : ''}
+          ${availabilityLabel ? `<span class="availability-line${w.availability_status === 'available_now' ? ' now' : ''}"><span class="dot"></span>${availabilityLabel}</span>` : ''}
           <p class="location">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
             ${escapeHtml(w.location)}${distanceLabel ? ` · ${distanceLabel}` : ''}
           </p>
-          <p class="trust-meta-line">${renderTrustMeta(w)}</p>
+          <p class="trust-meta-line">${jobsCount || 0} ${jobsLabel}${w.experience_years != null ? ` · ${w.experience_years} yrs experience` : ''}</p>
+          ${w.specialties && w.specialties.length ? `<div class="specialty-chips">${w.specialties.slice(0, 4).map(s => `<span class="specialty-chip">${escapeHtml(s)}</span>`).join('')}</div>` : ''}
           ${renderTrustBadges(w)}
           ${w.whyRecommended ? `<p class="job-meta" style="font-style:italic; margin-bottom:0.5rem;">${escapeHtml(w.whyRecommended)}</p>` : ''}
           <p class="bio">${escapeHtml(w.bio)}</p>

@@ -128,8 +128,6 @@
     let currentPhoto = null;
     let currentExperienceYears = null;
     let currentRating = null;
-    let pendingLat = null;
-    let pendingLng = null;
 
     const STATUS_COLORS = {
       VERIFIED: { color: '#0B6E4F', bg: '#E6F4EC', label: 'Verified' },
@@ -212,11 +210,22 @@
       }
       document.getElementById('useLocationLabel').textContent = 'Getting your location...';
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          pendingLat = pos.coords.latitude;
-          pendingLng = pos.coords.longitude;
-          document.getElementById('useLocationLabel').textContent = '✓ Location set — save to apply';
-          showToast('Location captured. Save changes to apply it.', 'success');
+        async (pos) => {
+          const { latitude, longitude, accuracy } = pos.coords;
+          const res = await fetch('/api/me/location', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ latitude, longitude, accuracy })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            document.getElementById('useLocationLabel').textContent = '📍 Use my current location';
+            showToast(data.error || 'Couldn\u2019t save your location.', 'error');
+            return;
+          }
+          document.getElementById('useLocationLabel').textContent = `✓ Location set — ${data.city || data.district || 'saved'}`;
+          document.getElementById('locationReminder').style.display = 'none';
+          showToast('Location saved.', 'success');
         },
         (err) => {
           document.getElementById('useLocationLabel').textContent = '📍 Use my current location';
@@ -301,10 +310,6 @@
       const payload = fieldsFromForm();
       if (pendingPhoto) payload.photo = pendingPhoto;
       else delete payload.photo;
-      if (pendingLat !== null && pendingLng !== null) {
-        payload.latitude = pendingLat;
-        payload.longitude = pendingLng;
-      }
 
       const res = await fetch('/api/provider/me', {
         method: 'PUT',
@@ -319,11 +324,6 @@
       }
       pendingPhoto = null;
       currentPhoto = data.provider.photo;
-      if (pendingLat !== null) {
-        document.getElementById('useLocationLabel').textContent = '📍 Use my current location';
-        pendingLat = null;
-        pendingLng = null;
-      }
       showToast('Listing saved.', 'success');
       renderPreview(data.provider);
     });
