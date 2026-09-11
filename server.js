@@ -112,6 +112,9 @@ async function initDb() {
   await pool.query(`
     ALTER TABLE providers ADD COLUMN IF NOT EXISTS photo TEXT
   `);
+  await pool.query(`
+    ALTER TABLE providers ADD COLUMN IF NOT EXISTS experience_years INTEGER
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS password_resets (
@@ -204,6 +207,235 @@ async function initDb() {
     )
   `);
 
+  // ============================================================
+  // TRUST, VERIFICATION, SAFETY & ANTI-FRAUD — PHASE 1
+  // Schema and architecture only. No onboarding/admin/UI wiring
+  // yet — that's Phases 2-9. Every new table here is additive;
+  // nothing existing is altered except providers.approval_status
+  // below, which grandfathers all current providers safely.
+  // ============================================================
+
+  // Formal service catalog (source of truth for verification; the
+  // client-facing category list in categories.js is unaffected).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS services (
+      id SERIAL PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      slug TEXT UNIQUE NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Per-service verification: a provider can offer several services,
+  // each independently PENDING/VERIFIED/REJECTED/etc.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS worker_services (
+      id SERIAL PRIMARY KEY,
+      provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+      verification_status TEXT NOT NULL DEFAULT 'PENDING'
+        CHECK (verification_status IN ('PENDING','IN_REVIEW','VERIFIED','REJECTED','SUSPENDED','EXPIRED')),
+      verified_by INTEGER REFERENCES users(id),
+      verified_at TIMESTAMP,
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(provider_id, service_id)
+    )
+  `);
+
+  // Identity / phone / business verification — independent of skill verification.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS verifications (
+      id SERIAL PRIMARY KEY,
+      provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK (type IN ('identity', 'phone', 'business')),
+      status TEXT NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING','IN_REVIEW','VERIFIED','REJECTED','SUSPENDED','EXPIRED')),
+      submitted_at TIMESTAMP,
+      reviewed_at TIMESTAMP,
+      reviewed_by INTEGER REFERENCES users(id),
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(provider_id, type)
+    )
+  `);
+
+  // Sensitive documents (ID photos, selfies, etc). Deliberately has no
+  // public-facing GET route anywhere in this phase — admin-only access
+  // is enforced when Phase 3 builds the review dashboard. Never joined
+  // into any provider-listing or search query.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS verification_documents (
+      id SERIAL PRIMARY KEY,
+      provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      verification_type TEXT NOT NULL CHECK (verification_type IN ('identity','phone','business','skill','credential')),
+      document_type TEXT NOT NULL,
+      file_data TEXT NOT NULL,
+      uploaded_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Professional credentials/licenses, optionally tied to a specific service.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS credentials (
+      id SERIAL PRIMARY KEY,
+      provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+      service_id INTEGER REFERENCES services(id) ON DELETE SET NULL,
+      credential_type TEXT NOT NULL,
+      issuing_organization TEXT,
+      credential_number TEXT,
+      issue_date DATE,
+      expiry_date DATE,
+      evidence_document TEXT,
+      status TEXT NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING','IN_REVIEW','VERIFIED','REJECTED','SUSPENDED','EXPIRED')),
+      reviewed_by INTEGER REFERENCES users(id),
+      verified_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Append-only audit trail. No UPDATE/DELETE route will ever be built
+  // against this table from a normal user-facing interface.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id SERIAL PRIMARY KEY,
+      actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      action TEXT NOT NULL,
+      target_type TEXT,
+      target_id INTEGER,
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Safety reports — works in both directions (client reports worker,
+  // worker reports client), per the spec's worker-protection section.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reports (
+      id SERIAL PRIMARY KEY,
+      reporter_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reported_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      job_id INTEGER REFERENCES job_requests(id) ON DELETE SET NULL,
+      category TEXT NOT NULL,
+      description TEXT NOT NULL,
+      attachment TEXT,
+      status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','UNDER_REVIEW','RESOLVED','DISMISSED')),
+      admin_notes TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS disputes (
+      id SERIAL PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES job_requests(id) ON DELETE CASCADE,
+      raised_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','UNDER_REVIEW','RESOLVED','DISMISSED')),
+      resolution_notes TEXT DEFAULT '',
+      resolved_by INTEGER REFERENCES users(id),
+      resolved_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS suspensions (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reason TEXT NOT NULL,
+      start_date TIMESTAMP DEFAULT NOW(),
+      end_date TIMESTAMP,
+      admin_id INTEGER REFERENCES users(id),
+      notes TEXT DEFAULT '',
+      appeal_status TEXT NOT NULL DEFAULT 'NONE' CHECK (appeal_status IN ('NONE','REQUESTED','REVIEWED')),
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Price change requests: a worker cannot silently rebill — this table
+  // is the audit trail. Wiring the accept/decline UI flow is Phase 5.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS price_change_requests (
+      id SERIAL PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES job_requests(id) ON DELETE CASCADE,
+      requested_by INTEGER NOT NULL REFERENCES users(id),
+      original_amount INTEGER NOT NULL,
+      new_amount INTEGER NOT NULL,
+      labour_amount INTEGER,
+      materials_amount INTEGER,
+      reason TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','ACCEPTED','DECLINED')),
+      decided_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Payment architecture, ready for a real processor (Mobile Money, card,
+  // bank) to be plugged in later. No processor is integrated in Phase 1 —
+  // this only gives every future transaction somewhere correct to land,
+  // including honestly-marked CASH transactions.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS payments (
+      id SERIAL PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES job_requests(id) ON DELETE CASCADE,
+      client_user_id INTEGER NOT NULL REFERENCES users(id),
+      provider_id INTEGER NOT NULL REFERENCES providers(id),
+      amount INTEGER NOT NULL,
+      platform_fee INTEGER NOT NULL DEFAULT 0,
+      method TEXT NOT NULL CHECK (method IN ('mobile_money','card','bank','cash')),
+      status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','COMPLETED','FAILED','REFUNDED')),
+      reference_id TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // --- Safe, additive approval-gate migration ---
+  // Add the column nullable first, so it doesn't fail against existing rows.
+  await pool.query(`ALTER TABLE providers ADD COLUMN IF NOT EXISTS approval_status TEXT`);
+  // Grandfather every existing provider (including seed data) as already
+  // approved — nothing currently visible in search or able to accept jobs
+  // is affected by turning this gate on.
+  await pool.query(`UPDATE providers SET approval_status = 'APPROVED' WHERE approval_status IS NULL`);
+  // Only NOW set the default and NOT NULL, so new signups going forward
+  // start PENDING and existing rows are untouched by this line.
+  await pool.query(`ALTER TABLE providers ALTER COLUMN approval_status SET DEFAULT 'PENDING'`);
+  await pool.query(`ALTER TABLE providers ALTER COLUMN approval_status SET NOT NULL`);
+
+  // Seed the formal services catalog from the existing category list,
+  // and back-fill worker_services + verifications for existing providers
+  // so later phases (trust badges, admin dashboard) have consistent data
+  // instead of holes for every account that predates this feature.
+  const SERVICE_SEED = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Gardening', 'Moving', 'Mechanical'];
+  for (const name of SERVICE_SEED) {
+    await pool.query(
+      `INSERT INTO services (name, slug) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING`,
+      [name, name.toLowerCase()]
+    );
+  }
+
+  const existingProviders = await pool.query('SELECT id, category FROM providers');
+  for (const p of existingProviders.rows) {
+    const svc = await pool.query('SELECT id FROM services WHERE name = $1', [p.category]);
+    if (svc.rows.length > 0) {
+      await pool.query(
+        `INSERT INTO worker_services (provider_id, service_id, verification_status, verified_at)
+         VALUES ($1, $2, 'VERIFIED', NOW()) ON CONFLICT (provider_id, service_id) DO NOTHING`,
+        [p.id, svc.rows[0].id]
+      );
+    }
+    for (const type of ['identity', 'phone']) {
+      await pool.query(
+        `INSERT INTO verifications (provider_id, type, status, reviewed_at)
+         VALUES ($1, $2, 'VERIFIED', NOW()) ON CONFLICT (provider_id, type) DO NOTHING`,
+        [p.id, type]
+      );
+    }
+  }
+
   // Seed a few sample listings the first time, so the client search page
   // isn't empty before any real providers have signed up. These have no
   // user_id, so they're not editable through the provider dashboard.
@@ -260,6 +492,33 @@ async function createNotification(userId, type, body, link) {
     console.error('Notification creation failed:', err);
   }
 }
+
+// Append-only audit trail. Call this from every sensitive admin/system
+// action (verification decisions, suspensions, price-change resolution,
+// payment status changes) once those actions exist in later phases.
+// Never logs raw sensitive document contents — only IDs and short notes.
+async function createAuditLog(actorUserId, action, targetType, targetId, notes) {
+  try {
+    await pool.query(
+      'INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, notes) VALUES ($1, $2, $3, $4, $5)',
+      [actorUserId || null, action, targetType || null, targetId || null, notes || '']
+    );
+  } catch (err) {
+    console.error('Audit log write failed:', err);
+  }
+}
+
+// Clean seam for a real identity-verification provider (e.g. Smile
+// Identity, Onfido). No provider is configured yet, so every submission
+// just lands as PENDING for manual admin review — nothing here fakes an
+// automatic "verified" result. Swap the body of `verify()` for a real
+// API call once credentials exist; nothing else needs to change.
+const identityVerificationProvider = {
+  name: 'manual-review-only',
+  async verify(/* documentPayload */) {
+    return { automated: false, status: 'PENDING', note: 'No verification provider configured — awaiting manual admin review.' };
+  }
+};
 
 function requireRole(role) {
   return (req, res, next) => {
@@ -353,21 +612,29 @@ app.post('/api/signup', authLimiter, async (req, res) => {
   }
 
   let providerFields = null;
+  let selectedServices = [];
   if (role === 'provider') {
-    const { category, location, bio, photo } = req.body;
-    if (!isNonEmpty(category) || !isNonEmpty(location)) {
-      return res.status(400).json({ error: 'Please fill in the trade you offer and the area you serve.' });
+    const { category, location, bio, photo, services, experienceYears, idDocument, selfie } = req.body;
+    selectedServices = Array.isArray(services) && services.length > 0 ? services : (isNonEmpty(category) ? [category] : []);
+    if (selectedServices.length === 0 || !isNonEmpty(location)) {
+      return res.status(400).json({ error: 'Please select at least one service and fill in the area you serve.' });
     }
     if (!isValidPhoto(photo)) {
       return res.status(400).json({ error: 'That photo is too large or in an unsupported format.' });
     }
+    if (!isValidPhoto(idDocument) || !isValidPhoto(selfie)) {
+      return res.status(400).json({ error: 'One of your verification uploads is too large or in an unsupported format.' });
+    }
     providerFields = {
       name: name.trim(),
-      category: category.trim(),
+      category: selectedServices[0].trim(), // primary/display category, kept for existing search compatibility
       location: location.trim(),
       phone: phone.trim(),
       bio: isNonEmpty(bio) ? bio.trim() : '',
-      photo: isNonEmpty(photo) ? photo : null
+      photo: isNonEmpty(photo) ? photo : null,
+      experienceYears: Number.isInteger(experienceYears) && experienceYears >= 0 ? experienceYears : null,
+      idDocument: isNonEmpty(idDocument) ? idDocument : null,
+      selfie: isNonEmpty(selfie) ? selfie : null
     };
   }
 
@@ -389,10 +656,54 @@ app.post('/api/signup', authLimiter, async (req, res) => {
     const userId = userResult.rows[0].id;
 
     if (providerFields) {
-      await client.query(
-        'INSERT INTO providers (user_id, name, category, location, phone, bio, rating, photo) VALUES ($1,$2,$3,$4,$5,$6,5.0,$7)',
-        [userId, providerFields.name, providerFields.category, providerFields.location, providerFields.phone, providerFields.bio, providerFields.photo]
+      const providerResult = await client.query(
+        'INSERT INTO providers (user_id, name, category, location, phone, bio, rating, photo, experience_years) VALUES ($1,$2,$3,$4,$5,$6,5.0,$7,$8) RETURNING id',
+        [userId, providerFields.name, providerFields.category, providerFields.location, providerFields.phone, providerFields.bio, providerFields.photo, providerFields.experienceYears]
       );
+      const providerId = providerResult.rows[0].id;
+
+      for (const serviceName of selectedServices) {
+        const svcResult = await client.query('SELECT id FROM services WHERE name = $1', [serviceName.trim()]);
+        if (svcResult.rows.length > 0) {
+          await client.query(
+            `INSERT INTO worker_services (provider_id, service_id, verification_status) VALUES ($1, $2, 'PENDING')
+             ON CONFLICT (provider_id, service_id) DO NOTHING`,
+            [providerId, svcResult.rows[0].id]
+          );
+        }
+      }
+
+      // Phone verification always starts PENDING — no SMS/OTP provider is
+      // configured yet, so this awaits manual admin review (Phase 3).
+      await client.query(
+        `INSERT INTO verifications (provider_id, type, status, submitted_at) VALUES ($1, 'phone', 'PENDING', NOW())
+         ON CONFLICT (provider_id, type) DO NOTHING`,
+        [providerId]
+      );
+
+      // Identity verification: only marked "submitted" if they actually
+      // uploaded something at signup. Otherwise it stays untouched so the
+      // profile page can prompt them to submit it later (handles the
+      // "incomplete verification" edge case without blocking signup).
+      if (providerFields.idDocument || providerFields.selfie) {
+        await client.query(
+          `INSERT INTO verifications (provider_id, type, status, submitted_at) VALUES ($1, 'identity', 'IN_REVIEW', NOW())
+           ON CONFLICT (provider_id, type) DO UPDATE SET status = 'IN_REVIEW', submitted_at = NOW()`,
+          [providerId]
+        );
+        if (providerFields.idDocument) {
+          await client.query(
+            `INSERT INTO verification_documents (provider_id, verification_type, document_type, file_data) VALUES ($1, 'identity', 'id_document', $2)`,
+            [providerId, providerFields.idDocument]
+          );
+        }
+        if (providerFields.selfie) {
+          await client.query(
+            `INSERT INTO verification_documents (provider_id, verification_type, document_type, file_data) VALUES ($1, 'identity', 'selfie', $2)`,
+            [providerId, providerFields.selfie]
+          );
+        }
+      }
     }
 
     await client.query('COMMIT');
@@ -410,13 +721,18 @@ app.post('/api/signup', authLimiter, async (req, res) => {
   }
 });
 
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
+
 app.post('/api/login', authLimiter, async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = req.body.password;
 
   try {
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    const user = result.rows[0];
+    let user = result.rows[0];
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password.' });
@@ -427,8 +743,19 @@ app.post('/api/login', authLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
+    // One-time, config-driven admin bootstrap: an account whose email is
+    // listed in ADMIN_EMAILS is elevated to the admin role on next login.
+    // There is no public signup path to the admin role — this is the only
+    // way an account becomes admin, and it requires a Railway env var
+    // only you control.
+    if (ADMIN_EMAILS.includes(email) && user.role !== 'admin') {
+      await pool.query('UPDATE users SET role = $1 WHERE id = $2', ['admin', user.id]);
+      user = { ...user, role: 'admin' };
+      createAuditLog(user.id, 'ADMIN_ROLE_GRANTED', 'user', user.id, 'Elevated via ADMIN_EMAILS on login.');
+    }
+
     const expectedRole = req.body.expectedRole;
-    if (expectedRole && expectedRole !== user.role) {
+    if (expectedRole && user.role !== 'admin' && expectedRole !== user.role) {
       const correctTab = user.role === 'provider' ? 'Worker' : 'Customer';
       return res.status(409).json({ error: `This account is registered as a ${correctTab}. Switch tabs above and sign in again.` });
     }
@@ -651,7 +978,7 @@ app.get('/api/categories', requireLogin, asyncHandler(async (req, res) => {
 
 app.get('/api/workers', requireLogin, asyncHandler(async (req, res) => {
   const { search, category } = req.query;
-  const result = await pool.query('SELECT * FROM providers ORDER BY rating DESC, name');
+  const result = await pool.query(`SELECT * FROM providers WHERE approval_status = 'APPROVED' ORDER BY rating DESC, name`);
   let results = result.rows;
 
   if (category) {
@@ -678,6 +1005,68 @@ app.get('/api/provider/me', requireRole('provider'), asyncHandler(async (req, re
     return res.status(404).json({ error: 'No provider profile found.' });
   }
   res.json({ provider: result.rows[0] });
+}));
+
+app.get('/api/provider/verification-status', requireRole('provider'), asyncHandler(async (req, res) => {
+  const providerResult = await pool.query('SELECT id, approval_status FROM providers WHERE user_id = $1', [req.session.userId]);
+  if (providerResult.rows.length === 0) {
+    return res.status(404).json({ error: 'No provider profile found.' });
+  }
+  const providerId = providerResult.rows[0].id;
+
+  const verifications = await pool.query('SELECT type, status, submitted_at, notes FROM verifications WHERE provider_id = $1', [providerId]);
+  const services = await pool.query(
+    `SELECT s.name, ws.verification_status, ws.notes FROM worker_services ws
+     JOIN services s ON s.id = ws.service_id WHERE ws.provider_id = $1 ORDER BY s.name`,
+    [providerId]
+  );
+  const credentials = await pool.query(
+    'SELECT credential_type, issuing_organization, status, expiry_date FROM credentials WHERE provider_id = $1 ORDER BY created_at DESC',
+    [providerId]
+  );
+
+  res.json({
+    approvalStatus: providerResult.rows[0].approval_status,
+    verifications: verifications.rows,
+    services: services.rows,
+    credentials: credentials.rows
+  });
+}));
+
+app.post('/api/provider/verification/identity', requireRole('provider'), asyncHandler(async (req, res) => {
+  const { idDocument, selfie } = req.body;
+  if (!isNonEmpty(idDocument) && !isNonEmpty(selfie)) {
+    return res.status(400).json({ error: 'Please upload at least one document.' });
+  }
+  if (!isValidPhoto(idDocument) || !isValidPhoto(selfie)) {
+    return res.status(400).json({ error: 'One of your uploads is too large or in an unsupported format.' });
+  }
+
+  const providerResult = await pool.query('SELECT id FROM providers WHERE user_id = $1', [req.session.userId]);
+  if (providerResult.rows.length === 0) {
+    return res.status(404).json({ error: 'No provider profile found.' });
+  }
+  const providerId = providerResult.rows[0].id;
+
+  await pool.query(
+    `INSERT INTO verifications (provider_id, type, status, submitted_at) VALUES ($1, 'identity', 'IN_REVIEW', NOW())
+     ON CONFLICT (provider_id, type) DO UPDATE SET status = 'IN_REVIEW', submitted_at = NOW(), reviewed_at = NULL, reviewed_by = NULL`,
+    [providerId]
+  );
+  if (idDocument) {
+    await pool.query(
+      `INSERT INTO verification_documents (provider_id, verification_type, document_type, file_data) VALUES ($1, 'identity', 'id_document', $2)`,
+      [providerId, idDocument]
+    );
+  }
+  if (selfie) {
+    await pool.query(
+      `INSERT INTO verification_documents (provider_id, verification_type, document_type, file_data) VALUES ($1, 'identity', 'selfie', $2)`,
+      [providerId, selfie]
+    );
+  }
+
+  res.json({ message: 'Submitted for review.' });
 }));
 
 app.put('/api/provider/me', requireRole('provider'), async (req, res) => {
@@ -724,9 +1113,12 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
   }
 
   try {
-    const providerCheck = await pool.query('SELECT id, user_id, name FROM providers WHERE id = $1', [providerId]);
+    const providerCheck = await pool.query('SELECT id, user_id, name, approval_status FROM providers WHERE id = $1', [providerId]);
     if (providerCheck.rows.length === 0) {
       return res.status(404).json({ error: 'That provider no longer exists.' });
+    }
+    if (providerCheck.rows[0].approval_status !== 'APPROVED') {
+      return res.status(403).json({ error: 'This provider isn\u2019t approved to receive jobs yet.' });
     }
 
     const result = await pool.query(
@@ -788,6 +1180,13 @@ async function updateJobStatus(req, res, { from, to }) {
   const providerId = await getProviderIdForUser(req.session.userId);
   if (!providerId) {
     return res.status(404).json({ error: 'No provider profile found.' });
+  }
+
+  if (to === 'accepted') {
+    const statusCheck = await pool.query('SELECT approval_status FROM providers WHERE id = $1', [providerId]);
+    if (statusCheck.rows[0]?.approval_status !== 'APPROVED') {
+      return res.status(403).json({ error: 'Your account isn\u2019t approved to accept jobs right now.' });
+    }
   }
 
   const result = await pool.query(
@@ -993,6 +1392,217 @@ app.post('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => 
   }
 
   res.json({ message: result.rows[0] });
+}));
+
+// --- Admin: verification & trust dashboard ---
+
+app.get('/api/admin/applications', requireRole('admin'), asyncHandler(async (req, res) => {
+  const statusFilter = req.query.status; // optional: PENDING, APPROVED, REJECTED, SUSPENDED
+  const params = [];
+  let where = '';
+  if (statusFilter) {
+    where = 'WHERE p.approval_status = $1';
+    params.push(statusFilter);
+  }
+
+  const result = await pool.query(
+    `SELECT p.id, p.name, p.category, p.location, p.rating, p.approval_status, p.experience_years, p.created_at, p.photo,
+            u.email, u.phone,
+            (SELECT COUNT(*)::int FROM job_requests jr WHERE jr.provider_id = p.id AND jr.status = 'completed') AS completed_jobs,
+            (SELECT COUNT(*)::int FROM reports WHERE reported_user_id = u.id) AS report_count,
+            (SELECT COUNT(*)::int FROM disputes d JOIN job_requests jr2 ON jr2.id = d.job_id WHERE jr2.provider_id = p.id) AS dispute_count
+     FROM providers p
+     JOIN users u ON u.id = p.user_id
+     ${where}
+     ORDER BY p.created_at DESC`,
+    params
+  );
+  res.json({ applications: result.rows });
+}));
+
+app.get('/api/admin/providers/:id', requireRole('admin'), asyncHandler(async (req, res) => {
+  const providerId = req.params.id;
+  const providerResult = await pool.query(
+    `SELECT p.*, u.email, u.phone AS user_phone, u.created_at AS account_created_at
+     FROM providers p JOIN users u ON u.id = p.user_id WHERE p.id = $1`,
+    [providerId]
+  );
+  if (providerResult.rows.length === 0) {
+    return res.status(404).json({ error: 'Provider not found.' });
+  }
+  const provider = providerResult.rows[0];
+
+  const verifications = await pool.query('SELECT * FROM verifications WHERE provider_id = $1', [providerId]);
+  const services = await pool.query(
+    `SELECT ws.id, s.name, ws.verification_status, ws.notes, ws.verified_at FROM worker_services ws
+     JOIN services s ON s.id = ws.service_id WHERE ws.provider_id = $1 ORDER BY s.name`,
+    [providerId]
+  );
+  const credentials = await pool.query('SELECT * FROM credentials WHERE provider_id = $1 ORDER BY created_at DESC', [providerId]);
+  // Documents are only ever returned to an authenticated admin, never to
+  // any other role or any public-facing endpoint.
+  const documents = await pool.query(
+    'SELECT id, verification_type, document_type, file_data, uploaded_at FROM verification_documents WHERE provider_id = $1 ORDER BY uploaded_at DESC',
+    [providerId]
+  );
+  const jobStats = await pool.query(
+    `SELECT
+       COUNT(*)::int AS total_jobs,
+       COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_jobs,
+       COUNT(*) FILTER (WHERE status = 'declined')::int AS declined_jobs,
+       COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled_jobs
+     FROM job_requests WHERE provider_id = $1`,
+    [providerId]
+  );
+  const reports = await pool.query(
+    `SELECT r.*, ru.email AS reporter_email FROM reports r JOIN users ru ON ru.id = r.reporter_user_id
+     WHERE r.reported_user_id = $1 ORDER BY r.created_at DESC`,
+    [provider.user_id]
+  );
+  const disputes = await pool.query(
+    `SELECT d.* FROM disputes d JOIN job_requests jr ON jr.id = d.job_id WHERE jr.provider_id = $1 ORDER BY d.created_at DESC`,
+    [providerId]
+  );
+  const suspensions = await pool.query('SELECT * FROM suspensions WHERE user_id = $1 ORDER BY created_at DESC', [provider.user_id]);
+  const auditHistory = await pool.query(
+    `SELECT al.*, u.email AS actor_email FROM audit_logs al LEFT JOIN users u ON u.id = al.actor_user_id
+     WHERE al.target_type = 'provider' AND al.target_id = $1 ORDER BY al.created_at DESC LIMIT 30`,
+    [providerId]
+  );
+
+  res.json({
+    provider, verifications: verifications.rows, services: services.rows, credentials: credentials.rows,
+    documents: documents.rows, jobStats: jobStats.rows[0], reports: reports.rows, disputes: disputes.rows,
+    suspensions: suspensions.rows, auditHistory: auditHistory.rows
+  });
+}));
+
+app.post('/api/admin/providers/:id/approve', requireRole('admin'), asyncHandler(async (req, res) => {
+  const result = await pool.query(
+    `UPDATE providers SET approval_status = 'APPROVED' WHERE id = $1 RETURNING user_id, name`,
+    [req.params.id]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Provider not found.' });
+
+  await createAuditLog(req.session.userId, 'PROVIDER_APPROVED', 'provider', req.params.id, req.body.notes || '');
+  await createNotification(result.rows[0].user_id, 'account_approved', 'Your HandyLink application has been approved! You can now receive jobs.', '/provider-dashboard.html');
+  res.json({ message: 'Provider approved.' });
+}));
+
+app.post('/api/admin/providers/:id/reject', requireRole('admin'), asyncHandler(async (req, res) => {
+  if (!isNonEmpty(req.body.reason)) {
+    return res.status(400).json({ error: 'Please provide a reason for rejection.' });
+  }
+  const result = await pool.query(
+    `UPDATE providers SET approval_status = 'REJECTED' WHERE id = $1 RETURNING user_id`,
+    [req.params.id]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Provider not found.' });
+
+  await createAuditLog(req.session.userId, 'PROVIDER_REJECTED', 'provider', req.params.id, req.body.reason);
+  await createNotification(result.rows[0].user_id, 'account_rejected', `Your application was not approved: ${req.body.reason}`, '/provider-profile.html');
+  res.json({ message: 'Provider rejected.' });
+}));
+
+app.post('/api/admin/providers/:id/request-info', requireRole('admin'), asyncHandler(async (req, res) => {
+  if (!isNonEmpty(req.body.message)) {
+    return res.status(400).json({ error: 'Please describe what\u2019s needed.' });
+  }
+  const result = await pool.query('SELECT user_id FROM providers WHERE id = $1', [req.params.id]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Provider not found.' });
+
+  await createAuditLog(req.session.userId, 'PROVIDER_INFO_REQUESTED', 'provider', req.params.id, req.body.message);
+  await createNotification(result.rows[0].user_id, 'more_info_requested', `HandyLink needs more information: ${req.body.message}`, '/provider-profile.html');
+  res.json({ message: 'Request sent.' });
+}));
+
+app.post('/api/admin/providers/:id/suspend', requireRole('admin'), asyncHandler(async (req, res) => {
+  if (!isNonEmpty(req.body.reason)) {
+    return res.status(400).json({ error: 'Please provide a reason for suspension.' });
+  }
+  const providerResult = await pool.query(
+    `UPDATE providers SET approval_status = 'SUSPENDED' WHERE id = $1 RETURNING user_id`,
+    [req.params.id]
+  );
+  if (providerResult.rows.length === 0) return res.status(404).json({ error: 'Provider not found.' });
+  const userId = providerResult.rows[0].user_id;
+
+  await pool.query(
+    'INSERT INTO suspensions (user_id, reason, admin_id, notes) VALUES ($1, $2, $3, $4)',
+    [userId, req.body.reason, req.session.userId, req.body.notes || '']
+  );
+  await createAuditLog(req.session.userId, 'PROVIDER_SUSPENDED', 'provider', req.params.id, req.body.reason);
+  await createNotification(userId, 'account_suspended', `Your account has been suspended: ${req.body.reason}`, '/provider-profile.html');
+  res.json({ message: 'Provider suspended.' });
+}));
+
+app.post('/api/admin/providers/:id/reinstate', requireRole('admin'), asyncHandler(async (req, res) => {
+  const providerResult = await pool.query(
+    `UPDATE providers SET approval_status = 'APPROVED' WHERE id = $1 RETURNING user_id`,
+    [req.params.id]
+  );
+  if (providerResult.rows.length === 0) return res.status(404).json({ error: 'Provider not found.' });
+  const userId = providerResult.rows[0].user_id;
+
+  await pool.query(
+    `UPDATE suspensions SET active = FALSE, end_date = NOW() WHERE user_id = $1 AND active = TRUE`,
+    [userId]
+  );
+  await createAuditLog(req.session.userId, 'PROVIDER_REINSTATED', 'provider', req.params.id, req.body.notes || '');
+  await createNotification(userId, 'account_reinstated', 'Your account has been reinstated. You can accept jobs again.', '/provider-dashboard.html');
+  res.json({ message: 'Provider reinstated.' });
+}));
+
+app.post('/api/admin/verifications/:id/decide', requireRole('admin'), asyncHandler(async (req, res) => {
+  const { decision, notes } = req.body; // decision: 'VERIFIED' or 'REJECTED'
+  if (!['VERIFIED', 'REJECTED'].includes(decision)) {
+    return res.status(400).json({ error: 'Invalid decision.' });
+  }
+  const result = await pool.query(
+    `UPDATE verifications SET status = $1, reviewed_at = NOW(), reviewed_by = $2, notes = $3
+     WHERE id = $4 RETURNING provider_id, type`,
+    [decision, req.session.userId, notes || '', req.params.id]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Verification record not found.' });
+
+  const { provider_id, type } = result.rows[0];
+  const providerUser = await pool.query('SELECT user_id FROM providers WHERE id = $1', [provider_id]);
+  await createAuditLog(req.session.userId, `VERIFICATION_${decision}`, 'verification', req.params.id, `${type}: ${notes || ''}`);
+  if (providerUser.rows[0]) {
+    createNotification(
+      providerUser.rows[0].user_id,
+      'verification_update',
+      `Your ${type} verification was ${decision === 'VERIFIED' ? 'approved' : 'rejected'}.`,
+      '/provider-profile.html'
+    );
+  }
+  res.json({ message: 'Verification updated.' });
+}));
+
+app.post('/api/admin/worker-services/:id/decide', requireRole('admin'), asyncHandler(async (req, res) => {
+  const { decision, notes } = req.body;
+  if (!['VERIFIED', 'REJECTED'].includes(decision)) {
+    return res.status(400).json({ error: 'Invalid decision.' });
+  }
+  const result = await pool.query(
+    `UPDATE worker_services SET verification_status = $1, verified_by = $2, verified_at = NOW(), notes = $3
+     WHERE id = $4 RETURNING provider_id, service_id`,
+    [decision, req.session.userId, notes || '', req.params.id]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Service record not found.' });
+
+  const svcName = await pool.query('SELECT name FROM services WHERE id = $1', [result.rows[0].service_id]);
+  const providerUser = await pool.query('SELECT user_id FROM providers WHERE id = $1', [result.rows[0].provider_id]);
+  await createAuditLog(req.session.userId, `SERVICE_${decision}`, 'worker_service', req.params.id, `${svcName.rows[0]?.name || ''}: ${notes || ''}`);
+  if (providerUser.rows[0]) {
+    createNotification(
+      providerUser.rows[0].user_id,
+      'service_verification_update',
+      `Your ${svcName.rows[0]?.name || 'service'} verification was ${decision === 'VERIFIED' ? 'approved' : 'rejected'}.`,
+      '/provider-profile.html'
+    );
+  }
+  res.json({ message: 'Service verification updated.' });
 }));
 
 // --- Notifications ---

@@ -153,7 +153,7 @@
             setTimeout(() => { window.location.href = '/signup.html'; }, 1200);
             return;
           }
-          window.location.href = data.role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html';
+          window.location.href = data.role === 'admin' ? '/admin.html' : (data.role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html');
         })
         .catch(() => {
           document.getElementById('error').textContent = 'Something went wrong with Google sign-in. Please try again.';
@@ -203,7 +203,7 @@
         errorEl.textContent = data.error;
         return;
       }
-      window.location.href = data.role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html';
+      window.location.href = data.role === 'admin' ? '/admin.html' : (data.role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html');
     });
   </script>
 

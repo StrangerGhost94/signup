@@ -35,6 +35,8 @@
           </div>
         </header>
 
+        <div id="approvalBanner" style="display:none; border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem;"></div>
+
         <div id="jobsList" class="stagger"></div>
       </div>
     </div>
@@ -158,6 +160,27 @@
       if (!e.target.closest('.dash-user')) document.getElementById('notifPanel').style.display = 'none';
     });
 
+    async function loadApprovalBanner() {
+      const res = await fetch('/api/provider/verification-status');
+      if (!res.ok) return;
+      const data = await res.json();
+      const banner = document.getElementById('approvalBanner');
+      if (data.approvalStatus === 'APPROVED') {
+        banner.style.display = 'none';
+        return;
+      }
+      const msgs = {
+        PENDING: { bg: 'var(--primary-tint)', color: 'var(--primary-deep)', text: '⏳ Your application is under review — you\u2019ll start receiving jobs once approved.' },
+        REJECTED: { bg: '#FEE2E2', color: '#B91C1C', text: '✗ Your application was not approved. Visit your profile or contact Support for details.' },
+        SUSPENDED: { bg: '#F3F4F6', color: '#6B7280', text: '⚠ Your account is currently suspended and can\u2019t accept new jobs.' }
+      };
+      const m = msgs[data.approvalStatus] || msgs.PENDING;
+      banner.style.display = 'block';
+      banner.style.background = m.bg;
+      banner.style.color = m.color;
+      banner.textContent = m.text;
+    }
+
     (async () => {
       const res = await fetch('/api/me');
       if (!res.ok) { window.location.href = '/login.html'; return; }
@@ -166,6 +189,7 @@
       document.getElementById('welcome').textContent = me.email;
       document.getElementById('appShell').style.visibility = 'visible';
       await loadJobs();
+      await loadApprovalBanner();
       await loadNotifications(false);
       setInterval(() => loadNotifications(false), 20000);
       setInterval(() => loadJobs(), 10000);

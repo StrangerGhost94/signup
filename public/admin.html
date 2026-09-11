@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="admin-topbar">
+    <span class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo" style="height:28px;"><span class="admin-badge">ADMIN</span></span>
+    <button id="logoutBtn" class="small-btn logout-btn" style="width:auto;">Log out</button>
+  </div>
+
+  <div class="admin-tabs" id="adminTabs">
+    <button class="admin-tab active" data-filter="PENDING">Pending</button>
+    <button class="admin-tab" data-filter="">All</button>
+    <button class="admin-tab" data-filter="APPROVED">Approved</button>
+    <button class="admin-tab" data-filter="REJECTED">Rejected</button>
+    <button class="admin-tab" data-filter="SUSPENDED">Suspended</button>
+  </div>
+
+  <div class="admin-list" id="adminList"></div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    let currentFilter = 'PENDING';
+
+    document.querySelectorAll('.admin-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentFilter = tab.dataset.filter;
+        loadApplications();
+      });
+    });
+
+    async function loadApplications() {
+      const list = document.getElementById('adminList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+      const params = currentFilter ? `?status=${currentFilter}` : '';
+      const res = await fetch('/api/admin/applications' + params);
+      if (!res.ok) { list.innerHTML = errorStateHtml('loadApplications()'); return; }
+      const data = await res.json();
+      list.innerHTML = '';
+
+      if (data.applications.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>Nothing here</strong>No providers match this filter.</div>`;
+        return;
+      }
+
+      data.applications.forEach(p => {
+        const meta = STATUS_META[p.approval_status.toLowerCase()] || { color: 'var(--ink-soft)', bg: 'var(--surface)', label: p.approval_status };
+        const row = document.createElement('div');
+        row.className = 'app-row';
+        row.innerHTML = `
+          <div class="avatar" style="background:var(--surface);">${p.photo ? `<img class="avatar-img" src="${p.photo}" alt="">` : initials(p.name)}</div>
+          <div class="app-row-info">
+            <strong>${escapeHtml(p.name)}</strong>
+            <span>${escapeHtml(p.category)} · ${escapeHtml(p.location)} · ${p.completed_jobs} jobs done${p.report_count > 0 ? ` · ${p.report_count} report(s)` : ''}</span>
+          </div>
+          <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${p.approval_status}</span>
+        `;
+        row.addEventListener('click', () => openDetail(p.id));
+        list.appendChild(row);
+      });
+    }
+
+    async function openDetail(providerId) {
+      const res = await fetch(`/api/admin/providers/${providerId}`);
+      if (!res.ok) { showToast('Could not load this provider.', 'error'); return; }
+      const data = await res.json();
+      const p = data.provider;
+
+      const overlay = document.createElement('div');
+      overlay.className = 'admin-detail-overlay';
+      overlay.innerHTML = `<div class="admin-detail-panel" id="detailPanel"></div>`;
+      document.body.appendChild(overlay);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+      const panel = overlay.querySelector('#detailPanel');
+
+      const identity = data.verifications.find(v => v.type === 'identity');
+      const phone = data.verifications.find(v => v.type === 'phone');
+      const idDoc = data.documents.find(d => d.document_type === 'id_document');
+      const selfie = data.documents.find(d => d.document_type === 'selfie');
+
+      panel.innerHTML = `
+        <button class="chat-back" id="closeDetail" aria-label="Close" style="margin-bottom:1rem;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+
+        <div class="worker-head" style="margin-bottom:1rem;">
+          <div class="avatar" style="width:56px;height:56px;">${p.photo ? `<img class="avatar-img" src="${p.photo}" alt="">` : initials(p.name)}</div>
+          <div class="worker-name-block">
+            <strong style="font-size:1.1rem;">${escapeHtml(p.name)}</strong>
+            <span class="job-meta">${escapeHtml(p.email)} · ${escapeHtml(p.user_phone)}</span>
+          </div>
+        </div>
+
+        <div class="stat-mini-grid detail-section">
+          <div class="stat-mini"><strong>${data.jobStats.completed_jobs}</strong><span>Completed</span></div>
+          <div class="stat-mini"><strong>${data.jobStats.declined_jobs}</strong><span>Declined</span></div>
+          <div class="stat-mini"><strong>${data.disputes.length}</strong><span>Disputes</span></div>
+          <div class="stat-mini"><strong>${data.reports.length}</strong><span>Reports</span></div>
+        </div>
+
+        <div class="detail-section">
+          <h3>Profile</h3>
+          <p class="job-desc">${escapeHtml(p.bio || 'No bio provided.')}</p>
+          <p class="job-meta">${escapeHtml(p.location)} · ${p.experience_years != null ? p.experience_years + ' yrs experience' : 'Experience not stated'} · Applied ${new Date(p.created_at).toLocaleDateString()}</p>
+        </div>
+
+        <div class="detail-section">
+          <h3>Identity verification</h3>
+          ${statusRow('Identity', identity?.status)}
+          ${statusRow('Phone', phone?.status)}
+          ${idDoc ? `<p class="job-meta" style="margin-top:0.6rem;">ID document:</p><img class="doc-preview" src="${idDoc.file_data}" alt="ID document">` : '<p class="job-meta">No ID document submitted.</p>'}
+          ${selfie ? `<p class="job-meta">Selfie:</p><img class="doc-preview" src="${selfie.file_data}" alt="Selfie">` : ''}
+          ${identity ? `
+            <div class="action-row">
+              <button class="small-btn" onclick="decideVerification(${identity.id}, 'VERIFIED')">Approve identity</button>
+              <button class="small-btn btn-decline" onclick="decideVerification(${identity.id}, 'REJECTED')">Reject identity</button>
+            </div>` : '<p class="job-meta">Nothing to review yet.</p>'}
+        </div>
+
+        <div class="detail-section">
+          <h3>Services</h3>
+          ${data.services.map(s => `
+            <div class="verif-status-row">
+              <span>${escapeHtml(s.name)}</span>
+              <span>
+                ${statusBadgeInline(s.verification_status)}
+                <button class="small-btn" style="width:auto; padding:0.3rem 0.6rem; font-size:0.75rem; margin-left:0.4rem;" onclick="decideService(${s.id}, 'VERIFIED')">✓</button>
+                <button class="small-btn btn-decline" style="width:auto; padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="decideService(${s.id}, 'REJECTED')">✗</button>
+              </span>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="detail-section">
+          <h3>Credentials</h3>
+          ${data.credentials.length ? data.credentials.map(c => `<p class="job-meta">${escapeHtml(c.credential_type)} — ${escapeHtml(c.issuing_organization || '')} (${c.status})</p>`).join('') : '<p class="job-meta">None submitted.</p>'}
+        </div>
+
+        <div class="detail-section">
+          <h3>Application decision</h3>
+          <div class="action-row">
+            <button class="small-btn" onclick="decideApplication(${p.id}, 'approve')">Approve application</button>
+            <button class="small-btn btn-decline" onclick="promptReject(${p.id})">Reject</button>
+            <button class="small-btn btn-outline" onclick="promptRequestInfo(${p.id})">Request more info</button>
+            ${p.approval_status === 'SUSPENDED'
+              ? `<button class="small-btn" onclick="decideApplication(${p.id}, 'reinstate')">Reinstate</button>`
+              : `<button class="small-btn btn-decline" onclick="promptSuspend(${p.id})">Suspend</button>`}
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <h3>Recent admin actions</h3>
+          ${data.auditHistory.length ? data.auditHistory.map(a => `<p class="job-meta">${new Date(a.created_at).toLocaleString()} — ${escapeHtml(a.action)} by ${escapeHtml(a.actor_email || 'system')}${a.notes ? ': ' + escapeHtml(a.notes) : ''}</p>`).join('') : '<p class="job-meta">No actions yet.</p>'}
+        </div>
+      `;
+      panel.querySelector('#closeDetail').addEventListener('click', () => overlay.remove());
+    }
+
+    function statusRow(label, status) {
+      return `<div class="verif-status-row"><span>${label}</span>${statusBadgeInline(status || 'PENDING')}</div>`;
+    }
+    function statusBadgeInline(status) {
+      const colors = { VERIFIED: ['#0B6E4F','#E6F4EC'], PENDING: ['#B45309','#FEF3C7'], IN_REVIEW: ['#1D4ED8','#DBEAFE'], REJECTED: ['#B91C1C','#FEE2E2'], SUSPENDED: ['#6B7280','#F3F4F6'], EXPIRED: ['#6B7280','#F3F4F6'] };
+      const [color, bg] = colors[status] || colors.PENDING;
+      return `<span class="verif-badge" style="color:${color}; background:${bg};">${status}</span>`;
+    }
+
+    async function decideVerification(id, decision) {
+      const res = await fetch(`/api/admin/verifications/${id}/decide`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Updated.', 'success');
+      document.querySelector('.admin-detail-overlay')?.remove();
+      loadApplications();
+    }
+
+    async function decideService(id, decision) {
+      const res = await fetch(`/api/admin/worker-services/${id}/decide`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Updated.', 'success');
+      document.querySelector('.admin-detail-overlay')?.remove();
+      loadApplications();
+    }
+
+    async function decideApplication(providerId, action) {
+      const res = await fetch(`/api/admin/providers/${providerId}/${action}`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast(data.message, 'success');
+      document.querySelector('.admin-detail-overlay')?.remove();
+      loadApplications();
+    }
+
+    async function promptReject(providerId) {
+      const reason = prompt('Reason for rejecting this application:');
+      if (!reason) return;
+      const res = await fetch(`/api/admin/providers/${providerId}/reject`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Application rejected.', 'success');
+      document.querySelector('.admin-detail-overlay')?.remove();
+      loadApplications();
+    }
+
+    async function promptSuspend(providerId) {
+      const reason = prompt('Reason for suspending this provider:');
+      if (!reason) return;
+      const res = await fetch(`/api/admin/providers/${providerId}/suspend`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Provider suspended.', 'success');
+      document.querySelector('.admin-detail-overlay')?.remove();
+      loadApplications();
+    }
+
+    async function promptRequestInfo(providerId) {
+      const message = prompt('What information do you need from this provider?');
+      if (!message) return;
+      const res = await fetch(`/api/admin/providers/${providerId}/request-info`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Request sent.', 'success');
+      document.querySelector('.admin-detail-overlay')?.remove();
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    });
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'admin') { window.location.href = '/dashboard.html'; return; }
+      await loadApplications();
+    })();
+  </script>
+</body>
+</html>

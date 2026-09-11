@@ -18,37 +18,33 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
       </a>
 
-      <h1 style="margin-top:0;">Create worker account</h1>
-      <p class="subtext">Tell us about your skills and experience.</p>
+      <div class="wizard-progress" id="wizardProgress">
+        <div class="wizard-step active" data-step="0">Account</div>
+        <div class="wizard-step" data-step="1">Profile</div>
+        <div class="wizard-step" data-step="2">Services</div>
+        <div class="wizard-step" data-step="3">Verification</div>
+        <div class="wizard-step" data-step="4">Review</div>
+      </div>
 
       <div class="error" id="error"></div>
 
-      <div id="googleBtnReal" style="display:none; margin-bottom:1rem;"></div>
-
-      <form id="signupForm">
-        <div class="photo-upload-row">
-          <div class="photo-preview" id="photoPreview">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-          </div>
-          <label class="photo-upload-label" for="photoInput">Add profile photo (optional)</label>
-          <input type="file" id="photoInput" accept="image/*" style="display:none;">
-        </div>
-
+      <!-- Step 0: Account -->
+      <div class="wizard-panel active" data-panel="0">
+        <h1 style="margin-top:0;">Create your account</h1>
+        <p class="subtext">Let's start with the basics.</p>
+        <div id="googleBtnReal" style="display:none; margin-bottom:1rem;"></div>
         <div class="input-icon-wrap">
           <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
           <input type="text" id="name" placeholder="Full name — e.g. John Kamau" required>
         </div>
-
         <div class="input-icon-wrap">
           <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.98.36 1.94.68 2.86a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.22-1.25a2 2 0 0 1 2.11-.45c.92.32 1.88.55 2.86.68A2 2 0 0 1 22 16.92z"/></svg>
           <input type="tel" id="phone" placeholder="Phone number — e.g. 0772 123 456" required>
         </div>
-
         <div class="input-icon-wrap">
           <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5.5" width="18" height="13" rx="3"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>
           <input type="email" id="email" placeholder="Email address — e.g. john@example.com" required>
         </div>
-
         <div class="input-icon-wrap">
           <svg class="leading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4.5" y="10" width="15" height="10.5" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="14.8" r="1.3" fill="currentColor" stroke="none"/><path d="M12 16.1v1.6" stroke-width="2"/></svg>
           <input type="password" id="password" placeholder="Create password — 8+ chars, a letter and a number" required>
@@ -56,55 +52,203 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
-
         <div class="pw-checklist" id="pwChecklist">
           <span id="pwLength"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>8+ characters</span>
           <span id="pwLetter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>A letter</span>
           <span id="pwNumber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>A number</span>
         </div>
+        <div class="wizard-nav"><button type="button" onclick="goToStep(1)">Continue</button></div>
+      </div>
 
-        <label style="display:block; font-weight:700; font-size:0.88rem; margin-bottom:0.5rem;">What service do you offer?</label>
-        <select id="category" required style="width:100%; padding:0.85rem 1rem; margin-bottom:1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:1rem; font-family:inherit; background:var(--surface); color:var(--ink);">
-          <option value="" disabled selected>Select your primary service</option>
-          <option>Plumbing</option>
-          <option>Electrical</option>
-          <option>Carpentry</option>
-          <option>Painting</option>
-          <option>Cleaning</option>
-          <option>Gardening</option>
-          <option>Moving</option>
-          <option>Mechanical</option>
-        </select>
-
+      <!-- Step 1: Profile -->
+      <div class="wizard-panel" data-panel="1">
+        <h1 style="margin-top:0;">Your profile</h1>
+        <p class="subtext">Tell clients a bit about yourself.</p>
+        <div class="photo-upload-row">
+          <div class="photo-preview" id="photoPreview">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
+          <label class="photo-upload-label" for="photoInput">Add profile photo (optional)</label>
+          <input type="file" id="photoInput" accept="image/*" style="display:none;">
+        </div>
         <input type="text" id="location" placeholder="Area you serve — e.g. Ntinda, Kampala" required>
-        <textarea id="bio" rows="3" placeholder="Short bio — experience, specialties (optional)"></textarea>
+        <input type="number" id="experienceYears" placeholder="Years of experience" min="0" max="60">
+        <textarea id="bio" rows="3" placeholder="Short bio — what you do, specialties (optional)"></textarea>
+        <div class="wizard-nav">
+          <button type="button" class="btn-outline" onclick="goToStep(0)">Back</button>
+          <button type="button" onclick="validateStep1()">Continue</button>
+        </div>
+      </div>
 
-        <button type="submit">Create account</button>
+      <!-- Step 2: Services -->
+      <div class="wizard-panel" data-panel="2">
+        <h1 style="margin-top:0;">What do you do?</h1>
+        <p class="subtext">Select every service you offer. Each one is reviewed separately before it shows a "Verified" badge to clients.</p>
+        <div class="service-check-grid" id="serviceGrid"></div>
+        <div class="wizard-nav">
+          <button type="button" class="btn-outline" onclick="goToStep(1)">Back</button>
+          <button type="button" onclick="validateStep2()">Continue</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Verification -->
+      <div class="wizard-panel" data-panel="3">
+        <h1 style="margin-top:0;">Verify your identity</h1>
+        <p class="subtext">This builds trust with clients. You can also do this later from your profile — it's optional right now.</p>
+
+        <label class="upload-slot" id="idSlot" for="idInput">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="11" r="1.5"/><path d="M3 16l4-3 3 2 5-4 6 5"/></svg>
+          <div id="idSlotLabel">Upload a national ID or passport photo</div>
+        </label>
+        <input type="file" id="idInput" accept="image/*" style="display:none;">
+
+        <label class="upload-slot" id="selfieSlot" for="selfieInput">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+          <div id="selfieSlotLabel">Upload a selfie</div>
+        </label>
+        <input type="file" id="selfieInput" accept="image/*" style="display:none;">
+
+        <p class="inline-note">Your documents are only visible to HandyLink administrators reviewing your application — never to clients.</p>
+        <div class="wizard-nav">
+          <button type="button" class="btn-outline" onclick="goToStep(2)">Back</button>
+          <button type="button" onclick="goToStep(4)">Continue</button>
+        </div>
+      </div>
+
+      <!-- Step 4: Review -->
+      <div class="wizard-panel" data-panel="4">
+        <h1 style="margin-top:0;">Review & submit</h1>
+        <p class="subtext">Your application goes to HandyLink for review before you can receive jobs.</p>
+        <div id="reviewSummary" class="job-card"></div>
         <p class="inline-note">By creating an account, you agree to our <a href="/terms.html" style="color:var(--primary); font-weight:600;">Terms of Service</a> and <a href="/privacy.html" style="color:var(--primary); font-weight:600;">Privacy Policy</a>.</p>
-      </form>
+        <div class="wizard-nav">
+          <button type="button" class="btn-outline" onclick="goToStep(3)">Back</button>
+          <button type="button" id="submitBtn">Submit application</button>
+        </div>
+      </div>
     </div>
   </div>
 
   <script src="js/categories.js"></script>
   <script>
+    let currentStep = 0;
+    let compressedPhoto = null;
+    let compressedIdDoc = null;
+    let compressedSelfie = null;
+    let selectedServices = [];
+
+    function goToStep(n) {
+      document.querySelectorAll('.wizard-panel').forEach(p => p.classList.toggle('active', p.dataset.panel == n));
+      document.querySelectorAll('.wizard-step').forEach(s => {
+        const stepNum = parseInt(s.dataset.step, 10);
+        s.classList.toggle('active', stepNum === n);
+        s.classList.toggle('done', stepNum < n);
+      });
+      document.getElementById('error').textContent = '';
+      currentStep = n;
+      if (n === 2) buildServiceGrid();
+      if (n === 4) buildReviewSummary();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function validateStep1() {
+      if (!document.getElementById('location').value.trim()) {
+        document.getElementById('error').textContent = 'Please enter the area you serve.';
+        return;
+      }
+      goToStep(2);
+    }
+
+    function buildServiceGrid() {
+      const grid = document.getElementById('serviceGrid');
+      if (grid.dataset.built) return;
+      grid.dataset.built = '1';
+      Object.keys(CATEGORY_COLORS).forEach(name => {
+        const label = document.createElement('label');
+        label.className = 'service-check';
+        label.innerHTML = `<input type="checkbox" value="${name}"><span>${name}</span>`;
+        const input = label.querySelector('input');
+        input.addEventListener('change', () => {
+          label.classList.toggle('checked', input.checked);
+          selectedServices = Array.from(grid.querySelectorAll('input:checked')).map(i => i.value);
+        });
+        grid.appendChild(label);
+      });
+    }
+
+    function validateStep2() {
+      if (selectedServices.length === 0) {
+        document.getElementById('error').textContent = 'Please select at least one service.';
+        return;
+      }
+      goToStep(3);
+    }
+
+    function buildReviewSummary() {
+      const summary = document.getElementById('reviewSummary');
+      summary.innerHTML = `
+        <div class="job-meta"><strong>${escapeHtml(document.getElementById('name').value)}</strong></div>
+        <p class="job-meta">${escapeHtml(document.getElementById('location').value)}${document.getElementById('experienceYears').value ? ` · ${document.getElementById('experienceYears').value} yrs experience` : ''}</p>
+        <p class="job-desc">${selectedServices.map(escapeHtml).join(', ')}</p>
+        <p class="job-meta">${compressedIdDoc || compressedSelfie ? 'Verification documents attached' : 'No verification documents yet — you can add these later from your profile'}</p>
+      `;
+    }
+
+    document.getElementById('photoInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        compressedPhoto = await compressImageFile(file, 320, 0.75);
+        document.getElementById('photoPreview').innerHTML = `<img src="${compressedPhoto}" alt="">`;
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+
+    document.getElementById('idInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        compressedIdDoc = await compressImageFile(file, 800, 0.7);
+        document.getElementById('idSlot').classList.add('has-file');
+        document.getElementById('idSlotLabel').textContent = '✓ ID uploaded';
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+
+    document.getElementById('selfieInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        compressedSelfie = await compressImageFile(file, 500, 0.7);
+        document.getElementById('selfieSlot').classList.add('has-file');
+        document.getElementById('selfieSlotLabel').textContent = '✓ Selfie uploaded';
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+
+    document.getElementById('eyeToggle').addEventListener('click', () => {
+      const pw = document.getElementById('password');
+      pw.type = pw.type === 'password' ? 'text' : 'password';
+    });
+
+    document.getElementById('password').addEventListener('input', (e) => {
+      const strength = checkPasswordStrength(e.target.value);
+      ['length', 'letter', 'number'].forEach(key => {
+        document.getElementById('pw' + key.charAt(0).toUpperCase() + key.slice(1)).classList.toggle('met', strength[key]);
+      });
+    });
+
     function decodeJwtPayload(token) {
       try {
         const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
         return JSON.parse(decodeURIComponent(atob(base64).split('').map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')));
-      } catch (err) {
-        return null;
-      }
-    }
-
-    function applyPrefill(name, email) {
-      if (name) document.getElementById('name').value = name;
-      if (email) document.getElementById('email').value = email;
-      showToast('Details filled in from Google — just set a password to finish.');
+      } catch (err) { return null; }
     }
 
     function handleGoogleCredential(response) {
       const payload = decodeJwtPayload(response.credential);
-      if (payload) applyPrefill(payload.name, payload.email);
+      if (payload) {
+        if (payload.name) document.getElementById('name').value = payload.name;
+        if (payload.email) document.getElementById('email').value = payload.email;
+        showToast('Details filled in from Google — just set a password to finish.');
+      }
     }
 
     fetch('/api/config').then(r => r.json()).then(config => {
@@ -121,35 +265,15 @@
       }, 100);
     }).catch(() => {});
 
-    let compressedPhoto = null;
-
-    document.getElementById('photoInput').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        compressedPhoto = await compressImageFile(file, 320, 0.75);
-        document.getElementById('photoPreview').innerHTML = `<img src="${compressedPhoto}" alt="">`;
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    document.getElementById('eyeToggle').addEventListener('click', () => {
-      const pw = document.getElementById('password');
-      pw.type = pw.type === 'password' ? 'text' : 'password';
-    });
-
-    document.getElementById('password').addEventListener('input', (e) => {
-      const strength = checkPasswordStrength(e.target.value);
-      ['length', 'letter', 'number'].forEach(key => {
-        document.getElementById('pw' + key.charAt(0).toUpperCase() + key.slice(1)).classList.toggle('met', strength[key]);
-      });
-    });
-
-    document.getElementById('signupForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
+    document.getElementById('submitBtn').addEventListener('click', async () => {
       const errorEl = document.getElementById('error');
       errorEl.textContent = '';
+
+      if (!document.getElementById('name').value.trim() || !document.getElementById('phone').value.trim() ||
+          !document.getElementById('email').value.trim() || !document.getElementById('password').value) {
+        errorEl.textContent = 'Please go back and complete the Account step.';
+        return;
+      }
 
       const payload = {
         role: 'provider',
@@ -157,10 +281,13 @@
         phone: document.getElementById('phone').value,
         email: document.getElementById('email').value,
         password: document.getElementById('password').value,
-        category: document.getElementById('category').value,
         location: document.getElementById('location').value,
         bio: document.getElementById('bio').value,
-        photo: compressedPhoto
+        experienceYears: document.getElementById('experienceYears').value ? parseInt(document.getElementById('experienceYears').value, 10) : null,
+        photo: compressedPhoto,
+        services: selectedServices,
+        idDocument: compressedIdDoc,
+        selfie: compressedSelfie
       };
 
       const res = await fetch('/api/signup', {
@@ -172,6 +299,7 @@
 
       if (!res.ok) {
         errorEl.textContent = data.error;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
       window.location.href = '/provider-dashboard.html';
