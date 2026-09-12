@@ -184,6 +184,39 @@ window.refreshOnResume = function (refreshFn) {
   window.addEventListener('focus', () => refreshFn());
 };
 
+// Fills any location text input from the device's real GPS position —
+// reusable anywhere a location field exists, without touching the
+// user's saved profile location.
+window.autofillLocation = function (inputId, btn) {
+  if (!navigator.geolocation) {
+    showToast('Location isn\u2019t supported on this device.', 'error');
+    return;
+  }
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = 'Locating…';
+  btn.disabled = true;
+
+  const restore = () => { btn.innerHTML = originalHtml; btn.disabled = false; };
+
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    try {
+      const res = await fetch(`/api/geocode/reverse?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`);
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      const input = document.getElementById(inputId);
+      input.value = data.formattedAddress;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    } catch (err) {
+      showToast('Couldn\u2019t look up your address right now.', 'error');
+    } finally {
+      restore();
+    }
+  }, () => {
+    showToast('Location permission was denied or unavailable.', 'error');
+    restore();
+  }, { enableHighAccuracy: true, timeout: 10000 });
+};
+
 // --- PWA install prompt ---
 (function () {
   if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {

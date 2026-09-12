@@ -46,12 +46,16 @@
         <a href="/login.html"><button class="btn-outline">Sign in</button></a>
       </div>
       <div class="desktop-trust-row">
-        <div><strong>7</strong><span>Service categories</span></div>
+        <div><strong id="serviceCategoryCount">9</strong><span>Service categories</span></div>
         <div><strong>2</strong><span>Minute booking</span></div>
         <div><strong>100%</strong><span>Reviewed by real clients</span></div>
       </div>
     </div>
   </div>
 
+  <script src="js/categories.js"></script>
+  <script>
+    document.getElementById('serviceCategoryCount').textContent = Object.keys(CATEGORY_COLORS).length;
+  </script>
 </body>
 </html>

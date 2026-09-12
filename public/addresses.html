@@ -29,7 +29,13 @@
         <label class="service-check" style="justify-content:center;"><input type="radio" name="addrLabel" value="work" style="display:none;"><span>Work</span></label>
         <label class="service-check" style="justify-content:center;"><input type="radio" name="addrLabel" value="other" checked style="display:none;"><span>Other</span></label>
       </div>
-      <textarea id="addressText" rows="2" placeholder="Address — e.g. Plot 12, Ntinda Road, Kampala"></textarea>
+      <div class="location-input-wrap">
+        <textarea id="addressText" rows="2" placeholder="Address — e.g. Plot 12, Ntinda Road, Kampala"></textarea>
+        <button type="button" class="location-autofill-btn" onclick="autofillLocation('addressText', this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+          Use GPS
+        </button>
+      </div>
       <input type="text" id="addressNotes" placeholder="Notes (optional) — e.g. Apartment 4B, gate code 1234">
       <label class="role-btn" style="display:flex; flex-direction:row; align-items:center; gap:0.6rem; margin-bottom:0.5rem;">
         <input type="checkbox" id="isDefault" style="width:auto;"><span>Set as default address</span>

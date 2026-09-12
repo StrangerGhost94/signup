@@ -1904,6 +1904,23 @@ app.put('/api/me', requireLogin, asyncHandler(async (req, res) => {
 // alongside it, and reverse-geocodes into a human-readable area before
 // storing. Raw lat/lng are never returned to any OTHER user — only the
 // reverse-geocoded city/district ever gets shown publicly.
+// Reverse-geocodes coordinates into a human address, with no side
+// effects — unlike /api/me/location, this doesn't save anything to the
+// user's profile. Meant for autofilling any location field on demand
+// (job posting, saved addresses, etc.), not just "my current location."
+app.get('/api/geocode/reverse', requireLogin, asyncHandler(async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+  if (isNaN(lat) || isNaN(lng)) {
+    return res.status(400).json({ error: 'Invalid coordinates.' });
+  }
+  const result = await reverseGeocode(lat, lng);
+  if (!result.formattedAddress) {
+    return res.status(502).json({ error: 'Couldn\u2019t determine an address for that location.' });
+  }
+  res.json(result);
+}));
+
 app.post('/api/me/location', requireLogin, asyncHandler(async (req, res) => {
   const { latitude, longitude, accuracy } = req.body;
   if (typeof latitude !== 'number' || typeof longitude !== 'number' || isNaN(latitude) || isNaN(longitude)) {

@@ -49,13 +49,7 @@
 
     <div id="homeContent">
       <div class="cat-pager" id="catPager" style="margin-top:1.25rem;">
-        <button type="button" class="cat-pager-arrow prev hidden" id="catPagerPrev" aria-label="Previous">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 6l-6 6 6 6"/></svg>
-        </button>
         <div class="cat-pager-track" id="catPagerTrack"></div>
-        <button type="button" class="cat-pager-arrow next hidden" id="catPagerNext" aria-label="Next">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
-        </button>
       </div>
       <div class="cat-pager-dots" id="catPagerDots"></div>
 
@@ -171,8 +165,6 @@
 
       const track = document.getElementById('catPagerTrack');
       const dotsWrap = document.getElementById('catPagerDots');
-      const prevBtn = document.getElementById('catPagerPrev');
-      const nextBtn = document.getElementById('catPagerNext');
 
       pages.forEach(pageCats => {
         const page = document.createElement('div');
@@ -192,17 +184,9 @@
         dotsWrap.appendChild(dot);
       });
 
-      function goToPage(index) {
-        track.scrollTo({ left: track.clientWidth * index, behavior: 'smooth' });
-      }
-
       function updatePagerUI() {
         const index = Math.round(track.scrollLeft / track.clientWidth);
         [...dotsWrap.children].forEach((dot, i) => dot.classList.toggle('active', i === index));
-        prevBtn.classList.toggle('hidden', index === 0);
-        nextBtn.classList.toggle('hidden', index === pages.length - 1);
-        prevBtn.onclick = () => goToPage(index - 1);
-        nextBtn.onclick = () => goToPage(index + 1);
       }
       track.addEventListener('scroll', updatePagerUI);
       updatePagerUI();

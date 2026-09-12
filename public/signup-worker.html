@@ -80,7 +80,13 @@
           <label class="service-check"><input type="radio" name="professionalType" value="company"><span>Registered business / company</span></label>
         </div>
 
-        <input type="text" id="location" placeholder="Area you serve — e.g. Ntinda, Kampala" required>
+        <div class="location-input-wrap">
+          <input type="text" id="location" placeholder="Area you serve — e.g. Ntinda, Kampala" required>
+          <button type="button" class="location-autofill-btn" onclick="autofillLocation('location', this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            Use GPS
+          </button>
+        </div>
         <button type="button" id="useLocationBtn" class="btn-outline" style="margin-top:-0.5rem; margin-bottom:1rem; font-size:0.85rem; padding:0.5rem 0.9rem;">
           <span id="useLocationLabel">📍 Use my current location</span>
         </button>

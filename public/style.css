@@ -2012,30 +2012,10 @@ html, body { max-width: 100%; overflow-x: hidden; }
   flex: 0 0 100%;
   scroll-snap-align: start;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  grid-template-columns: repeat(auto-fill, 90px);
+  justify-content: center;
   gap: 0.65rem;
 }
-.cat-pager-arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: var(--bg);
-  box-shadow: var(--shadow-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary-deep);
-  border: none;
-  z-index: 2;
-  transition: opacity 0.15s ease;
-}
-.cat-pager-arrow svg { width: 16px; height: 16px; }
-.cat-pager-arrow.prev { left: -10px; }
-.cat-pager-arrow.next { right: -10px; }
-.cat-pager-arrow.hidden { opacity: 0; pointer-events: none; }
 .cat-pager-dots { display: flex; justify-content: center; gap: 0.4rem; margin-top: 0.85rem; }
 .cat-pager-dot {
   width: 6px; height: 6px; border-radius: 50%;
@@ -2043,3 +2023,25 @@ html, body { max-width: 100%; overflow-x: hidden; }
   transition: background 0.2s ease, transform 0.2s ease;
 }
 .cat-pager-dot.active { background: var(--primary); transform: scale(1.4); }
+
+/* --- GPS location autofill button, inline inside a text input --- */
+.location-input-wrap { position: relative; }
+.location-input-wrap input { padding-right: 3rem; }
+.location-autofill-btn {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: auto;
+  min-height: auto;
+  padding: 0.5rem 0.6rem;
+  background: var(--primary-tint);
+  color: var(--primary-deep);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.location-autofill-btn svg { width: 15px; height: 15px; }
+.location-autofill-btn:hover { background: var(--primary); color: #fff; }

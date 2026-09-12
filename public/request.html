@@ -42,7 +42,13 @@
           <p class="job-meta" id="scheduleError" style="color:var(--danger); margin:0.5rem 0 0;"></p>
         </div>
 
-        <input type="text" id="location" placeholder="Where is the job? (e.g. Ntinda, Kampala)" required>
+        <div class="location-input-wrap">
+          <input type="text" id="location" placeholder="Where is the job? (e.g. Ntinda, Kampala)" required>
+          <button type="button" class="location-autofill-btn" onclick="autofillLocation('location', this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            Use GPS
+          </button>
+        </div>
         <textarea id="locationNotes" rows="2" placeholder="Additional directions (optional) — e.g. Apartment 4B, second floor"></textarea>
 
         <button type="submit">Analyze job</button>

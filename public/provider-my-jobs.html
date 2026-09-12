@@ -111,18 +111,12 @@
         `;
         const actions = card.querySelector('[data-actions]');
 
-        const PROGRESS_ACTIONS = {
-          accepted: { next: 'on-the-way', label: 'On my way' },
-          on_the_way: { next: 'arrived', label: 'Arrived' },
-          arrived: { next: 'start', label: 'Start job' },
-          in_progress: { next: 'complete', label: 'Mark completed' }
-        };
-        if (PROGRESS_ACTIONS[j.status]) {
-          const { next, label } = PROGRESS_ACTIONS[j.status];
+        const ACTIVE_JOB_STATUSES = ['accepted', 'on_the_way', 'arrived', 'in_progress'];
+        if (ACTIVE_JOB_STATUSES.includes(j.status)) {
           const btn = document.createElement('button');
           btn.className = 'small-btn contact-btn';
-          btn.textContent = label;
-          btn.onclick = () => progressJob(j.id, next);
+          btn.textContent = 'Mark completed';
+          btn.onclick = () => progressJob(j.id, 'complete');
           actions.appendChild(btn);
         }
         if (j.status === 'accepted' && !j.pending_price_change_id) {
