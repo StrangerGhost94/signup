@@ -1263,6 +1263,27 @@ function distanceKmServer(lat1, lon1, lat2, lon2) {
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
+
+// Straight-line (crow-flies) distance always understates how far someone
+// actually has to travel, because roads bend, rivers and buildings get in
+// the way, and one-way systems force detours. A "detour factor" is the
+// standard way to approximate real road distance from a straight line
+// without calling a routing service on every single candidate — doing
+// that would mean an external API call per handyman per search, with the
+// latency, rate limits and cost that implies.
+//
+// The factor is distance-dependent because short trips are
+// proportionally more winding (you can't cut through blocks) while
+// longer trips increasingly follow direct main roads.
+function estimateRoadDistanceKm(straightLineKm) {
+  if (straightLineKm === null || straightLineKm === undefined || isNaN(straightLineKm)) return null;
+  let factor;
+  if (straightLineKm < 1) factor = 1.6;
+  else if (straightLineKm < 5) factor = 1.45;
+  else if (straightLineKm < 15) factor = 1.35;
+  else factor = 1.25;
+  return straightLineKm * factor;
+}
 const VALID_COMPLEXITY = ['EASY', 'MEDIUM', 'COMPLEX', 'UNKNOWN'];
 const VALID_CONFIDENCE = ['HIGH', 'MEDIUM', 'LOW'];
 
@@ -2273,8 +2294,20 @@ app.get('/api/specialties', asyncHandler(async (req, res) => {
 
 app.get('/api/workers', requireLogin, asyncHandler(async (req, res) => {
   const { search, category, lat, lng } = req.query;
-  const myLat = lat !== undefined ? parseFloat(lat) : null;
-  const myLng = lng !== undefined ? parseFloat(lng) : null;
+  let myLat = lat !== undefined ? parseFloat(lat) : null;
+  let myLng = lng !== undefined ? parseFloat(lng) : null;
+  if (myLat !== null && isNaN(myLat)) myLat = null;
+  if (myLng !== null && isNaN(myLng)) myLng = null;
+
+  // Same fallback as the matching endpoint — use the saved account
+  // location when no live fix was supplied, so distances still show.
+  if (myLat === null || myLng === null) {
+    const saved = await pool.query('SELECT latitude, longitude FROM users WHERE id = $1', [req.session.userId]);
+    if (saved.rows[0] && saved.rows[0].latitude !== null && saved.rows[0].longitude !== null) {
+      myLat = parseFloat(saved.rows[0].latitude);
+      myLng = parseFloat(saved.rows[0].longitude);
+    }
+  }
   const result = await pool.query(`
     SELECT p.*,
       COALESCE((SELECT status FROM verifications WHERE provider_id = p.id AND type = 'identity'), 'PENDING') AS identity_status,
@@ -3932,8 +3965,23 @@ app.get('/api/matching/candidates', requireRole('client'), asyncHandler(async (r
   if (!isNonEmpty(category)) {
     return res.status(400).json({ error: 'Please specify a category.' });
   }
-  const myLat = lat !== undefined ? parseFloat(lat) : null;
-  const myLng = lng !== undefined ? parseFloat(lng) : null;
+  let myLat = lat !== undefined ? parseFloat(lat) : null;
+  let myLng = lng !== undefined ? parseFloat(lng) : null;
+  if (myLat !== null && isNaN(myLat)) myLat = null;
+  if (myLng !== null && isNaN(myLng)) myLng = null;
+
+  // If the browser couldn't supply a live fix this time (permission
+  // prompt dismissed, GPS cold start, etc.), fall back to the location
+  // already saved on the account rather than losing distance-based
+  // ranking entirely — a slightly stale real coordinate still ranks far
+  // better than no coordinate at all.
+  if (myLat === null || myLng === null) {
+    const saved = await pool.query('SELECT latitude, longitude FROM users WHERE id = $1', [req.session.userId]);
+    if (saved.rows[0] && saved.rows[0].latitude !== null && saved.rows[0].longitude !== null) {
+      myLat = parseFloat(saved.rows[0].latitude);
+      myLng = parseFloat(saved.rows[0].longitude);
+    }
+  }
   const isHighRisk = HIGH_RISK_SERVICES.includes(category);
 
   // --- Hard filters (spec section 19): eligibility, not scoring ---
@@ -3980,11 +4028,16 @@ app.get('/api/matching/candidates', requireRole('client'), asyncHandler(async (r
   const scored = candidates.map(p => {
     const dist = (myLat !== null && myLng !== null && p.latitude !== null)
       ? distanceKmServer(myLat, myLng, p.latitude, p.longitude) : null;
+    // Road distance is what actually matters for "can they get here"
+    // and "how far is this really" — a handyman 4km away as the crow
+    // flies but across a river is not a 4km trip.
+    const roadDist = estimateRoadDistanceKm(dist);
 
     // Outside their radius and not opted into long-distance jobs — treat
     // as a hard filter here rather than in the SQL above, since we need
-    // the computed distance to know.
-    if (dist !== null && dist > p.service_radius_km && !p.long_distance_jobs_enabled) {
+    // the computed distance to know. Checked against road distance,
+    // since a service radius is really about how far they'll travel.
+    if (roadDist !== null && roadDist > p.service_radius_km && !p.long_distance_jobs_enabled) {
       return null;
     }
 
@@ -4002,10 +4055,11 @@ app.get('/api/matching/candidates', requireRole('client'), asyncHandler(async (r
     reliabilityScore -= Math.min(p.dispute_count * 10, 30);
     reliabilityScore = Math.max(0, Math.min(100, reliabilityScore));
 
-    // C. Distance — closer is better, but capped contribution, not dominant
+    // C. Distance — closer is better, but capped contribution, not dominant.
+    // Uses estimated road distance so ranking reflects real travel.
     let distanceScore = 50;
-    if (dist !== null) {
-      distanceScore = Math.max(0, 100 - (dist / Math.max(p.service_radius_km, 1)) * 100);
+    if (roadDist !== null) {
+      distanceScore = Math.max(0, 100 - (roadDist / Math.max(p.service_radius_km, 1)) * 100);
     }
 
     // D. Price/value — thin signal without real transaction history yet;
@@ -4049,7 +4103,8 @@ app.get('/api/matching/candidates', requireRole('client'), asyncHandler(async (r
       experience_years: p.experience_years, availability_status: p.availability_status,
       category_verified: p.skill_status === 'VERIFIED', specialties: p.specialties || [],
       identity_status: p.identity_status, phone_status: p.phone_status,
-      completed_jobs: p.total_completed_jobs, similar_jobs: p.category_completed_jobs, distanceKm: dist,
+      completed_jobs: p.total_completed_jobs, similar_jobs: p.category_completed_jobs,
+      distanceKm: dist, roadDistanceKm: roadDist,
       isFavorite: favoriteIds.has(p.id),
       _scores: { skillScore, reliabilityScore, distanceScore, priceScore, experienceScore, availabilityScore, overall }
     };

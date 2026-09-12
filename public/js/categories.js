@@ -208,15 +208,27 @@ window.getAccurateLocation = function () {
     }
     let best = null;
     let attempts = 0;
-    const maxAttempts = 3;
+    const maxAttempts = 5;
+    // Accuracy (metres) we consider a real GPS-grade fix worth stopping
+    // on. Below this, extra readings rarely improve things and just cost
+    // time and battery. Above it, we're likely still on a coarse
+    // wifi/cell-tower estimate and it's worth sampling again — the
+    // device fuses GPS, wifi and cellular itself and typically reports
+    // progressively better accuracy as the GPS receiver settles.
+    const GOOD_ACCURACY_M = 25;
+    // Never keep the user waiting longer than this overall, however
+    // poor the readings are — we resolve with the best we have.
+    const OVERALL_BUDGET_MS = 15000;
+    const startedAt = Date.now();
 
     function takeReading() {
       attempts++;
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
-          const goodEnough = pos.coords.accuracy <= 30;
-          if (goodEnough || attempts >= maxAttempts) {
+          const goodEnough = best.coords.accuracy <= GOOD_ACCURACY_M;
+          const outOfBudget = Date.now() - startedAt > OVERALL_BUDGET_MS;
+          if (goodEnough || attempts >= maxAttempts || outOfBudget) {
             resolve(best);
           } else {
             takeReading();
@@ -231,6 +243,10 @@ window.getAccurateLocation = function () {
           if (best) resolve(best);
           else reject(err);
         },
+        // enableHighAccuracy asks the device for its best available
+        // positioning — on a phone that means engaging GPS rather than
+        // settling for a cached network-based estimate. maximumAge: 0
+        // forbids returning a stale cached fix.
         // Only the first call needs a generous timeout — it's the one
         // covering however long the person takes to notice and respond
         // to the permission prompt. By the second call, permission is
@@ -563,11 +579,15 @@ window.promptForLocation = function (onResult) {
   const KEY = 'locationPromptDismissedSession';
 
   function actuallyGetPosition() {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => onResult(pos.coords.latitude, pos.coords.longitude),
-      () => onResult(null, null),
-      { timeout: 8000 }
-    );
+    // Previously this took a single reading with enableHighAccuracy
+    // off — a coarse wifi/cell-tower fix that could be hundreds of
+    // metres out, which then fed straight into handyman distance
+    // ranking. Routing through getAccurateLocation() reuses the same
+    // high-accuracy multi-reading sampler used elsewhere in the app,
+    // so matching distances are based on a real GPS-grade fix.
+    getAccurateLocation()
+      .then((pos) => onResult(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy))
+      .catch(() => onResult(null, null, null));
   }
 
   if (!navigator.geolocation) {

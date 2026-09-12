@@ -106,7 +106,8 @@
       // order does. "Recommended" keeps the matching engine's own order.
       let sorted = [...lastFetchedWorkers];
       if (activeSort === 'nearest') {
-        sorted.sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
+        const distOf = w => w.roadDistanceKm ?? w.distanceKm ?? Infinity;
+        sorted.sort((a, b) => distOf(a) - distOf(b));
       } else if (activeSort === 'rated') {
         sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
       } else if (activeSort === 'price') {
@@ -168,7 +169,8 @@
         const card = document.createElement('div');
         card.className = 'worker-card' + (w.matchLabel === 'Best Match' ? ' top-match' : '');
         card.style.setProperty('--cat-color', color);
-        const distanceLabel = (w.distanceKm !== null && w.distanceKm !== undefined) ? `${w.distanceKm.toFixed(1)} km away` : null;
+        const shownDistance = w.roadDistanceKm ?? w.distanceKm;
+        const distanceLabel = (shownDistance !== null && shownDistance !== undefined) ? `${shownDistance.toFixed(1)} km away` : null;
         const AVAILABILITY_LABELS = { available_now: '● Available now', available_today: 'Available today', available_later: 'Available later', not_available: 'Not currently available' };
         const availabilityLabel = AVAILABILITY_LABELS[w.availability_status];
         const jobsCount = (w.similar_jobs != null && w.similar_jobs > 0) ? w.similar_jobs : w.completed_jobs;
