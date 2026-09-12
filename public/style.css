@@ -559,7 +559,7 @@ body.app-body {
   align-items: center;
   justify-content: center;
 }
-.home-cat-tile svg { width: 20px; height: 20px; }
+.home-cat-tile svg { width: 22px; height: 22px; }
 .home-cat-tile span { font-size: 0.78rem; font-weight: 600; color: var(--ink); }
 
 .browse-toggle {
@@ -844,7 +844,7 @@ body.app-body {
   color: var(--ink);
   position: relative;
 }
-.bell-btn svg { width: 19px; height: 19px; }
+.bell-btn svg { width: 21px; height: 21px; }
 .bell-dot {
   position: absolute;
   top: 8px;
@@ -902,7 +902,7 @@ body.app-body {
   background: color-mix(in srgb, var(--cat-color, var(--primary)) 15%, white);
   color: var(--cat-color, var(--primary));
 }
-.recent-job-icon svg { width: 19px; height: 19px; }
+.recent-job-icon svg { width: 21px; height: 21px; }
 .recent-job-info { flex: 1; min-width: 0; }
 .recent-job-info strong { display: block; font-size: 0.92rem; }
 .recent-job-info span { font-size: 0.8rem; color: var(--ink-soft); }
@@ -993,7 +993,7 @@ body.app-body {
   justify-content: center;
   flex-shrink: 0;
 }
-.big-choice-icon svg { width: 22px; height: 22px; }
+.big-choice-icon svg { width: 24px; height: 24px; }
 .big-choice-text { flex: 1; min-width: 0; }
 .big-choice-text strong { display: block; font-size: 0.98rem; font-weight: 700; color: var(--ink); }
 .big-choice-text span { font-size: 0.82rem; color: var(--ink-soft); }
@@ -1508,6 +1508,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
   transition: transform 0.15s var(--spring), background 0.15s ease;
 }
 .chat-back:active { transform: scale(0.88); background: var(--surface-alt); }
+.chat-back svg { width: 19px; height: 19px; }
 .chat-header h1 { font-size: 1.15rem; font-weight: 800; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-header span { font-size: 0.8rem; color: var(--ink-soft); }
 .chat-header > div:last-child { min-width: 0; flex: 1; }
@@ -1603,7 +1604,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
 }
 .suggestion-row:hover, .suggestion-row.highlighted { background: var(--surface); }
 .suggestion-row .icon-chip { width: 34px; height: 34px; border-radius: 10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-.suggestion-row .icon-chip svg { width: 17px; height: 17px; }
+.suggestion-row .icon-chip svg { width: 18px; height: 18px; }
 .suggestion-row span { font-size: 0.9rem; font-weight: 600; color: var(--ink); }
 
 /* --- Onboarding wizard progress indicator --- */
@@ -2061,7 +2062,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
   margin-bottom: 0.7rem;
 }
 .decision-card.recommended .decision-card-icon { background: var(--primary); color: #fff; }
-.decision-card-icon svg { width: 20px; height: 20px; }
+.decision-card-icon svg { width: 21px; height: 21px; }
 .decision-card strong { display: block; font-size: 0.98rem; margin-bottom: 0.3rem; }
 .decision-card p { font-size: 0.84rem; color: var(--ink-soft); margin: 0 0 0.5rem; line-height: 1.45; }
 .decision-card .decision-cta { font-size: 0.82rem; font-weight: 700; color: var(--primary-deep); }
@@ -2269,7 +2270,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
   display: flex; align-items: center; justify-content: center;
   margin-bottom: 0.75rem;
 }
-.admin-stat-card .stat-icon svg { width: 17px; height: 17px; }
+.admin-stat-card .stat-icon svg { width: 18px; height: 18px; }
 .admin-stat-card .stat-value { font-family: var(--font-system); font-size: 1.6rem; font-weight: 800; line-height: 1; }
 .admin-stat-card .stat-label { font-size: 0.78rem; color: var(--ink-soft); margin-top: 0.35rem; }
 .admin-stat-card.alert .stat-value { color: var(--danger); }
