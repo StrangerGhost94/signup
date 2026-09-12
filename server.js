@@ -363,6 +363,11 @@ async function initDb() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_start SMALLINT`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_end SMALLINT`);
 
+  // Personal profile picture — previously only providers (via their
+  // business listing) could set a photo; this gives every user,
+  // client or provider, the same freedom to set their own.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS photo TEXT`);
+
   // Real push notifications — delivered to the device even when the app
   // isn't open, unlike the in-app bell (which only works while a tab is
   // active and polling). One row per subscribed device/browser.
@@ -1920,7 +1925,7 @@ app.get('/api/me', asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'Not logged in.' });
   }
   const result = await pool.query(
-    'SELECT id, email, role, name, phone, created_at, latitude, longitude, city, district, notifications_enabled, notification_categories, quiet_hours_start, quiet_hours_end FROM users WHERE id = $1',
+    'SELECT id, email, role, name, phone, photo, created_at, latitude, longitude, city, district, notifications_enabled, notification_categories, quiet_hours_start, quiet_hours_end FROM users WHERE id = $1',
     [req.session.userId]
   );
   if (result.rows.length === 0) {
@@ -1942,6 +1947,21 @@ app.put('/api/me', requireLogin, asyncHandler(async (req, res) => {
     [name.trim(), phone.trim(), req.session.userId]
   );
   res.json(result.rows[0]);
+}));
+
+// Separate from the name/phone form on purpose — a WhatsApp-style tap
+// on the avatar should update just the photo, not require re-submitting
+// the rest of the profile.
+app.put('/api/me/photo', requireLogin, asyncHandler(async (req, res) => {
+  const { photo } = req.body;
+  if (!isNonEmpty(photo)) {
+    return res.status(400).json({ error: 'Please choose a photo.' });
+  }
+  if (!isValidPhoto(photo)) {
+    return res.status(400).json({ error: 'That photo is too large or in an unsupported format.' });
+  }
+  const result = await pool.query('UPDATE users SET photo = $1 WHERE id = $2 RETURNING photo', [photo, req.session.userId]);
+  res.json({ photo: result.rows[0].photo });
 }));
 
 // Unified location capture for BOTH roles — this is the one real place
@@ -2435,6 +2455,22 @@ app.put('/api/provider/me', requireRole('provider'), async (req, res) => {
     res.status(500).json({ error: 'Something went wrong saving your profile.' });
   }
 });
+
+// Same idea as the client's /api/me/photo — a quick tap-to-change photo
+// from the profile hub, without needing to resubmit the whole business
+// listing form.
+app.put('/api/provider/me/photo', requireRole('provider'), asyncHandler(async (req, res) => {
+  const { photo } = req.body;
+  if (!isNonEmpty(photo)) {
+    return res.status(400).json({ error: 'Please choose a photo.' });
+  }
+  if (!isValidPhoto(photo)) {
+    return res.status(400).json({ error: 'That photo is too large or in an unsupported format.' });
+  }
+  const result = await pool.query('UPDATE providers SET photo = $1 WHERE user_id = $2 RETURNING photo', [photo, req.session.userId]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'No provider profile found.' });
+  res.json({ photo: result.rows[0].photo });
+}));
 
 // Fixes a real gap: service radius, pricing preferences, and availability
 // were only ever collected once at signup with no way to change them
