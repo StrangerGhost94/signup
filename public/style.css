@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
   --bg: #FFFFFF;
@@ -28,12 +28,23 @@
      tabs, toggles, sheets. */
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* -apple-system / BlinkMacSystemFont tell the browser to use the
+     OS's own native system font — on a Mac or iPhone that's genuinely
+     San Francisco, rendered by the OS itself. Apple's SF font files
+     aren't licensed for embedding on arbitrary websites, so this
+     system-font-stack technique is the correct, legitimate way to get
+     real SF rendering rather than a downloaded imitation. Inter stays
+     as the fallback for Windows/Android/Linux, where -apple-system
+     doesn't resolve to anything, so those users still get a clean,
+     premium-feeling font rather than a generic default.
+  */
+  --font-system: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-system);
   background: var(--bg);
   color: var(--ink);
   margin: 0;
@@ -42,7 +53,7 @@ body {
 }
 
 h1, h2, h3, .brand {
-  font-family: 'Manrope', sans-serif;
+  font-family: var(--font-system);
   letter-spacing: -0.01em;
 }
 
@@ -1288,7 +1299,7 @@ body.app-body {
   padding: 1.25rem 1.1rem;
 }
 .stat-card .stat-value {
-  font-family: 'Manrope', sans-serif;
+  font-family: var(--font-system);
   font-size: 1.7rem;
   font-weight: 800;
   color: var(--primary-deep);
@@ -2241,7 +2252,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
   margin-bottom: 0.75rem;
 }
 .admin-stat-card .stat-icon svg { width: 17px; height: 17px; }
-.admin-stat-card .stat-value { font-family: 'Manrope', sans-serif; font-size: 1.6rem; font-weight: 800; line-height: 1; }
+.admin-stat-card .stat-value { font-family: var(--font-system); font-size: 1.6rem; font-weight: 800; line-height: 1; }
 .admin-stat-card .stat-label { font-size: 0.78rem; color: var(--ink-soft); margin-top: 0.35rem; }
 .admin-stat-card.alert .stat-value { color: var(--danger); }
 
