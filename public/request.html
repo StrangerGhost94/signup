@@ -219,11 +219,40 @@
               <p style="margin:0.5rem 0 0; color:var(--ink-soft);">Feel free to add these details to your description and try again, or continue as-is.</p>
             </div>` : ''}
 
-          <button type="button" onclick="proceedToMatches()">Find a Handyman →</button>
-          <button type="button" class="btn-outline" style="margin-top:0.6rem;" onclick="postOpenJob()">Get multiple quotes instead</button>
-          <button type="button" class="btn-outline" style="margin-top:0.6rem;" onclick="backToForm()">Edit description</button>
+          <div class="decision-cards" id="decisionCards"></div>
+          <p class="switch" style="text-align:center; margin-top:0.85rem;"><a href="#" id="editDescLink">Edit description</a></p>
         </div>
       `;
+
+      renderDecisionCards(a);
+      document.getElementById('editDescLink').addEventListener('click', (e) => { e.preventDefault(); backToForm(); });
+    }
+
+    // Complex or higher-value jobs benefit more from comparing several
+    // quotes; quick, well-understood jobs benefit more from just booking
+    // a strong match fast. Recommend accordingly instead of presenting
+    // both options as if they're equally right for every job.
+    function renderDecisionCards(a) {
+      const recommendOffers = a.complexity === 'COMPLEX' || a.total_max >= 300000;
+      const container = document.getElementById('decisionCards');
+      container.innerHTML = `
+        <button type="button" class="decision-card${recommendOffers ? '' : ' recommended'}" id="bookDirectCard">
+          ${recommendOffers ? '' : '<span class="decision-card-badge">Recommended</span>'}
+          <div class="decision-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></div>
+          <strong>Book a specific pro</strong>
+          <p>Browse verified pros near you, ranked by fit, and book one directly.</p>
+          <span class="decision-cta">Browse pros →</span>
+        </button>
+        <button type="button" class="decision-card${recommendOffers ? ' recommended' : ''}" id="getOffersCard">
+          ${recommendOffers ? '<span class="decision-card-badge">Recommended</span>' : ''}
+          <div class="decision-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg></div>
+          <strong>Get multiple offers</strong>
+          <p>Post this job and compare quotes from several pros before choosing.</p>
+          <span class="decision-cta">Post & compare →</span>
+        </button>
+      `;
+      document.getElementById('bookDirectCard').addEventListener('click', proceedToMatches);
+      document.getElementById('getOffersCard').addEventListener('click', postOpenJob);
     }
 
     function proceedToMatches() {

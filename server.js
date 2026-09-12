@@ -61,9 +61,10 @@ const ESTIMATE_MIDPOINTS = {
   'Carpentry': 62500,
   'Painting': 325000,
   'Cleaning': 47500,
-  'Gardening': 40000,
   'Moving': 165000,
-  'Mechanical': 125000
+  'Mechanical': 125000,
+  'Realtor': 175000,
+  'Construction': 1150000
 };
 
 const SEED_PROVIDERS = [
@@ -72,7 +73,7 @@ const SEED_PROVIDERS = [
   { name: 'Moses Kato', category: 'Carpentry', location: 'Bugolobi', rating: 4.6, phone: '+256703333333', bio: 'Furniture repair, custom shelving, door fitting.' },
   { name: 'Grace Auma', category: 'Painting', location: 'Kololo', rating: 4.7, phone: '+256704444444', bio: 'Interior and exterior painting, feature walls.' },
   { name: 'Peter Ssali', category: 'Cleaning', location: 'Naalya', rating: 4.5, phone: '+256705555555', bio: 'Deep cleaning, move-in/move-out cleaning, offices.' },
-  { name: 'Ruth Achieng', category: 'Gardening', location: 'Muyenga', rating: 4.8, phone: '+256706666666', bio: 'Landscaping, lawn care, hedge trimming.' },
+  { name: 'Ruth Achieng', category: 'Construction', location: 'Muyenga', rating: 4.8, phone: '+256706666666', bio: 'Renovations, extensions, site supervision.' },
   { name: 'David Wamala', category: 'Moving', location: 'Kansanga', rating: 4.4, phone: '+256707777777', bio: 'House and office moving, has own truck.' },
   { name: 'Betty Nakato', category: 'Plumbing', location: 'Kyanja', rating: 4.6, phone: '+256708888888', bio: 'Kitchen and bathroom plumbing specialist.' },
   { name: 'Isaac Mugisha', category: 'Electrical', location: 'Bukoto', rating: 4.7, phone: '+256709999999', bio: 'Generator installs, solar wiring, home rewiring.' },
@@ -666,13 +667,19 @@ async function initDb() {
   // and back-fill worker_services + verifications for existing providers
   // so later phases (trust badges, admin dashboard) have consistent data
   // instead of holes for every account that predates this feature.
-  const SERVICE_SEED = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Gardening', 'Moving', 'Mechanical'];
+  const SERVICE_SEED = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Moving', 'Mechanical', 'Realtor', 'Construction'];
   for (const name of SERVICE_SEED) {
     await pool.query(
       `INSERT INTO services (name, slug) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING`,
       [name, name.toLowerCase()]
     );
   }
+
+  // Removing a service safely means deactivating it, not deleting it —
+  // any existing provider, booking, or specialty tied to Gardening keeps
+  // working exactly as it did; it just no longer appears as a selectable
+  // option for anyone new.
+  await pool.query(`UPDATE services SET active = FALSE WHERE name = 'Gardening'`);
 
   // Seed the specialty taxonomy (spec section 5), admin-editable from
   // here on — this is a one-time bootstrap, not a hard-coded limit.
@@ -682,9 +689,10 @@ async function initDb() {
     'Carpentry': ['Furniture repair', 'Door repair', 'Cabinet installation', 'Shelving', 'Woodwork'],
     'Painting': ['Interior painting', 'Exterior painting', 'Wall preparation', 'Repainting', 'Decorative painting'],
     'Cleaning': ['Deep cleaning', 'Move-in/move-out cleaning', 'Office cleaning', 'Post-construction cleaning'],
-    'Gardening': ['Landscaping', 'Lawn care', 'Hedge trimming', 'Tree pruning'],
     'Moving': ['House moving', 'Office moving', 'Furniture moving', 'Packing'],
-    'Mechanical': ['Engine repair', 'Brake service', 'Diagnostics', 'General maintenance']
+    'Mechanical': ['Engine repair', 'Brake service', 'Diagnostics', 'General maintenance'],
+    'Realtor': ['Property viewing', 'Rental listing', 'Property valuation', 'Tenant sourcing', 'Sale negotiation'],
+    'Construction': ['Foundation work', 'Roofing', 'Masonry', 'Renovation', 'Extension/additions', 'Site supervision']
   };
   for (const [serviceName, specs] of Object.entries(SPECIALTY_SEED)) {
     const svcRow = await pool.query('SELECT id FROM services WHERE name = $1', [serviceName]);
@@ -805,9 +813,10 @@ async function initDb() {
     'Carpentry': { lMin: 21000, lMax: 54000, mMin: 14000, mMax: 36000 },
     'Painting': { lMin: 90000, lMax: 300000, mMin: 60000, mMax: 200000 },
     'Cleaning': { lMin: 15000, lMax: 42000, mMin: 10000, mMax: 28000 },
-    'Gardening': { lMin: 12000, lMax: 36000, mMin: 8000, mMax: 24000 },
     'Moving': { lMin: 48000, lMax: 150000, mMin: 32000, mMax: 100000 },
-    'Mechanical': { lMin: 30000, lMax: 120000, mMin: 20000, mMax: 80000 }
+    'Mechanical': { lMin: 30000, lMax: 120000, mMin: 20000, mMax: 80000 },
+    'Realtor': { lMin: 35000, lMax: 210000, mMin: 15000, mMax: 90000 },
+    'Construction': { lMin: 120000, lMax: 800000, mMin: 180000, mMax: 1200000 }
   };
   for (const [name, r] of Object.entries(PRICING_SEED)) {
     const svc = await pool.query('SELECT id FROM services WHERE name = $1', [name]);
@@ -833,10 +842,62 @@ async function initDb() {
       );
     }
   }
+
+  // Fix every foreign key to users(id) that was created with no ON
+  // DELETE behavior at all — Postgres defaults those to NO ACTION,
+  // which blocks deleting a user outright (a constraint violation) the
+  // moment they have any related row, which is true for nearly any real
+  // account. This is the actual cause of admin user-deletion failing.
+  // Looked up dynamically rather than guessing Postgres's auto-generated
+  // constraint names, then recreated with the semantically correct
+  // action: SET NULL for "who reviewed/actioned this" audit-style
+  // references (the record should survive, just anonymized), CASCADE
+  // for core participant references (the row belongs to that user).
+  const FK_FIXES = [
+    { table: 'worker_services', column: 'verified_by', action: 'SET NULL' },
+    { table: 'verifications', column: 'reviewed_by', action: 'SET NULL' },
+    { table: 'credentials', column: 'reviewed_by', action: 'SET NULL' },
+    { table: 'disputes', column: 'resolved_by', action: 'SET NULL' },
+    { table: 'suspensions', column: 'admin_id', action: 'SET NULL' },
+    { table: 'price_change_requests', column: 'requested_by', action: 'CASCADE' },
+    { table: 'payments', column: 'client_user_id', action: 'CASCADE' }
+  ];
+  for (const fix of FK_FIXES) {
+    try {
+      const constraintResult = await pool.query(`
+        SELECT tc.constraint_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+        WHERE tc.table_name = $1 AND kcu.column_name = $2 AND tc.constraint_type = 'FOREIGN KEY'
+      `, [fix.table, fix.column]);
+      if (constraintResult.rows.length === 0) continue;
+      const constraintName = constraintResult.rows[0].constraint_name;
+
+      // SET NULL requires the column itself to allow NULL.
+      if (fix.action === 'SET NULL') {
+        await pool.query(`ALTER TABLE ${fix.table} ALTER COLUMN ${fix.column} DROP NOT NULL`);
+      }
+      await pool.query(`ALTER TABLE ${fix.table} DROP CONSTRAINT "${constraintName}"`);
+      await pool.query(`ALTER TABLE ${fix.table} ADD CONSTRAINT ${fix.table}_${fix.column}_fkey
+        FOREIGN KEY (${fix.column}) REFERENCES users(id) ON DELETE ${fix.action}`);
+    } catch (err) {
+      console.error(`Failed to fix FK ${fix.table}.${fix.column}:`, err.message);
+    }
+  }
 }
 
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    // Always revalidate HTML/JS/CSS with the server before using any
+    // cached copy — this is what guarantees a deploy is visible on the
+    // very next page load instead of a browser or PWA silently serving
+    // a stale version it cached from before the update.
+    if (/\.(html|js|css)$/.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  }
+}));
 
 app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
@@ -1124,11 +1185,11 @@ const identityVerificationProvider = {
 // numbers actually shown to the customer.
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || null;
-const VALID_SERVICES = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Gardening', 'Moving', 'Mechanical', 'General Handyman', 'Other'];
+const VALID_SERVICES = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Moving', 'Mechanical', 'Realtor', 'Construction', 'General Handyman', 'Other'];
 // Spec section 17: work that can injure someone or cause real damage if
 // done badly — booking one of these requires the provider to be VERIFIED
 // for that exact service, not just generally approved on the platform.
-const HIGH_RISK_SERVICES = ['Electrical', 'Mechanical'];
+const HIGH_RISK_SERVICES = ['Electrical', 'Mechanical', 'Construction'];
 
 function distanceKmServer(lat1, lon1, lat2, lon2) {
   if ([lat1, lon1, lat2, lon2].some(v => v === null || v === undefined || isNaN(v))) return null;
@@ -1159,7 +1220,7 @@ const AI_SYSTEM_PROMPT = `You are a job classifier for HandyLink, a home-service
 
 Respond with ONLY a JSON object, no other text, matching exactly this shape:
 {
-  "service": one of ["Plumbing","Electrical","Carpentry","Painting","Cleaning","Gardening","Moving","Mechanical","General Handyman","Other"],
+  "service": one of ["Plumbing","Electrical","Carpentry","Painting","Cleaning","Moving","Mechanical","Realtor","Construction","General Handyman","Other"],
   "job_type": short string, e.g. "Kitchen sink leak",
   "problem_summary": one or two sentences, using cautious language ("appears to be", "likely", "cannot confirm without inspection") — never claim certainty, especially from a photo,
   "complexity": one of ["EASY","MEDIUM","COMPLEX","UNKNOWN"] — use UNKNOWN rather than guessing,
@@ -3893,6 +3954,50 @@ app.get('/api/admin/flagged-messages', requireRole('admin'), asyncHandler(async 
 }));
 
 // --- Global audit log: the one "show me everything that happened" screen ---
+
+// --- Global users directory (all clients and providers, one screen) ---
+
+app.get('/api/admin/users', requireRole('admin'), asyncHandler(async (req, res) => {
+  const { search, role, status, beforeId } = req.query;
+  const limit = Math.min(parseInt(req.query.limit, 10) || 25, 100);
+
+  const conditions = [];
+  const params = [];
+
+  if (role) {
+    params.push(role);
+    conditions.push(`u.role = $${params.length}`);
+  }
+  if (status) {
+    params.push(status);
+    conditions.push(`u.account_status = $${params.length}`);
+  }
+  if (search) {
+    params.push(`%${search}%`);
+    conditions.push(`(u.email ILIKE $${params.length} OR u.name ILIKE $${params.length} OR u.phone ILIKE $${params.length})`);
+  }
+  if (beforeId) {
+    params.push(beforeId);
+    conditions.push(`u.id < $${params.length}`);
+  }
+
+  const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+  params.push(limit + 1);
+
+  const result = await pool.query(
+    `SELECT u.id, u.email, u.name, u.phone, u.role, u.account_status, u.created_at, u.last_active_at,
+            p.id AS provider_id, p.approval_status, p.rating, p.category
+     FROM users u LEFT JOIN providers p ON p.user_id = u.id
+     ${where}
+     ORDER BY u.id DESC
+     LIMIT $${params.length}`,
+    params
+  );
+
+  const hasMore = result.rows.length > limit;
+  const users = hasMore ? result.rows.slice(0, limit) : result.rows;
+  res.json({ users, hasMore });
+}));
 
 app.get('/api/admin/audit-log-actions', requireRole('admin'), asyncHandler(async (req, res) => {
   const result = await pool.query('SELECT DISTINCT action FROM audit_logs ORDER BY action');

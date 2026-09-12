@@ -18,6 +18,7 @@
     <button class="admin-tab" data-section="pricing">Pricing</button>
     <button class="admin-tab" data-section="safety">Safety</button>
     <button class="admin-tab" data-section="audit">Audit Log</button>
+    <button class="admin-tab" data-section="users">Users</button>
   </div>
 
   <div id="applicationsSection">
@@ -34,6 +35,7 @@
   <div id="pricingSection" class="admin-list" style="display:none;"></div>
   <div id="safetySection" class="admin-list" style="display:none;"></div>
   <div id="auditSection" class="admin-list" style="display:none;"></div>
+  <div id="usersSection" class="admin-list" style="display:none;"></div>
 
   <script src="js/categories.js"></script>
   <script>
@@ -57,9 +59,11 @@
         document.getElementById('pricingSection').style.display = section === 'pricing' ? 'block' : 'none';
         document.getElementById('safetySection').style.display = section === 'safety' ? 'block' : 'none';
         document.getElementById('auditSection').style.display = section === 'audit' ? 'block' : 'none';
+        document.getElementById('usersSection').style.display = section === 'users' ? 'block' : 'none';
         if (section === 'pricing') loadPricing();
         if (section === 'safety') loadSafety();
         if (section === 'audit') initAuditLog();
+        if (section === 'users') initUsersDirectory();
       });
     });
 
@@ -488,6 +492,7 @@
       document.querySelector('.admin-detail-overlay')?.remove();
       loadApplications();
       loadSafety();
+      if (usersBuilt) loadUsers(false);
     }
 
     async function suspendReportedUser(userId) {
@@ -504,6 +509,120 @@
 
     let auditBuilt = false;
     let lastAuditId = null;
+
+    let usersBuilt = false;
+    let lastUserId = null;
+
+    async function initUsersDirectory() {
+      const section = document.getElementById('usersSection');
+      if (!usersBuilt) {
+        usersBuilt = true;
+        section.innerHTML = `
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;">
+            <input type="text" id="userSearch" placeholder="Search name, email, or phone..." style="flex:1; min-width:200px; margin-bottom:0;">
+            <select id="userRoleFilter" style="width:auto; padding:0.85rem 1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
+              <option value="">All roles</option>
+              <option value="client">Clients</option>
+              <option value="provider">Providers</option>
+              <option value="admin">Admins</option>
+            </select>
+            <select id="userStatusFilter" style="width:auto; padding:0.85rem 1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
+              <option value="">Any status</option>
+              <option value="NORMAL">Normal</option>
+              <option value="SUSPENDED">Suspended</option>
+              <option value="BANNED">Banned</option>
+            </select>
+          </div>
+          <div id="usersList"></div>
+          <button type="button" id="usersLoadMore" class="btn-outline" style="display:none; margin-top:0.75rem;">Load more</button>
+        `;
+
+        let searchDebounce;
+        document.getElementById('userSearch').addEventListener('input', () => {
+          clearTimeout(searchDebounce);
+          searchDebounce = setTimeout(() => loadUsers(false), 300);
+        });
+        document.getElementById('userRoleFilter').addEventListener('change', () => loadUsers(false));
+        document.getElementById('userStatusFilter').addEventListener('change', () => loadUsers(false));
+        document.getElementById('usersLoadMore').addEventListener('click', () => loadUsers(true));
+      }
+      loadUsers(false);
+    }
+
+    async function loadUsers(append) {
+      const list = document.getElementById('usersList');
+      if (!append) {
+        list.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+        lastUserId = null;
+      }
+
+      const params = new URLSearchParams();
+      const search = document.getElementById('userSearch').value.trim();
+      const role = document.getElementById('userRoleFilter').value;
+      const status = document.getElementById('userStatusFilter').value;
+      if (search) params.set('search', search);
+      if (role) params.set('role', role);
+      if (status) params.set('status', status);
+      if (append && lastUserId) params.set('beforeId', lastUserId);
+
+      const res = await fetch('/api/admin/users?' + params.toString());
+      if (!res.ok) { list.innerHTML = errorStateHtml(''); return; }
+      const data = await res.json();
+
+      if (!append) list.innerHTML = '';
+      if (!append && data.users.length === 0) {
+        list.innerHTML = `<div class="empty-state"><strong>No matching users</strong>Try a different search or filter.</div>`;
+      }
+      data.users.forEach(u => {
+        const row = document.createElement('div');
+        row.className = 'user-row';
+        const statusColors = { NORMAL: ['#0B6E4F', '#E6F4EC'], SUSPENDED: ['#B45309', '#FEF3C7'], BANNED: ['#B91C1C', '#FEE2E2'] };
+        const [sColor, sBg] = statusColors[u.account_status] || statusColors.NORMAL;
+        row.innerHTML = `
+          <div class="avatar">${initials(u.name || u.email)}</div>
+          <div class="user-row-info">
+            <strong>${escapeHtml(u.name || u.email)}</strong>
+            <span>${escapeHtml(u.email)}${u.phone ? ' · ' + escapeHtml(u.phone) : ''}</span>
+            <div class="user-row-badges">
+              <span class="user-role-pill">${escapeHtml(u.role)}</span>
+              <span class="verif-badge" style="color:${sColor}; background:${sBg};">${escapeHtml(u.account_status)}</span>
+              ${u.provider_id ? `<span class="verif-badge" style="color:#1D4ED8; background:#DBEAFE;">${escapeHtml(u.approval_status)}</span>` : ''}
+              ${u.provider_id ? `<span class="user-role-pill">★ ${u.rating || '—'}</span>` : ''}
+            </div>
+          </div>
+          <div class="user-row-actions">
+            ${u.account_status === 'SUSPENDED'
+              ? `<button class="small-btn" onclick="reinstateUser(${u.id})">Reinstate</button>`
+              : `<button class="small-btn btn-outline" onclick="promptSuspendUser(${u.id})">Suspend</button>`}
+            <button class="small-btn btn-decline" onclick="deleteUser(${u.id}, '${escapeHtml(u.email)}')">Delete</button>
+          </div>
+        `;
+        list.appendChild(row);
+        lastUserId = u.id;
+      });
+
+      document.getElementById('usersLoadMore').style.display = data.hasMore ? 'block' : 'none';
+    }
+
+    async function promptSuspendUser(userId) {
+      const reason = prompt('Reason for suspending this account:');
+      if (!reason) return;
+      const res = await fetch(`/api/admin/users/${userId}/suspend`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('User suspended.', 'success');
+      loadUsers(false);
+    }
+
+    async function reinstateUser(userId) {
+      const res = await fetch(`/api/admin/users/${userId}/reinstate`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('User reinstated.', 'success');
+      loadUsers(false);
+    }
 
     async function initAuditLog() {
       const section = document.getElementById('auditSection');
