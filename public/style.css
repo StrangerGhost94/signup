@@ -539,7 +539,9 @@ body.app-body {
   gap: 0.75rem;
   margin-bottom: 0.5rem;
 }
-.job-top strong { font-size: 0.98rem; }
+.job-top > div:first-child { min-width: 0; flex: 1; }
+.job-top > span, .job-top > .amount { flex-shrink: 0; }
+.job-top strong { font-size: 0.98rem; word-break: break-word; }
 .job-meta { color: var(--ink-soft); font-size: 0.82rem; margin: 0.15rem 0 0; }
 .status-badge {
   font-size: 0.76rem;
@@ -1884,6 +1886,8 @@ html, body { max-width: 100%; overflow-x: hidden; }
 }
 .job-card-v2:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
 .job-card-v2-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.5rem; }
+.job-card-v2-top > div:first-child { min-width: 0; flex: 1; }
+.job-card-v2-top > span { flex-shrink: 0; }
 .job-card-v2-service { display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; font-weight: 700; color: var(--ink-soft); }
 .job-card-v2-title { font-size: 0.98rem; font-weight: 800; margin: 0.3rem 0 0.2rem; }
 .job-card-v2-meta { font-size: 0.82rem; color: var(--ink-soft); margin-bottom: 0.65rem; }
@@ -1990,3 +1994,51 @@ html, body { max-width: 100%; overflow-x: hidden; }
 }
 .user-row-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
 .user-row-actions button { width: auto; padding: 0.4rem 0.7rem; font-size: 0.76rem; }
+
+/* --- Home category pager: primary grid + a swipeable "more services"
+   page, both using the identical grid layout so the second page can
+   grow over time without ever needing a redesign. --- */
+.cat-pager { position: relative; margin-top: 1.25rem; }
+.cat-pager-track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.cat-pager-track::-webkit-scrollbar { display: none; }
+.cat-pager-page {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 0.65rem;
+}
+.cat-pager-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-deep);
+  border: none;
+  z-index: 2;
+  transition: opacity 0.15s ease;
+}
+.cat-pager-arrow svg { width: 16px; height: 16px; }
+.cat-pager-arrow.prev { left: -10px; }
+.cat-pager-arrow.next { right: -10px; }
+.cat-pager-arrow.hidden { opacity: 0; pointer-events: none; }
+.cat-pager-dots { display: flex; justify-content: center; gap: 0.4rem; margin-top: 0.85rem; }
+.cat-pager-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--line);
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.cat-pager-dot.active { background: var(--primary); transform: scale(1.4); }

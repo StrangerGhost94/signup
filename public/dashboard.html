@@ -48,7 +48,16 @@
     </div>
 
     <div id="homeContent">
-      <div class="home-cat-grid" id="homeCatGrid" style="margin-top:1.25rem;"></div>
+      <div class="cat-pager" id="catPager" style="margin-top:1.25rem;">
+        <button type="button" class="cat-pager-arrow prev hidden" id="catPagerPrev" aria-label="Previous">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 6l-6 6 6 6"/></svg>
+        </button>
+        <div class="cat-pager-track" id="catPagerTrack"></div>
+        <button type="button" class="cat-pager-arrow next hidden" id="catPagerNext" aria-label="Next">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+      <div class="cat-pager-dots" id="catPagerDots"></div>
 
       <div class="promo-card">
         <div class="promo-text">
@@ -132,16 +141,78 @@
       return me;
     }
 
+    // The 8 most commonly searched-for trade services stay on the first,
+    // always-visible page. Everything else (currently just Moving, but
+    // designed to hold more over time) lives on additional pages reached
+    // by swiping or the arrow buttons — chunked into pages of 8 so this
+    // never turns into one unwieldy row, however many services get added
+    // later.
+    const PRIMARY_CATEGORIES = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Mechanical', 'Realtor', 'Construction'];
+    const PAGE_SIZE = 8;
+
+    function makeCatTile(cat) {
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'home-cat-tile';
+      tile.innerHTML = `<div class="icon-chip" style="background:color-mix(in srgb, ${categoryColor(cat)} 16%, white);"><svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="1.8">${categoryIcon(cat)}</svg></div><span>${cat}</span>`;
+      tile.onclick = () => window.location.href = `/request.html?category=${encodeURIComponent(cat)}`;
+      return tile;
+    }
+
     function buildCategoryGrid() {
-      const grid = document.getElementById('homeCatGrid');
-      Object.keys(CATEGORY_COLORS).forEach(cat => {
-        const tile = document.createElement('button');
-        tile.type = 'button';
-        tile.className = 'home-cat-tile';
-        tile.innerHTML = `<div class="icon-chip" style="background:color-mix(in srgb, ${categoryColor(cat)} 16%, white);"><svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="1.8">${categoryIcon(cat)}</svg></div><span>${cat}</span>`;
-        tile.onclick = () => window.location.href = `/request.html?category=${encodeURIComponent(cat)}`;
-        grid.appendChild(tile);
+      const allCats = Object.keys(CATEGORY_COLORS);
+      const primary = allCats.filter(c => PRIMARY_CATEGORIES.includes(c));
+      const more = allCats.filter(c => !PRIMARY_CATEGORIES.includes(c));
+
+      const pages = [primary];
+      for (let i = 0; i < more.length; i += PAGE_SIZE) {
+        pages.push(more.slice(i, i + PAGE_SIZE));
+      }
+
+      const track = document.getElementById('catPagerTrack');
+      const dotsWrap = document.getElementById('catPagerDots');
+      const prevBtn = document.getElementById('catPagerPrev');
+      const nextBtn = document.getElementById('catPagerNext');
+
+      pages.forEach(pageCats => {
+        const page = document.createElement('div');
+        page.className = 'cat-pager-page';
+        pageCats.forEach(cat => page.appendChild(makeCatTile(cat)));
+        track.appendChild(page);
       });
+
+      if (pages.length <= 1) {
+        dotsWrap.style.display = 'none';
+        return;
+      }
+
+      pages.forEach((_, i) => {
+        const dot = document.createElement('span');
+        dot.className = 'cat-pager-dot' + (i === 0 ? ' active' : '');
+        dotsWrap.appendChild(dot);
+      });
+
+      function goToPage(index) {
+        track.scrollTo({ left: track.clientWidth * index, behavior: 'smooth' });
+      }
+
+      function updatePagerUI() {
+        const index = Math.round(track.scrollLeft / track.clientWidth);
+        [...dotsWrap.children].forEach((dot, i) => dot.classList.toggle('active', i === index));
+        prevBtn.classList.toggle('hidden', index === 0);
+        nextBtn.classList.toggle('hidden', index === pages.length - 1);
+        prevBtn.onclick = () => goToPage(index - 1);
+        nextBtn.onclick = () => goToPage(index + 1);
+      }
+      track.addEventListener('scroll', updatePagerUI);
+      updatePagerUI();
+
+      // A brief, one-time peek toward page 2, then back — a silent hint
+      // that this slides, without needing a label or instructions.
+      setTimeout(() => {
+        track.scrollTo({ left: 36, behavior: 'smooth' });
+        setTimeout(() => track.scrollTo({ left: 0, behavior: 'smooth' }), 700);
+      }, 900);
     }
 
     async function saveMyLocation() {
