@@ -15,7 +15,15 @@
     <nav class="sidebar-nav" id="sidebarNav"></nav>
     <div class="app-main">
       <div class="dash-wrap" style="padding-top:calc(1.5rem + env(safe-area-inset-top));">
-        <h1 style="font-size:1.4rem; font-weight:800; margin:0 0 1.25rem;">Messages</h1>
+        <header class="dash-header">
+          <h1 style="font-size:1.4rem; font-weight:800; margin:0;">Messages</h1>
+          <div class="dash-user" style="position:relative;">
+            <button class="bell-btn" id="bellBtn" aria-label="Notifications">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+              <span class="bell-dot" id="bellDot" style="display:none;"></span>
+            </button>
+          </div>
+        </header>
         <div id="conversationsList" class="stagger"></div>
       </div>
     </div>
@@ -75,8 +83,10 @@
       const me = await res.json();
       buildNav(me.role === 'provider');
       await loadConversations();
+      const refreshNotifications = initNotificationBell();
       setInterval(loadConversations, 10000);
-      refreshOnResume(loadConversations);
+      setInterval(() => refreshNotifications(), 20000);
+      refreshOnResume(() => { loadConversations(); refreshNotifications(); });
     })();
 
     async function loadConversations() {
