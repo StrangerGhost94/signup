@@ -6,38 +6,97 @@
 <title>Admin — HandyLink</title>
 <link rel="icon" type="image/png" href="images/icon-192.png">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 </head>
 <body class="app-body">
-  <div class="admin-topbar">
-    <span class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo" style="height:28px;"><span class="admin-badge">ADMIN</span></span>
-    <button id="logoutBtn" class="small-btn logout-btn" style="width:auto;">Log out</button>
-  </div>
+  <div class="admin-shell">
+    <nav class="admin-sidebar">
+      <div class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo" style="height:26px;"><span class="admin-badge">ADMIN</span></div>
+      <button class="admin-nav-item active" data-section="overview">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        Overview
+      </button>
+      <button class="admin-nav-item" data-section="applications">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+        Applications
+      </button>
+      <button class="admin-nav-item" data-section="map">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4z"/><path d="M8 2v16M16 6v16"/></svg>
+        Live Map
+      </button>
+      <button class="admin-nav-item" data-section="pricing">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Pricing
+      </button>
+      <button class="admin-nav-item" data-section="safety">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6z"/></svg>
+        Safety
+      </button>
+      <button class="admin-nav-item" data-section="audit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>
+        Audit Log
+      </button>
+      <button class="admin-nav-item" data-section="users">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Users
+      </button>
+      <div style="flex:1;"></div>
+      <button id="logoutBtn" class="admin-nav-item" style="color:var(--danger);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
+        Log out
+      </button>
+    </nav>
 
-  <div class="admin-tabs" style="padding-top:1rem;">
-    <button class="admin-tab active" data-section="applications">Applications</button>
-    <button class="admin-tab" data-section="pricing">Pricing</button>
-    <button class="admin-tab" data-section="safety">Safety</button>
-    <button class="admin-tab" data-section="audit">Audit Log</button>
-    <button class="admin-tab" data-section="users">Users</button>
-  </div>
+    <main class="admin-main">
+      <div id="overviewSection">
+        <h1>Overview</h1>
+        <div class="admin-stat-grid" id="overviewStats"></div>
+      </div>
 
-  <div id="applicationsSection">
-    <div class="admin-tabs" id="adminTabs">
-      <button class="admin-tab active" data-filter="PENDING">Pending</button>
-      <button class="admin-tab" data-filter="">All</button>
-      <button class="admin-tab" data-filter="APPROVED">Approved</button>
-      <button class="admin-tab" data-filter="REJECTED">Rejected</button>
-      <button class="admin-tab" data-filter="SUSPENDED">Suspended</button>
-    </div>
-    <div class="admin-list" id="adminList"></div>
-  </div>
+      <div id="applicationsSection" style="display:none;">
+        <h1>Applications</h1>
+        <div class="admin-tabs" id="adminTabs">
+          <button class="admin-tab active" data-filter="PENDING">Pending</button>
+          <button class="admin-tab" data-filter="">All</button>
+          <button class="admin-tab" data-filter="APPROVED">Approved</button>
+          <button class="admin-tab" data-filter="REJECTED">Rejected</button>
+          <button class="admin-tab" data-filter="SUSPENDED">Suspended</button>
+        </div>
+        <div class="admin-list" id="adminList"></div>
+      </div>
 
-  <div id="pricingSection" class="admin-list" style="display:none;"></div>
-  <div id="safetySection" class="admin-list" style="display:none;"></div>
-  <div id="auditSection" class="admin-list" style="display:none;"></div>
-  <div id="usersSection" class="admin-list" style="display:none;"></div>
+      <div id="mapSection" style="display:none;">
+        <h1>Live Map</h1>
+        <div class="map-legend">
+          <span><span class="dot" style="background:#0B6E4F;"></span>Provider — online</span>
+          <span><span class="dot" style="background:#3B6FA0;"></span>Client — online</span>
+          <span><span class="dot" style="background:#D97706;"></span>Recently active</span>
+          <span><span class="dot" style="background:#9CA3AF;"></span>Offline</span>
+        </div>
+        <div id="adminMap"></div>
+      </div>
+
+      <div id="pricingSection" style="display:none;">
+        <h1>Pricing</h1>
+        <div class="admin-list" id="pricingList"></div>
+      </div>
+      <div id="safetySection" style="display:none;">
+        <h1>Safety</h1>
+        <div class="admin-list" id="safetyList"></div>
+      </div>
+      <div id="auditSection" style="display:none;">
+        <h1>Audit Log</h1>
+        <div class="admin-list" id="auditList2"></div>
+      </div>
+      <div id="usersSection" style="display:none;">
+        <h1>Users</h1>
+        <div class="admin-list" id="usersList2"></div>
+      </div>
+    </main>
+  </div>
 
   <script src="js/categories.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
     let currentFilter = 'PENDING';
 
@@ -55,17 +114,105 @@
         document.querySelectorAll('[data-section]').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         const section = tab.dataset.section;
+        document.getElementById('overviewSection').style.display = section === 'overview' ? 'block' : 'none';
         document.getElementById('applicationsSection').style.display = section === 'applications' ? 'block' : 'none';
+        document.getElementById('mapSection').style.display = section === 'map' ? 'block' : 'none';
         document.getElementById('pricingSection').style.display = section === 'pricing' ? 'block' : 'none';
         document.getElementById('safetySection').style.display = section === 'safety' ? 'block' : 'none';
         document.getElementById('auditSection').style.display = section === 'audit' ? 'block' : 'none';
         document.getElementById('usersSection').style.display = section === 'users' ? 'block' : 'none';
+        if (section === 'overview') loadOverview();
+        if (section === 'map') loadMap();
         if (section === 'pricing') loadPricing();
         if (section === 'safety') loadSafety();
         if (section === 'audit') initAuditLog();
         if (section === 'users') initUsersDirectory();
       });
     });
+
+    async function loadOverview() {
+      const grid = document.getElementById('overviewStats');
+      grid.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+      const res = await fetch('/api/admin/overview-stats');
+      if (!res.ok) { grid.innerHTML = errorStateHtml('loadOverview()'); return; }
+      const d = await res.json();
+
+      const clients = d.usersByRole.client || 0;
+      const providers = d.usersByRole.provider || 0;
+      const approvedProviders = d.providersByStatus.APPROVED || 0;
+
+      const cards = [
+        { label: 'Online right now', value: d.onlineNow, color: '#0B6E4F', bg: '#E6F4EC', icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>' },
+        { label: 'Active in last 30 min', value: d.recentlyActive, color: '#D97706', bg: '#FEF3C7', icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>' },
+        { label: 'Clients', value: clients, color: '#3B6FA0', bg: '#DBEAFE', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>' },
+        { label: 'Providers (approved)', value: `${approvedProviders} / ${providers}`, color: '#8B5E34', bg: '#F1E9E1', icon: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>' },
+        { label: 'Jobs posted today', value: d.jobsToday, color: '#2F6169', bg: '#E1EEF0', icon: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/>' },
+        { label: 'Pending applications', value: d.pendingApplications, color: '#B45309', bg: '#FEF3C7', icon: '<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/>', alert: d.pendingApplications > 0 },
+        { label: 'Open reports', value: d.openReports, color: '#B91C1C', bg: '#FEE2E2', icon: '<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', alert: d.openReports > 0 },
+        { label: 'Open disputes', value: d.openDisputes, color: '#B91C1C', bg: '#FEE2E2', icon: '<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', alert: d.openDisputes > 0 },
+        { label: 'Completed jobs (total value)', value: `UGX ${d.completedJobsValue.toLocaleString()}`, color: '#0B6E4F', bg: '#E6F4EC', icon: '<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>' }
+      ];
+
+      grid.innerHTML = cards.map(c => `
+        <div class="admin-stat-card${c.alert ? ' alert' : ''}">
+          <div class="stat-icon" style="background:${c.bg}; color:${c.color};"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${c.icon}</svg></div>
+          <div class="stat-value">${c.value}</div>
+          <div class="stat-label">${c.label}</div>
+        </div>
+      `).join('');
+    }
+
+    let adminMapInstance = null;
+    async function loadMap() {
+      const res = await fetch('/api/admin/user-locations');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      if (!adminMapInstance) {
+        adminMapInstance = L.map('adminMap').setView([0.3476, 32.5825], 11); // Kampala default center
+        // CARTO's tiles, not raw openstreetmap.org — OSM's own tile
+        // usage policy explicitly asks embedded/production apps to use
+        // a dedicated provider rather than their raw tile servers,
+        // which are meant for light, occasional use. CARTO's basemap
+        // tiles are free, need no API key, and are built for exactly
+        // this kind of embedded dashboard use.
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          subdomains: 'abcd',
+          maxZoom: 20
+        }).addTo(adminMapInstance);
+      }
+
+      // Clear any existing markers before re-plotting.
+      adminMapInstance.eachLayer(layer => { if (layer instanceof L.CircleMarker) adminMapInstance.removeLayer(layer); });
+
+      const statusColor = { online: '#0B6E4F', recent: '#D97706', offline: '#9CA3AF' };
+      const roleColor = { client: '#3B6FA0', provider: '#0B6E4F' };
+
+      const points = [];
+      data.users.forEach(u => {
+        const color = u.status === 'offline' ? statusColor.offline : roleColor[u.role];
+        const marker = L.circleMarker([u.latitude, u.longitude], {
+          radius: 7, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.9
+        }).addTo(adminMapInstance);
+        marker.bindPopup(`
+          <div class="map-popup">
+            <strong>${escapeHtml(u.name || u.email)}</strong>
+            <span class="role-pill">${u.role}${u.category ? ' · ' + escapeHtml(u.category) : ''}</span><br>
+            ${escapeHtml(u.city || u.district || 'Unknown area')} · ${u.status === 'online' ? '🟢 Online now' : u.status === 'recent' ? '🟡 Recently active' : '⚪ Offline'}
+          </div>
+        `);
+        points.push([u.latitude, u.longitude]);
+      });
+
+      if (points.length > 0) {
+        adminMapInstance.fitBounds(points, { padding: [30, 30], maxZoom: 13 });
+      }
+      // The container was display:none a moment ago — Leaflet needs an
+      // explicit nudge to recompute its size correctly once visible,
+      // or it can render at the wrong dimensions.
+      setTimeout(() => adminMapInstance.invalidateSize(), 100);
+    }
 
     async function loadApplications() {
       const list = document.getElementById('adminList');
@@ -287,7 +434,7 @@
     }
 
     async function loadPricing() {
-      const section = document.getElementById('pricingSection');
+      const section = document.getElementById('pricingList');
       section.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
 
       const [rulesRes, insightsRes] = await Promise.all([
@@ -369,7 +516,7 @@
     }
 
     async function loadSafety() {
-      const section = document.getElementById('safetySection');
+      const section = document.getElementById('safetyList');
       section.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
 
       const [reportsRes, disputesRes, msgRes] = await Promise.all([
@@ -514,7 +661,7 @@
     let lastUserId = null;
 
     async function initUsersDirectory() {
-      const section = document.getElementById('usersSection');
+      const section = document.getElementById('usersList2');
       if (!usersBuilt) {
         usersBuilt = true;
         section.innerHTML = `
@@ -625,7 +772,7 @@
     }
 
     async function initAuditLog() {
-      const section = document.getElementById('auditSection');
+      const section = document.getElementById('auditList2');
       if (!auditBuilt) {
         auditBuilt = true;
         const actionsRes = await fetch('/api/admin/audit-log-actions');
@@ -713,7 +860,7 @@
       if (!res.ok) { window.location.href = '/login.html'; return; }
       const me = await res.json();
       if (me.role !== 'admin') { window.location.href = '/dashboard.html'; return; }
-      await loadApplications();
+      await loadOverview();
     })();
   </script>
 </body>

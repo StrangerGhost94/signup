@@ -4093,6 +4093,66 @@ app.get('/api/admin/flagged-messages', requireRole('admin'), asyncHandler(async 
 
 // --- Global users directory (all clients and providers, one screen) ---
 
+// Online-status thresholds, based on last_active_at which is already
+// updated on every authenticated request — this is real presence data,
+// not a guess.
+const ONLINE_NOW_MINUTES = 5;
+const RECENTLY_ACTIVE_MINUTES = 30;
+
+app.get('/api/admin/overview-stats', requireRole('admin'), asyncHandler(async (req, res) => {
+  const [users, onlineNow, recentlyActive, providers, jobsToday, pendingApps, openReports, openDisputes, jobsTotal] = await Promise.all([
+    pool.query(`SELECT role, COUNT(*)::int AS count FROM users GROUP BY role`),
+    pool.query(`SELECT COUNT(*)::int AS count FROM users WHERE last_active_at >= NOW() - INTERVAL '${ONLINE_NOW_MINUTES} minutes'`),
+    pool.query(`SELECT COUNT(*)::int AS count FROM users WHERE last_active_at >= NOW() - INTERVAL '${RECENTLY_ACTIVE_MINUTES} minutes' AND last_active_at < NOW() - INTERVAL '${ONLINE_NOW_MINUTES} minutes'`),
+    pool.query(`SELECT approval_status, COUNT(*)::int AS count FROM providers GROUP BY approval_status`),
+    pool.query(`SELECT COUNT(*)::int AS count FROM job_requests WHERE created_at >= CURRENT_DATE`),
+    pool.query(`SELECT COUNT(*)::int AS count FROM providers WHERE approval_status = 'PENDING'`),
+    pool.query(`SELECT COUNT(*)::int AS count FROM reports WHERE status = 'OPEN'`),
+    pool.query(`SELECT COUNT(*)::int AS count FROM disputes WHERE status = 'OPEN'`),
+    pool.query(`SELECT COUNT(*)::int AS count, COALESCE(SUM(COALESCE(final_amount, estimate_amount)), 0)::int AS total_value FROM job_requests WHERE status = 'completed'`)
+  ]);
+
+  const usersByRole = {};
+  users.rows.forEach(r => { usersByRole[r.role] = r.count; });
+  const providersByStatus = {};
+  providers.rows.forEach(r => { providersByStatus[r.approval_status] = r.count; });
+
+  res.json({
+    usersByRole,
+    onlineNow: onlineNow.rows[0].count,
+    recentlyActive: recentlyActive.rows[0].count,
+    providersByStatus,
+    jobsToday: jobsToday.rows[0].count,
+    pendingApplications: pendingApps.rows[0].count,
+    openReports: openReports.rows[0].count,
+    openDisputes: openDisputes.rows[0].count,
+    completedJobsCount: jobsTotal.rows[0].count,
+    completedJobsValue: jobsTotal.rows[0].total_value
+  });
+}));
+
+app.get('/api/admin/user-locations', requireRole('admin'), asyncHandler(async (req, res) => {
+  const clients = await pool.query(`
+    SELECT id, name, email, 'client' AS role, latitude, longitude, city, district, last_active_at
+    FROM users WHERE role = 'client' AND latitude IS NOT NULL AND longitude IS NOT NULL
+  `);
+  const providers = await pool.query(`
+    SELECT p.id, p.name, u.email, 'provider' AS role, p.latitude, p.longitude, p.city, p.district, u.last_active_at, p.approval_status, p.category
+    FROM providers p JOIN users u ON u.id = p.user_id
+    WHERE p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+  `);
+  const now = Date.now();
+  const withStatus = (row) => {
+    const lastActive = row.last_active_at ? new Date(row.last_active_at).getTime() : 0;
+    const minutesAgo = (now - lastActive) / 60000;
+    const status = minutesAgo <= ONLINE_NOW_MINUTES ? 'online' : minutesAgo <= RECENTLY_ACTIVE_MINUTES ? 'recent' : 'offline';
+    return { ...row, status };
+  };
+  res.json({
+    users: [...clients.rows, ...providers.rows].map(withStatus)
+  });
+}));
+
 app.get('/api/admin/users', requireRole('admin'), asyncHandler(async (req, res) => {
   const { search, role, status, beforeId } = req.query;
   const limit = Math.min(parseInt(req.query.limit, 10) || 25, 100);

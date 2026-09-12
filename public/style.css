@@ -2103,3 +2103,83 @@ html, body { max-width: 100%; overflow-x: hidden; }
   background: none; color: var(--primary); font-weight: 700; font-size: 0.84rem;
 }
 .notif-sheet-list { overflow-y: auto; padding: 0.4rem 0; }
+
+/* --- Admin panel: premium sidebar shell --- */
+.admin-shell { display: flex; min-height: 100vh; }
+.admin-sidebar {
+  width: 230px;
+  flex-shrink: 0;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+  padding: 1.25rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.admin-sidebar .brand { padding: 0 0.5rem 1.25rem; display: flex; align-items: center; gap: 0.5rem; }
+.admin-nav-item {
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  border: none;
+  background: none;
+  text-align: left;
+  width: 100%;
+}
+.admin-nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+.admin-nav-item:hover { background: var(--surface); color: var(--ink); }
+.admin-nav-item.active { background: var(--primary-tint); color: var(--primary-deep); }
+.admin-nav-item .nav-badge {
+  margin-left: auto; background: var(--danger); color: #fff;
+  font-size: 0.68rem; font-weight: 800; padding: 0.1rem 0.4rem; border-radius: 999px;
+}
+.admin-main { flex: 1; min-width: 0; padding: 1.75rem 2rem; max-width: 1200px; }
+.admin-main h1 { font-size: 1.5rem; font-weight: 800; margin: 0 0 1.5rem; }
+@media (max-width: 860px) {
+  .admin-sidebar { width: 100%; height: auto; position: static; flex-direction: row; overflow-x: auto; padding: 0.75rem; }
+  .admin-sidebar .brand { display: none; }
+  .admin-nav-item { flex-direction: column; gap: 0.25rem; font-size: 0.68rem; padding: 0.5rem 0.6rem; white-space: nowrap; }
+  .admin-shell { flex-direction: column; }
+  .admin-main { padding: 1.25rem 1rem; }
+}
+
+/* --- Overview stat cards --- */
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+.admin-stat-card {
+  background: var(--bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.25rem 1.35rem;
+}
+.admin-stat-card .stat-icon {
+  width: 34px; height: 34px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 0.75rem;
+}
+.admin-stat-card .stat-icon svg { width: 17px; height: 17px; }
+.admin-stat-card .stat-value { font-family: 'Manrope', sans-serif; font-size: 1.6rem; font-weight: 800; line-height: 1; }
+.admin-stat-card .stat-label { font-size: 0.78rem; color: var(--ink-soft); margin-top: 0.35rem; }
+.admin-stat-card.alert .stat-value { color: var(--danger); }
+
+.admin-section-title { font-size: 0.95rem; font-weight: 800; margin: 0 0 0.85rem; }
+
+/* --- Live map --- */
+#adminMap { width: 100%; height: 480px; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); }
+.map-legend { display: flex; gap: 1.1rem; margin-bottom: 1rem; flex-wrap: wrap; font-size: 0.8rem; color: var(--ink-soft); }
+.map-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.map-legend .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.map-popup strong { display: block; font-size: 0.88rem; }
+.map-popup .role-pill { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: var(--ink-soft); }
