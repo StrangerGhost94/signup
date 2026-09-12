@@ -277,6 +277,7 @@ window.autofillLocation = function (inputId, btn) {
 // long as the tab/app is open.
 const LOCATION_REFRESH_MS = 5 * 60 * 1000; // keep it fresh every 5 minutes while open
 let locationRefreshTimer = null;
+let lastLocationSaveAt = 0;
 
 async function saveCurrentLocationSilently() {
   try {
@@ -286,10 +287,21 @@ async function saveCurrentLocationSilently() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy })
     });
+    lastLocationSaveAt = Date.now();
     return true;
   } catch (err) {
     return false;
   }
+}
+
+// Only actually pings GPS if the last save is old enough to need
+// refreshing — this is what stops the browser's own "this site is
+// using your location" indicator from firing on every page load or
+// every time the app regains focus. A real GPS request happens at
+// most once per LOCATION_REFRESH_MS window, not on every trigger.
+function maybeSaveLocation() {
+  if (Date.now() - lastLocationSaveAt < LOCATION_REFRESH_MS) return;
+  saveCurrentLocationSilently();
 }
 
 // Call on every page load for a role that needs live location (providers
@@ -302,26 +314,76 @@ function ensureLocationResumeListener() {
   locationResumeListenerAdded = true;
   // Background tabs get their timers throttled by the browser, so the
   // fixed interval alone isn't enough to guarantee freshness — this
-  // makes a return to the app immediately trigger a fresh reading too,
-  // the same pattern already used for notifications and job lists.
-  refreshOnResume(saveCurrentLocationSilently);
+  // makes a return to the app check for a fresh reading too. Routed
+  // through maybeSaveLocation so switching tabs frequently doesn't
+  // trigger a real GPS ping every single time.
+  refreshOnResume(maybeSaveLocation);
 }
 
 window.startAutoLocationIfPermitted = async function () {
-  if (!navigator.permissions || !navigator.geolocation) return 'unsupported';
+  if (!navigator.geolocation) return 'unsupported';
+
+  // navigator.permissions.query({name:'geolocation'}) is known to be
+  // unreliable on some browsers (notably Safari/iOS) — it can report
+  // "not granted" even when the user already granted access, which is
+  // what was causing the enable banner (and effectively the OS
+  // permission prompt) to reappear on every refresh. Once location has
+  // ever worked successfully on this device, trust that over what the
+  // Permissions API claims, and just try directly — a real, silent
+  // getCurrentPosition() call is the actual ground truth: if access
+  // was truly revoked, it will fail and we correctly fall back to
+  // asking again; if it was only misreported, it succeeds immediately
+  // with no prompt at all.
+  if (localStorage.getItem('locationEverGranted') === 'true') {
+    const ok = await tryRefreshLocationIfStale();
+    if (ok) {
+      if (!locationRefreshTimer) locationRefreshTimer = setInterval(saveCurrentLocationSilently, LOCATION_REFRESH_MS);
+      ensureLocationResumeListener();
+      return 'granted';
+    }
+    // Genuinely no longer working (revoked at the OS/browser level) —
+    // fall through and ask again below, rather than getting stuck.
+  }
+
+  if (!navigator.permissions) return 'prompt';
   try {
     const status = await navigator.permissions.query({ name: 'geolocation' });
-    if (status.state !== 'granted') return status.state; // 'prompt' or 'denied'
-    await saveCurrentLocationSilently();
-    if (!locationRefreshTimer) {
-      locationRefreshTimer = setInterval(saveCurrentLocationSilently, LOCATION_REFRESH_MS);
-    }
+    if (status.state === 'denied') return 'denied';
+    if (status.state !== 'granted') return 'prompt';
+
+    const ok = await tryRefreshLocationIfStale();
+    if (!ok) return 'prompt';
+    localStorage.setItem('locationEverGranted', 'true');
+    if (!locationRefreshTimer) locationRefreshTimer = setInterval(saveCurrentLocationSilently, LOCATION_REFRESH_MS);
     ensureLocationResumeListener();
     return 'granted';
   } catch (err) {
     return 'unsupported';
   }
 };
+
+// Shared by both paths above — checks the server's own last-saved
+// timestamp first so a normal page refresh doesn't re-trigger a real
+// GPS request every time, only once it's actually gone stale.
+async function tryRefreshLocationIfStale() {
+  let needsFreshReading = true;
+  try {
+    const freshRes = await fetch('/api/me/location-freshness');
+    if (freshRes.ok) {
+      const { locationUpdatedAt } = await freshRes.json();
+      if (locationUpdatedAt) {
+        const age = Date.now() - new Date(locationUpdatedAt).getTime();
+        if (age < LOCATION_REFRESH_MS) {
+          needsFreshReading = false;
+          lastLocationSaveAt = Date.now() - age;
+        }
+      }
+    }
+  } catch (err) { /* fall through and just take a fresh reading */ }
+
+  if (!needsFreshReading) return true;
+  return await saveCurrentLocationSilently();
+}
 
 // Call from a real click handler — this is the one moment a browser
 // will actually show the permission prompt. Starts the same automatic
@@ -330,10 +392,11 @@ window.enableAutoLocationTracking = async function (btn) {
   const originalHtml = btn ? btn.innerHTML : null;
   if (btn) { btn.innerHTML = 'Allow location access…'; btn.disabled = true; }
   const ok = await saveCurrentLocationSilently();
-  if (ok && !locationRefreshTimer) {
-    locationRefreshTimer = setInterval(saveCurrentLocationSilently, LOCATION_REFRESH_MS);
+  if (ok) {
+    localStorage.setItem('locationEverGranted', 'true');
+    if (!locationRefreshTimer) locationRefreshTimer = setInterval(saveCurrentLocationSilently, LOCATION_REFRESH_MS);
+    ensureLocationResumeListener();
   }
-  if (ok) ensureLocationResumeListener();
   if (btn) { btn.innerHTML = originalHtml; btn.disabled = false; }
   return ok;
 };

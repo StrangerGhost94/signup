@@ -1954,6 +1954,19 @@ app.put('/api/me', requireLogin, asyncHandler(async (req, res) => {
 // effects — unlike /api/me/location, this doesn't save anything to the
 // user's profile. Meant for autofilling any location field on demand
 // (job posting, saved addresses, etc.), not just "my current location."
+// Location lives on a different table depending on role (providers vs
+// users) — this gives the frontend one place to check "how stale is
+// my saved location" regardless of which table actually holds it, so
+// it can skip re-pinging GPS when a recent reading already exists.
+app.get('/api/me/location-freshness', requireLogin, asyncHandler(async (req, res) => {
+  if (req.session.role === 'provider') {
+    const result = await pool.query('SELECT location_updated_at FROM providers WHERE user_id = $1', [req.session.userId]);
+    return res.json({ locationUpdatedAt: result.rows[0]?.location_updated_at || null });
+  }
+  const result = await pool.query('SELECT location_updated_at FROM users WHERE id = $1', [req.session.userId]);
+  res.json({ locationUpdatedAt: result.rows[0]?.location_updated_at || null });
+}));
+
 app.get('/api/geocode/reverse', requireLogin, asyncHandler(async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lng = parseFloat(req.query.lng);
