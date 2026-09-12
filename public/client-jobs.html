@@ -88,6 +88,10 @@
     }
 
     function statusSubtext(j) {
+      if (j.scheduled_for) {
+        const when = new Date(j.scheduled_for).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        return `Scheduled for ${when}`;
+      }
       const subs = {
         awaiting_offers: j.offer_count > 0 ? `${j.offer_count} offer${j.offer_count === 1 ? '' : 's'} received` : 'Waiting for pros to respond',
         requested: 'Waiting for your pro to respond',

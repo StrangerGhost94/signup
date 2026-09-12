@@ -33,6 +33,15 @@
         <label style="display:block; font-weight:700; font-size:0.9rem; margin-bottom:0.6rem;">How urgent is this?</label>
         <div class="urgency-grid" id="urgencyGrid"></div>
 
+        <div id="scheduleFields" style="display:none; background:var(--surface); border-radius:var(--radius-sm); padding:1rem; margin-bottom:1rem;">
+          <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.6rem;">When would you like this done?</label>
+          <div style="display:flex; gap:0.6rem;">
+            <input type="date" id="scheduleDate" style="margin-bottom:0;">
+            <input type="time" id="scheduleTime" style="margin-bottom:0;">
+          </div>
+          <p class="job-meta" id="scheduleError" style="color:var(--danger); margin:0.5rem 0 0;"></p>
+        </div>
+
         <input type="text" id="location" placeholder="Where is the job? (e.g. Ntinda, Kampala)" required>
         <textarea id="locationNotes" rows="2" placeholder="Additional directions (optional) — e.g. Apartment 4B, second floor"></textarea>
 
@@ -79,9 +88,29 @@
         btn.classList.add('active');
         btn.style.borderColor = opt.color;
         btn.style.color = opt.color;
+        document.getElementById('scheduleFields').style.display = opt.value === 'schedule' ? 'block' : 'none';
       };
       urgencyGrid.appendChild(btn);
     });
+    document.getElementById('scheduleFields').style.display = selectedUrgency === 'schedule' ? 'block' : 'none';
+
+    // Sensible defaults: today's date as the earliest selectable one, and
+    // a default time an hour from now so the field never starts invalid.
+    const scheduleDateInput = document.getElementById('scheduleDate');
+    const scheduleTimeInput = document.getElementById('scheduleTime');
+    const todayStr = new Date().toISOString().split('T')[0];
+    scheduleDateInput.min = todayStr;
+    if (!scheduleDateInput.value) scheduleDateInput.value = todayStr;
+    if (!scheduleTimeInput.value) {
+      const defaultTime = new Date(Date.now() + 60 * 60 * 1000);
+      scheduleTimeInput.value = defaultTime.toTimeString().slice(0, 5);
+    }
+
+    function getScheduledForIso() {
+      if (selectedUrgency !== 'schedule') return null;
+      if (!scheduleDateInput.value || !scheduleTimeInput.value) return undefined; // missing
+      return new Date(`${scheduleDateInput.value}T${scheduleTimeInput.value}`).toISOString();
+    }
 
     document.getElementById('photoInput').addEventListener('change', async (e) => {
       const files = Array.from(e.target.files).slice(0, 3 - photos.length);
@@ -128,6 +157,16 @@
         return;
       }
 
+      const scheduledForIso = getScheduledForIso();
+      if (scheduledForIso === undefined) {
+        errorEl.textContent = 'Please choose a date and time for your scheduled job.';
+        return;
+      }
+      if (scheduledForIso && new Date(scheduledForIso).getTime() <= Date.now()) {
+        errorEl.textContent = 'Please choose a time in the future.';
+        return;
+      }
+
       document.getElementById('formStep').style.display = 'none';
       document.getElementById('loadingStep').style.display = 'block';
       document.getElementById('backLink').style.display = 'none';
@@ -152,6 +191,7 @@
         category,
         description,
         urgency: selectedUrgency,
+        scheduledFor: scheduledForIso,
         location,
         locationNotes: document.getElementById('locationNotes').value.trim(),
         photos,
@@ -183,9 +223,12 @@
           <h2>${escapeHtml(a.job_type)}</h2>
           <p class="est-summary">${escapeHtml(a.problem_summary)}</p>
 
-          <div class="est-complexity"><span class="dot" style="background:${COMPLEXITY_COLORS[a.complexity] || '#6B7280'};"></span>Complexity: ${escapeHtml(a.complexity)}</div>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.85rem;">
+            <div class="est-complexity" style="margin-bottom:0;"><span class="dot" style="background:${COMPLEXITY_COLORS[a.complexity] || '#6B7280'};"></span>${escapeHtml(a.complexity)}</div>
+            <div class="est-confidence" style="background:${conf.bg}; color:${conf.color}; margin-bottom:0;">${conf.label}</div>
+          </div>
 
-          ${materials.length ? `<div class="est-materials">Likely materials<ul>${materials.map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul></div>` : ''}
+          ${materials.length ? `<p class="job-meta" style="margin-bottom:0.85rem;"><strong>Likely materials:</strong> ${materials.map(m => escapeHtml(m)).join(', ')}</p>` : ''}
 
           ${a.confidence === 'LOW' ? `
             <div class="est-cost-box">
@@ -204,17 +247,13 @@
             </div>
           `}
 
-          <div class="est-confidence" style="background:${conf.bg}; color:${conf.color};">${conf.label}</div>
-
-          ${a.requires_inspection ? `
-            <div class="est-inspection-note">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
-              <span>A pro may need to inspect the job before confirming the final price. This is an estimate, not a final price.</span>
-            </div>` : ''}
+          ${a.requires_inspection ? `<p class="job-meta" style="margin-top:0.6rem;">ℹ️ A pro may need to inspect the job before confirming the final price — this is an estimate, not a final price.</p>` : ''}
 
           ${questions.length ? `
-            <div class="est-questions">
-              <strong>${a.confidence === 'LOW' ? 'Answering these would help a lot:' : 'A few quick questions could improve this estimate:'}</strong>
+            <button type="button" class="switch" id="toggleQuestions" style="background:none; border:none; padding:0; margin-top:0.75rem; width:auto; min-height:auto; color:var(--primary); font-weight:700; text-decoration:underline; cursor:pointer;">
+              ${a.confidence === 'LOW' ? 'A few questions would help — tap to view' : 'A few quick questions could improve this — tap to view'}
+            </button>
+            <div class="est-questions" id="questionsBox" style="display:none;">
               <ol>${questions.map(q => `<li>${escapeHtml(q)}</li>`).join('')}</ol>
               <p style="margin:0.5rem 0 0; color:var(--ink-soft);">Feel free to add these details to your description and try again, or continue as-is.</p>
             </div>` : ''}
@@ -225,6 +264,15 @@
       `;
 
       renderDecisionCards(a);
+      const toggleBtn = document.getElementById('toggleQuestions');
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+          const box = document.getElementById('questionsBox');
+          const isHidden = box.style.display === 'none';
+          box.style.display = isHidden ? 'block' : 'none';
+          toggleBtn.textContent = isHidden ? 'Hide questions' : (a.confidence === 'LOW' ? 'A few questions would help — tap to view' : 'A few quick questions could improve this — tap to view');
+        });
+      }
       document.getElementById('editDescLink').addEventListener('click', (e) => { e.preventDefault(); backToForm(); });
     }
 
@@ -272,7 +320,8 @@
           urgency: pendingJob.urgency,
           location: pendingJob.location,
           locationNotes: pendingJob.locationNotes,
-          assessmentId: pendingJob.assessmentId
+          assessmentId: pendingJob.assessmentId,
+          scheduledFor: pendingJob.scheduledFor
         })
       });
       const data = await res.json();

@@ -250,7 +250,8 @@
           urgency: pendingJob.urgency,
           location: pendingJob.location,
           locationNotes: pendingJob.locationNotes,
-          assessmentId: pendingJob.assessmentId
+          assessmentId: pendingJob.assessmentId,
+          scheduledFor: pendingJob.scheduledFor
         })
       });
       const data = await res.json();

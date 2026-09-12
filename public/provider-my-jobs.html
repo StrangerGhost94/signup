@@ -100,6 +100,7 @@
             <div>
               <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
               <p class="job-meta">${escapeHtml(j.location)} · UGX ${currentAmount.toLocaleString()}${j.final_amount != null ? ' (price changed)' : ''}</p>
+              ${j.scheduled_for ? `<p class="job-meta" style="color:var(--primary-deep); font-weight:600;">📅 Scheduled for ${new Date(j.scheduled_for).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>` : ''}
             </div>
             <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
           </div>

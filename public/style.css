@@ -1946,6 +1946,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
   display: block;
   width: 100%;
   text-align: left;
+  color: var(--ink);
   padding: 1.15rem 1.25rem;
   border: 1.5px solid var(--line);
   border-radius: var(--radius);

@@ -230,6 +230,12 @@ async function initDb() {
     ALTER TABLE job_requests ADD COLUMN IF NOT EXISTS estimate_amount INTEGER DEFAULT 0
   `);
 
+  // "Schedule" urgency previously had no way to actually record when —
+  // this is the real date/time a scheduled job is booked for.
+  await pool.query(`
+    ALTER TABLE job_requests ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP
+  `);
+
   // ============================================================
   // JOB STATE MACHINE, TIMELINE & OFFERS
   // Real states matching the full service-management lifecycle, a
@@ -2417,6 +2423,18 @@ app.delete('/api/provider/portfolio/:id', requireRole('provider'), asyncHandler(
 
 const VALID_URGENCY = ['now', 'today', 'schedule'];
 
+// "Schedule" requires an actual future date/time — reject anything else
+// rather than silently accepting a meaningless "schedule" with no when.
+function validateScheduledFor(urgency, scheduledFor) {
+  if (urgency !== 'schedule') return { ok: true, value: null };
+  if (!isNonEmpty(scheduledFor)) return { ok: false, error: 'Please choose a date and time.' };
+  const date = new Date(scheduledFor);
+  if (isNaN(date.getTime())) return { ok: false, error: 'That date/time isn\u2019t valid.' };
+  if (date.getTime() <= Date.now()) return { ok: false, error: 'Please choose a time in the future.' };
+  return { ok: true, value: date };
+}
+
+
 app.post('/api/jobs/assess', requireRole('client'), aiAssessLimiter, asyncHandler(async (req, res) => {
   const { description, photos, category, urgency, distanceKm } = req.body;
   if (!isNonEmpty(description)) {
@@ -2490,12 +2508,16 @@ app.post('/api/jobs/assess', requireRole('client'), aiAssessLimiter, asyncHandle
 // replaces the other. ---
 
 app.post('/api/jobs/open', requireRole('client'), asyncHandler(async (req, res) => {
-  const { category, description, urgency, location, locationNotes, assessmentId } = req.body;
+  const { category, description, urgency, location, locationNotes, assessmentId, scheduledFor } = req.body;
   if (!isNonEmpty(category) || !isNonEmpty(description) || !isNonEmpty(location)) {
     return res.status(400).json({ error: 'Please fill in the job description and location.' });
   }
   if (!VALID_URGENCY.includes(urgency)) {
     return res.status(400).json({ error: 'Please choose when you need this done.' });
+  }
+  const scheduleCheck = validateScheduledFor(urgency, scheduledFor);
+  if (!scheduleCheck.ok) {
+    return res.status(400).json({ error: scheduleCheck.error });
   }
 
   let estimateAmount = ESTIMATE_MIDPOINTS[category.trim()] || 40000;
@@ -2509,9 +2531,9 @@ app.post('/api/jobs/open', requireRole('client'), asyncHandler(async (req, res) 
   }
 
   const result = await pool.query(
-    `INSERT INTO job_requests (client_user_id, provider_id, category, description, urgency, location, location_notes, estimate_amount, status)
-     VALUES ($1, NULL, $2,$3,$4,$5,$6,$7,'awaiting_offers') RETURNING *`,
-    [req.session.userId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '', estimateAmount]
+    `INSERT INTO job_requests (client_user_id, provider_id, category, description, urgency, location, location_notes, estimate_amount, status, scheduled_for)
+     VALUES ($1, NULL, $2,$3,$4,$5,$6,$7,'awaiting_offers',$8) RETURNING *`,
+    [req.session.userId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '', estimateAmount, scheduleCheck.value]
   );
   const job = result.rows[0];
 
@@ -2707,13 +2729,17 @@ app.get('/api/jobs/mine', requireRole('client'), asyncHandler(async (req, res) =
 }));
 
 app.post('/api/bookings', requireRole('client'), async (req, res) => {
-  const { providerId, category, description, urgency, location, locationNotes, assessmentId } = req.body;
+  const { providerId, category, description, urgency, location, locationNotes, assessmentId, scheduledFor } = req.body;
 
   if (!providerId || !isNonEmpty(category) || !isNonEmpty(description) || !isNonEmpty(location)) {
     return res.status(400).json({ error: 'Please fill in the job description and location.' });
   }
   if (!VALID_URGENCY.includes(urgency)) {
     return res.status(400).json({ error: 'Please choose when you need this done.' });
+  }
+  const scheduleCheck = validateScheduledFor(urgency, scheduledFor);
+  if (!scheduleCheck.ok) {
+    return res.status(400).json({ error: scheduleCheck.error });
   }
 
   try {
@@ -2756,9 +2782,9 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO job_requests (client_user_id, provider_id, category, description, urgency, location, location_notes, estimate_amount)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [req.session.userId, providerId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '', estimateAmount]
+      `INSERT INTO job_requests (client_user_id, provider_id, category, description, urgency, location, location_notes, estimate_amount, scheduled_for)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [req.session.userId, providerId, category.trim(), description.trim(), urgency, location.trim(), isNonEmpty(locationNotes) ? locationNotes.trim() : '', estimateAmount, scheduleCheck.value]
     );
 
     if (linkedAssessment) {
