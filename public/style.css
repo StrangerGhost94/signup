@@ -939,6 +939,14 @@ body.app-body {
   justify-content: flex-end;
   overflow: hidden;
 }
+.splash-hero::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: env(safe-area-inset-top);
+  background: var(--primary-deep);
+  z-index: 3;
+}
 .splash-hero::after {
   content: '';
   position: absolute;
@@ -2012,9 +2020,12 @@ html, body { max-width: 100%; overflow-x: hidden; }
   flex: 0 0 100%;
   scroll-snap-align: start;
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 0.65rem;
+}
+.cat-pager-page.sparse {
   grid-template-columns: repeat(auto-fill, 90px);
   justify-content: center;
-  gap: 0.65rem;
 }
 .cat-pager-dots { display: flex; justify-content: center; gap: 0.4rem; margin-top: 0.85rem; }
 .cat-pager-dot {
