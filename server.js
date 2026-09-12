@@ -1190,7 +1190,14 @@ const identityVerificationProvider = {
 // see computePricingEngine() below, which is the only source of the
 // numbers actually shown to the customer.
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || null;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || null;
+// Configurable so a different free model can be swapped in via env var
+// alone if this one is ever retired — OpenRouter's free-tier lineup
+// changes over time, so it's worth checking openrouter.ai/models
+// (filtered to "free") occasionally rather than assuming this stays
+// available forever. This one supports images; a text-only free model
+// would still work for the classifier but would silently ignore photos.
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.2-11b-vision-instruct:free';
 const VALID_SERVICES = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Moving', 'Mechanical', 'Realtor', 'Construction', 'General Handyman', 'Other'];
 // Spec section 17: work that can injure someone or cause real damage if
 // done badly — booking one of these requires the provider to be VERIFIED
@@ -1240,15 +1247,14 @@ For anything involving electrical work, gas, structural/load-bearing work, or ot
 Never include a price, currency amount, or cost figure anywhere in your response.`;
 
 async function callAiJobClassifier(description, photos) {
-  if (!ANTHROPIC_API_KEY) {
+  if (!OPENROUTER_API_KEY) {
     return { ok: false, reason: 'not_configured' };
   }
 
-  const content = [{ type: 'text', text: description }];
+  const contentParts = [{ type: 'text', text: description }];
   (photos || []).slice(0, 3).forEach(photo => {
-    const match = /^data:(image\/\w+);base64,(.+)$/.exec(photo);
-    if (match) {
-      content.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } });
+    if (/^data:image\/\w+;base64,.+$/.test(photo)) {
+      contentParts.push({ type: 'image_url', image_url: { url: photo } });
     }
   });
 
@@ -1256,18 +1262,21 @@ async function callAiJobClassifier(description, photos) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 20000);
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01'
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'HTTP-Referer': 'https://handylink.example',
+          'X-Title': 'HandyLink'
         },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
+          model: OPENROUTER_MODEL,
           max_tokens: 700,
-          system: AI_SYSTEM_PROMPT,
-          messages: [{ role: 'user', content }]
+          messages: [
+            { role: 'system', content: AI_SYSTEM_PROMPT },
+            { role: 'user', content: contentParts }
+          ]
         }),
         signal: controller.signal
       });
@@ -1277,7 +1286,7 @@ async function callAiJobClassifier(description, photos) {
         continue;
       }
       const data = await response.json();
-      const text = (data.content || []).map(b => b.text || '').join('');
+      const text = data.choices?.[0]?.message?.content || '';
       let parsed;
       try {
         parsed = JSON.parse(text.trim().replace(/^```json\s*|\s*```$/g, ''));
