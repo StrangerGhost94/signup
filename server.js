@@ -6,6 +6,16 @@ const { Pool } = require('pg');
 const rateLimit = require('express-rate-limit');
 const { OAuth2Client } = require('google-auth-library');
 const nodemailer = require('nodemailer');
+const webpush = require('web-push');
+
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || null;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || null;
+const pushConfigured = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+if (pushConfigured) {
+  webpush.setVapidDetails('mailto:support@handylink.example', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} else {
+  console.warn('Push notifications not configured — set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to enable them.');
+}
 const crypto = require('crypto');
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || null;
@@ -338,6 +348,20 @@ async function initDb() {
   // below, not decorative. Per-category granularity can be added later
   // without touching this column.
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE`);
+
+  // Real push notifications — delivered to the device even when the app
+  // isn't open, unlike the in-app bell (which only works while a tab is
+  // active and polling). One row per subscribed device/browser.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS addresses (
@@ -872,8 +896,36 @@ async function createNotification(userId, type, body, link) {
       'INSERT INTO notifications (user_id, type, body, link) VALUES ($1, $2, $3, $4)',
       [userId, type, body, link || null]
     );
+    sendPushToUser(userId, 'HandyLink', body, link);
   } catch (err) {
     console.error('Notification creation failed:', err);
+  }
+}
+
+// Delivers to the device even when no tab is open — this is what makes
+// notifications actually arrive on the phone, not just show up next time
+// someone happens to open the app. Silently does nothing if push isn't
+// configured (no VAPID keys) or the user has no subscribed device.
+async function sendPushToUser(userId, title, body, link) {
+  if (!pushConfigured) return;
+  try {
+    const subs = await pool.query('SELECT * FROM push_subscriptions WHERE user_id = $1', [userId]);
+    const payload = JSON.stringify({ title, body, url: link || '/' });
+    for (const sub of subs.rows) {
+      const pushSubscription = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
+      webpush.sendNotification(pushSubscription, payload).catch(async (err) => {
+        // 404/410 means the browser has permanently invalidated this
+        // subscription (uninstalled, permission revoked, etc.) — clean
+        // it up rather than retry a dead endpoint forever.
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          await pool.query('DELETE FROM push_subscriptions WHERE id = $1', [sub.id]).catch(() => {});
+        } else {
+          console.error('Push send failed:', err.message);
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Push lookup failed:', err.message);
   }
 }
 
@@ -1893,6 +1945,34 @@ app.put('/api/me/notification-preferences', requireLogin, asyncHandler(async (re
   const { notificationsEnabled } = req.body;
   await pool.query('UPDATE users SET notifications_enabled = $1 WHERE id = $2', [!!notificationsEnabled, req.session.userId]);
   res.json({ message: 'Preferences updated.' });
+}));
+
+// --- Push notifications (real device delivery, not just in-app) ---
+
+app.get('/api/push/vapid-public-key', requireLogin, asyncHandler(async (req, res) => {
+  if (!pushConfigured) return res.status(503).json({ error: 'Push notifications aren\u2019t configured on this server.' });
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+}));
+
+app.post('/api/push/subscribe', requireLogin, asyncHandler(async (req, res) => {
+  const { endpoint, keys } = req.body;
+  if (!isNonEmpty(endpoint) || !keys || !isNonEmpty(keys.p256dh) || !isNonEmpty(keys.auth)) {
+    return res.status(400).json({ error: 'Invalid subscription.' });
+  }
+  await pool.query(
+    `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (endpoint) DO UPDATE SET user_id = $1, p256dh = $3, auth = $4`,
+    [req.session.userId, endpoint, keys.p256dh, keys.auth]
+  );
+  res.json({ message: 'Subscribed.' });
+}));
+
+app.post('/api/push/unsubscribe', requireLogin, asyncHandler(async (req, res) => {
+  const { endpoint } = req.body;
+  if (isNonEmpty(endpoint)) {
+    await pool.query('DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2', [endpoint, req.session.userId]);
+  }
+  res.json({ message: 'Unsubscribed.' });
 }));
 
 // --- Personal history: reviews written, reports filed, payments made ---
@@ -3781,6 +3861,25 @@ app.post('/api/admin/users/:id/reinstate', requireRole('admin'), asyncHandler(as
   const result = await processApprovalDecision({ entityType: 'user_account', entityId: req.params.id, decision: APPROVAL_ENTITIES.user_account.reinstateDecision, reviewerId: req.session.userId, reason: req.body.notes });
   if (result.error) return res.status(result.status).json({ error: result.error });
   res.json({ message: 'User reinstated.' });
+}));
+
+// Hard delete — different from suspension, which is reversible and keeps
+// the account's history intact. This permanently removes the account and
+// (via existing ON DELETE CASCADE foreign keys) everything tied to it.
+// An admin can never delete their own account through this route.
+app.delete('/api/admin/users/:id', requireRole('admin'), asyncHandler(async (req, res) => {
+  if (parseInt(req.params.id, 10) === req.session.userId) {
+    return res.status(400).json({ error: 'You can\u2019t delete your own admin account from here.' });
+  }
+  const userResult = await pool.query('SELECT email, role FROM users WHERE id = $1', [req.params.id]);
+  if (userResult.rows.length === 0) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+  const target = userResult.rows[0];
+
+  await pool.query('DELETE FROM users WHERE id = $1', [req.params.id]);
+  await createAuditLog(req.session.userId, 'USER_DELETED', 'user', req.params.id, `${target.role}: ${target.email}`);
+  res.json({ message: 'User deleted.' });
 }));
 
 app.get('/api/admin/flagged-messages', requireRole('admin'), asyncHandler(async (req, res) => {

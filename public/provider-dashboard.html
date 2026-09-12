@@ -367,6 +367,7 @@
       setInterval(() => loadNotifications(false), 20000);
       setInterval(() => loadJobs(), 10000);
       setInterval(() => loadOpenJobs(), 15000);
+      refreshOnResume(() => { loadJobs(); loadOpenJobs(); loadNotifications(false); });
     })();
   </script>
 </body>

@@ -140,6 +140,7 @@
 
       await loadThread(true);
       pollTimer = setInterval(() => loadThread(false), 4000);
+      refreshOnResume(() => loadThread(false));
     })();
 
     window.addEventListener('beforeunload', () => clearInterval(pollTimer));

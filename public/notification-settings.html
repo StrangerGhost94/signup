@@ -23,7 +23,16 @@
         </label>
       </div>
     </div>
-    <p class="job-meta">When off, HandyLink won't create new notifications for bookings, messages, or price changes. You can turn this back on anytime.</p>
+    <p class="job-meta" style="margin-bottom:1.5rem;">When off, HandyLink won't create new notifications for bookings, messages, or price changes. You can turn this back on anytime.</p>
+
+    <p class="settings-section-label">Push Notifications</p>
+    <div class="settings-group">
+      <button type="button" class="settings-row" id="pushBtn">
+        <span class="row-label">Enable on this device</span>
+        <span class="row-value" id="pushStatus">Not enabled</span>
+      </button>
+    </div>
+    <p class="job-meta">Get notified even when HandyLink isn't open — new job requests, messages, offers, and price changes arrive right on your phone.</p>
   </div>
 
   <script src="js/categories.js"></script>
@@ -35,7 +44,47 @@
       if (!res.ok) { window.location.href = '/login.html'; return; }
       const me = await res.json();
       toggle.checked = me.notifications_enabled !== false;
+      await refreshPushStatus();
     })();
+
+    async function refreshPushStatus() {
+      const statusEl = document.getElementById('pushStatus');
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        statusEl.textContent = 'Not supported on this device';
+        return;
+      }
+      if (Notification.permission === 'denied') {
+        statusEl.textContent = 'Blocked — check browser settings';
+        return;
+      }
+      const registration = await navigator.serviceWorker.ready.catch(() => null);
+      const subscription = registration ? await registration.pushManager.getSubscription() : null;
+      statusEl.textContent = subscription ? '✓ Enabled' : 'Not enabled';
+    }
+
+    document.getElementById('pushBtn').addEventListener('click', async () => {
+      const statusEl = document.getElementById('pushStatus');
+      const registration = await navigator.serviceWorker?.ready.catch(() => null);
+      const existing = registration ? await registration.pushManager.getSubscription() : null;
+
+      if (existing) {
+        await disablePushNotifications();
+        showToast('Push notifications turned off for this device.', 'success');
+        await refreshPushStatus();
+        return;
+      }
+
+      statusEl.textContent = 'Requesting...';
+      const result = await enablePushNotifications();
+      if (result === 'granted') {
+        showToast('Push notifications enabled.', 'success');
+      } else if (result === 'denied') {
+        showToast('Permission was denied — check your browser\u2019s site settings to allow notifications.', 'error');
+      } else {
+        showToast('Push notifications aren\u2019t available on this device or server.', 'error');
+      }
+      await refreshPushStatus();
+    });
 
     toggle.addEventListener('change', async () => {
       const res = await fetch('/api/me/notification-preferences', {

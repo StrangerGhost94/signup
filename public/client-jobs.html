@@ -277,6 +277,8 @@
       if (me.role !== 'client') { window.location.href = '/provider-dashboard.html'; return; }
       document.querySelectorAll('#filterBar .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === activeFilter));
       await loadJobs();
+      setInterval(() => loadJobs(), 15000);
+      refreshOnResume(() => loadJobs());
     })();
   </script>
 </body>

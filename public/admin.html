@@ -180,6 +180,7 @@
             ${p.approval_status === 'SUSPENDED'
               ? `<button class="small-btn" onclick="decideApplication(${p.id}, 'reinstate')">Reinstate</button>`
               : `<button class="small-btn btn-decline" onclick="promptSuspend(${p.id})">Suspend</button>`}
+            <button class="small-btn btn-decline" onclick="deleteUser(${p.user_id}, '${escapeHtml(p.email)}')">Delete account</button>
           </div>
         </div>
 
@@ -404,6 +405,7 @@
             <button class="small-btn" onclick="resolveReport(${r.id}, 'RESOLVED')">Mark resolved</button>
             <button class="small-btn btn-outline" onclick="resolveReport(${r.id}, 'DISMISSED')">Dismiss</button>
             <button class="small-btn btn-decline" onclick="suspendReportedUser(${r.reported_user_id})">Suspend reported user</button>
+            <button class="small-btn btn-decline" onclick="deleteUser(${r.reported_user_id}, '${escapeHtml(r.reported_email)}')">Delete reported user</button>
           </div>
         `;
         section.appendChild(card);
@@ -470,6 +472,21 @@
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast('Dispute updated.', 'success');
+      loadSafety();
+    }
+
+    async function deleteUser(userId, email) {
+      const typed = prompt(`This permanently deletes ${email} and everything tied to their account — bookings, messages, reviews, listings. This cannot be undone.\n\nType the email address to confirm:`);
+      if (typed !== email) {
+        if (typed !== null) showToast('Email didn\u2019t match — nothing was deleted.', 'error');
+        return;
+      }
+      const res = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Account deleted.', 'success');
+      document.querySelector('.admin-detail-overlay')?.remove();
+      loadApplications();
       loadSafety();
     }
 

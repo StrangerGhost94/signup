@@ -239,6 +239,7 @@
       if (me.role !== 'provider') { window.location.href = '/dashboard.html'; return; }
       await loadJobs();
       setInterval(() => loadJobs(), 10000);
+      refreshOnResume(() => loadJobs());
     })();
   </script>
 </body>

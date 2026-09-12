@@ -79,6 +79,7 @@
       buildNav(me.role === 'provider');
       await loadConversations();
       setInterval(loadConversations, 10000);
+      refreshOnResume(loadConversations);
     })();
 
     async function loadConversations() {

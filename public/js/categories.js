@@ -104,16 +104,89 @@ window.compressImageFile = function (file, maxDim, quality) {
   });
 };
 
+// Service worker registration must be unconditional — push notifications
+// depend on it, and it especially needs to run once the app is already
+// installed, which the install-prompt logic below deliberately skips.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+// Requests permission and subscribes this device to real push
+// notifications. Returns 'granted', 'denied', or 'unsupported' so the
+// caller can show the right feedback.
+window.enablePushNotifications = async function () {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return 'unsupported';
+  }
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') return 'denied';
+
+  try {
+    const keyRes = await fetch('/api/push/vapid-public-key');
+    if (!keyRes.ok) return 'unsupported'; // server has no VAPID keys configured
+    const { publicKey } = await keyRes.json();
+
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey)
+      });
+    }
+
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subscription.toJSON())
+    });
+    return 'granted';
+  } catch (err) {
+    console.error('Push subscription failed:', err);
+    return 'denied';
+  }
+};
+
+window.disablePushNotifications = async function () {
+  if (!('serviceWorker' in navigator)) return;
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.getSubscription();
+  if (subscription) {
+    await fetch('/api/push/unsubscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: subscription.endpoint })
+    });
+    await subscription.unsubscribe();
+  }
+};
+
+// Browsers/OSes throttle or fully pause setInterval timers once a tab or
+// installed PWA is backgrounded — the standard cause of "this screen
+// looks stale until I manually reload." This runs the given refresh
+// function immediately whenever the page becomes visible again, on top
+// of whatever periodic polling a page already has, so returning to the
+// app always shows current data without waiting for the next tick.
+window.refreshOnResume = function (refreshFn) {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshFn();
+  });
+  window.addEventListener('focus', () => refreshFn());
+};
+
 // --- PWA install prompt ---
 (function () {
   if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
     return; // already installed/running as an app
   }
   if (localStorage.getItem('installPromptDismissed')) return;
-
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  }
 
   function showInstallBanner(onInstallClick, installLabel) {
     const banner = document.createElement('div');

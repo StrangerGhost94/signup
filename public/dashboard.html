@@ -641,6 +641,7 @@
       await loadNotifications(false);
       setInterval(() => loadNotifications(false), 20000);
       setInterval(() => loadBookings(), 15000);
+      refreshOnResume(() => { loadBookings(); loadNotifications(false); });
     })();
   </script>
 </body>
