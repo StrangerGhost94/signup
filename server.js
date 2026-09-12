@@ -1251,12 +1251,12 @@ async function callAiJobClassifier(description, photos) {
     return { ok: false, reason: 'not_configured' };
   }
 
-  const contentParts = [{ type: 'text', text: description }];
-  (photos || []).slice(0, 3).forEach(photo => {
-    if (/^data:image\/\w+;base64,.+$/.test(photo)) {
-      contentParts.push({ type: 'image_url', image_url: { url: photo } });
-    }
-  });
+  const imageParts = (photos || []).slice(0, 3)
+    .filter(photo => /^data:image\/\w+;base64,.+$/.test(photo))
+    .map(photo => ({ type: 'image_url', image_url: { url: photo } }));
+  const userContent = imageParts.length > 0
+    ? [{ type: 'text', text: description }, ...imageParts]
+    : description; // plain string when there's no image — safest, universally-supported shape
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -1275,14 +1275,15 @@ async function callAiJobClassifier(description, photos) {
           max_tokens: 700,
           messages: [
             { role: 'system', content: AI_SYSTEM_PROMPT },
-            { role: 'user', content: contentParts }
+            { role: 'user', content: userContent }
           ]
         }),
         signal: controller.signal
       });
       clearTimeout(timeout);
       if (!response.ok) {
-        console.error('AI classifier HTTP error:', response.status, await response.text().catch(() => ''));
+        const bodyText = await response.text().catch(() => '(no body)');
+        console.error(`[AI CLASSIFIER] OpenRouter HTTP ${response.status} on attempt ${attempt + 1}:`, bodyText);
         continue;
       }
       const data = await response.json();
@@ -1291,16 +1292,17 @@ async function callAiJobClassifier(description, photos) {
       try {
         parsed = JSON.parse(text.trim().replace(/^```json\s*|\s*```$/g, ''));
       } catch (err) {
+        console.error(`[AI CLASSIFIER] Response wasn't valid JSON on attempt ${attempt + 1}. Raw text:`, text);
         continue; // retry once on invalid JSON
       }
       const error = validateAssessmentShape(parsed);
       if (error) {
-        console.error('AI classifier schema error:', error);
+        console.error(`[AI CLASSIFIER] Schema validation failed on attempt ${attempt + 1}:`, error, 'Parsed:', JSON.stringify(parsed));
         continue; // retry once on schema mismatch
       }
       return { ok: true, assessment: parsed, raw: data };
     } catch (err) {
-      console.error('AI classifier request failed:', err.message);
+      console.error(`[AI CLASSIFIER] Request threw on attempt ${attempt + 1}:`, err.message);
     }
   }
   return { ok: false, reason: 'ai_failed' };
@@ -4032,6 +4034,42 @@ app.get('/api/admin/users', requireRole('admin'), asyncHandler(async (req, res) 
   const hasMore = result.rows.length > limit;
   const users = hasMore ? result.rows.slice(0, limit) : result.rows;
   res.json({ users, hasMore });
+}));
+
+// Visit this while logged in as admin to see exactly why the AI
+// assessment might be falling back — the real HTTP status and error
+// body from OpenRouter, not just a generic "not working."
+app.get('/api/admin/ai-status', requireRole('admin'), asyncHandler(async (req, res) => {
+  if (!OPENROUTER_API_KEY) {
+    return res.json({ configured: false, message: 'OPENROUTER_API_KEY is not set on this server.' });
+  }
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'HTTP-Referer': 'https://handylink.example',
+        'X-Title': 'HandyLink'
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        max_tokens: 20,
+        messages: [{ role: 'user', content: 'Reply with only the word: ok' }]
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    const bodyText = await response.text();
+    if (!response.ok) {
+      return res.json({ configured: true, model: OPENROUTER_MODEL, success: false, httpStatus: response.status, responseBody: bodyText });
+    }
+    return res.json({ configured: true, model: OPENROUTER_MODEL, success: true, responseBody: bodyText });
+  } catch (err) {
+    return res.json({ configured: true, model: OPENROUTER_MODEL, success: false, error: err.message });
+  }
 }));
 
 app.get('/api/admin/audit-log-actions', requireRole('admin'), asyncHandler(async (req, res) => {
