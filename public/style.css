@@ -18,9 +18,9 @@
   --shadow-md: 0 1px 2px rgba(20,24,21,0.04), 0 10px 24px -14px rgba(20,24,21,0.18);
   /* Apple-style glass material: translucent, blurred, faintly bordered
      so edges still read against any background behind it. */
-  --glass-bg: rgba(255, 255, 255, 0.68);
-  --glass-bg-strong: rgba(255, 255, 255, 0.82);
-  --glass-border: rgba(255, 255, 255, 0.4);
+  --glass-bg: rgba(255, 255, 255, 0.48);
+  --glass-bg-strong: rgba(255, 255, 255, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.35);
   --glass-blur: blur(20px) saturate(180%);
   /* The iOS spring curve — a slight overshoot before settling, which
      is what makes taps and sheet transitions feel "bouncy" rather than
@@ -297,7 +297,7 @@ body.app-body {
   box-shadow: 0 10px 28px -12px rgba(20,24,21,0.22), inset 0 1px 0 rgba(255,255,255,0.55);
   transition: box-shadow 0.3s var(--ease-out);
 }
-.dash-header h1 { margin: 0; font-size: 1.4rem; font-weight: 800; line-height: 1; }
+.dash-header h1 { margin: 0; margin-top: -0.05em; font-size: 1.4rem; font-weight: 800; line-height: 1; }
 .dash-user { display: flex; align-items: center; gap: 0.75rem; }
 .dash-user span { color: var(--ink-soft); font-size: 0.86rem; }
 
@@ -835,6 +835,7 @@ body.app-body {
   width: 40px;
   height: 40px;
   min-height: 40px;
+  padding: 0;
   border-radius: 50%;
   background: var(--surface);
   border: none;
