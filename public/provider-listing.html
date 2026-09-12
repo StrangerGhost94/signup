@@ -18,9 +18,6 @@
     <h1 style="font-size:1.3rem; font-weight:800; margin-bottom:1.25rem;">Business Profile</h1>
 
         <p class="job-meta" style="margin:-0.5rem 0 1.5rem;" id="welcome"></p>
-        <div id="locationReminder" style="display:none; background:var(--primary-tint); border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem; color:var(--primary-deep);">
-          📍 Set your location so nearby clients can find you faster — use the button below.
-        </div>
 
         <div id="approvalBanner" style="display:none; border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem;"></div>
 
@@ -57,9 +54,7 @@
 
             <label>Location / area you serve</label>
             <input type="text" id="location" required>
-            <button type="button" id="useLocationBtn" class="btn-outline" style="margin-top:-0.5rem; margin-bottom:1rem; font-size:0.85rem; padding:0.5rem 0.9rem;">
-              <span id="useLocationLabel">📍 Use my current location</span>
-            </button>
+            <p class="job-meta" style="margin-top:-0.6rem; margin-bottom:1rem;" id="autoLocationStatus"></p>
 
             <label>Phone number</label>
             <input type="tel" id="phone" required>
@@ -196,37 +191,28 @@
       }
     });
 
-    document.getElementById('useLocationBtn').addEventListener('click', () => {
-      if (!navigator.geolocation) {
-        showToast('Your browser doesn\u2019t support location.', 'error');
-        return;
-      }
-      document.getElementById('useLocationLabel').textContent = 'Getting your location...';
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const { latitude, longitude, accuracy } = pos.coords;
-          const res = await fetch('/api/me/location', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ latitude, longitude, accuracy })
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            document.getElementById('useLocationLabel').textContent = '📍 Use my current location';
-            showToast(data.error || 'Couldn\u2019t save your location.', 'error');
-            return;
+    (async () => {
+      const state = await startAutoLocationIfPermitted();
+      const statusEl = document.getElementById('autoLocationStatus');
+      if (state === 'granted') {
+        statusEl.innerHTML = '✓ Location is kept up to date automatically while you have the app open.';
+        statusEl.style.color = 'var(--primary-deep)';
+      } else if (state === 'prompt') {
+        statusEl.innerHTML = '📍 <a href="#" id="enableLocationLink">Turn on automatic location</a> so nearby clients can find you.';
+        document.getElementById('enableLocationLink').addEventListener('click', async (e) => {
+          e.preventDefault();
+          const ok = await enableAutoLocationTracking(null);
+          if (ok) {
+            statusEl.innerHTML = '✓ Location is kept up to date automatically while you have the app open.';
+            showToast('Location enabled.', 'success');
+          } else {
+            showToast('Couldn\u2019t get your location. Please allow the permission prompt.', 'error');
           }
-          document.getElementById('useLocationLabel').textContent = `✓ Location set — ${data.city || data.district || 'saved'}`;
-          document.getElementById('locationReminder').style.display = 'none';
-          showToast('Location saved.', 'success');
-        },
-        (err) => {
-          document.getElementById('useLocationLabel').textContent = '📍 Use my current location';
-          showToast('Couldn\u2019t get your location. Check permissions.', 'error');
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    });
+        });
+      } else if (state === 'denied') {
+        statusEl.innerHTML = '📍 Location is blocked in your browser settings — enable it there so clients can find you nearby.';
+      }
+    })();
     let pendingPhoto = null;
 
     let verificationSnapshot = {};
@@ -374,7 +360,6 @@
         currentExperienceYears = p.experience_years;
         currentRating = p.rating;
         if (p.photo) document.getElementById('photoPreview').innerHTML = `<img src="${p.photo}" alt="">`;
-        if (!p.latitude) document.getElementById('locationReminder').style.display = 'block';
         renderPreview(p);
       }
       await loadVerificationStatus();

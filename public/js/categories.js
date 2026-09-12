@@ -187,18 +187,52 @@ window.refreshOnResume = function (refreshFn) {
 // Fills any location text input from the device's real GPS position —
 // reusable anywhere a location field exists, without touching the
 // user's saved profile location.
+// Takes several GPS readings over a few seconds and keeps the most
+// accurate one, instead of trusting whatever the very first fix
+// happens to be — a single getCurrentPosition() call can return a
+// coarse, wifi/cell-tower-based fix (accuracy of hundreds of meters)
+// even on a device with a strong GPS signal, because it doesn't wait
+// for the receiver to lock on. Resolves with the best {latitude,
+// longitude, accuracy} reading found within the sampling window.
+window.getAccurateLocation = function (maxWaitMs = 6000) {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('unsupported'));
+      return;
+    }
+    let best = null;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        if (!best || pos.coords.accuracy < best.coords.accuracy) {
+          best = pos;
+        }
+        // A fix this precise (typical real GPS lock) is good enough —
+        // no need to keep draining battery waiting for the full window.
+        if (pos.coords.accuracy <= 20) {
+          navigator.geolocation.clearWatch(watchId);
+          resolve(best);
+        }
+      },
+      (err) => {
+        navigator.geolocation.clearWatch(watchId);
+        if (best) resolve(best); else reject(err);
+      },
+      { enableHighAccuracy: true, timeout: maxWaitMs, maximumAge: 0 }
+    );
+    setTimeout(() => {
+      navigator.geolocation.clearWatch(watchId);
+      if (best) resolve(best); else reject(new Error('timeout'));
+    }, maxWaitMs);
+  });
+};
+
 window.autofillLocation = function (inputId, btn) {
-  if (!navigator.geolocation) {
-    showToast('Location isn\u2019t supported on this device.', 'error');
-    return;
-  }
   const originalHtml = btn.innerHTML;
   btn.innerHTML = 'Locating…';
   btn.disabled = true;
-
   const restore = () => { btn.innerHTML = originalHtml; btn.disabled = false; };
 
-  navigator.geolocation.getCurrentPosition(async (pos) => {
+  getAccurateLocation().then(async (pos) => {
     try {
       const res = await fetch(`/api/geocode/reverse?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`);
       const data = await res.json();
@@ -211,11 +245,108 @@ window.autofillLocation = function (inputId, btn) {
     } finally {
       restore();
     }
-  }, () => {
-    showToast('Location permission was denied or unavailable.', 'error');
+  }).catch((err) => {
+    showToast(err.message === 'unsupported' ? 'Location isn\u2019t supported on this device.' : 'Location permission was denied or unavailable.', 'error');
     restore();
-  }, { enableHighAccuracy: true, timeout: 10000 });
+  });
 };
+
+// --- Automatic location tracking (while the app is open) ---
+// Honest scope: a website cannot get real background location access
+// the way a native app can — there's no "always allow, even when
+// closed" for web pages. What this DOES do is remove the need to ever
+// manually click a "use my location" button again: once permission is
+// granted once, location is captured and kept fresh automatically for
+// the rest of this session and every future one, silently, for as
+// long as the tab/app is open.
+const LOCATION_REFRESH_MS = 5 * 60 * 1000; // keep it fresh every 5 minutes while open
+let locationRefreshTimer = null;
+
+async function saveCurrentLocationSilently() {
+  try {
+    const pos = await getAccurateLocation(6000);
+    await fetch('/api/me/location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy })
+    });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+// Call on every page load for a role that needs live location (providers
+// today). Checks the *existing* permission state — never prompts on its
+// own, since browsers require a real click to ask, which is what
+// enableAutoLocationTracking() below is for.
+window.startAutoLocationIfPermitted = async function () {
+  if (!navigator.permissions || !navigator.geolocation) return 'unsupported';
+  try {
+    const status = await navigator.permissions.query({ name: 'geolocation' });
+    if (status.state !== 'granted') return status.state; // 'prompt' or 'denied'
+    await saveCurrentLocationSilently();
+    if (!locationRefreshTimer) {
+      locationRefreshTimer = setInterval(saveCurrentLocationSilently, LOCATION_REFRESH_MS);
+    }
+    return 'granted';
+  } catch (err) {
+    return 'unsupported';
+  }
+};
+
+// Call from a real click handler — this is the one moment a browser
+// will actually show the permission prompt. Starts the same automatic
+// refresh cycle the instant it's granted.
+window.enableAutoLocationTracking = async function (btn) {
+  const originalHtml = btn ? btn.innerHTML : null;
+  if (btn) { btn.innerHTML = 'Enabling…'; btn.disabled = true; }
+  const ok = await saveCurrentLocationSilently();
+  if (ok && !locationRefreshTimer) {
+    locationRefreshTimer = setInterval(saveCurrentLocationSilently, LOCATION_REFRESH_MS);
+  }
+  if (btn) { btn.innerHTML = originalHtml; btn.disabled = false; }
+  return ok;
+};
+
+
+// --- App icon badge (Badging API) ---
+window.updateAppBadge = function (count) {
+  if (!('setAppBadge' in navigator)) return;
+  if (count > 0) navigator.setAppBadge(count).catch(() => {});
+  else if ('clearAppBadge' in navigator) navigator.clearAppBadge().catch(() => {});
+};
+
+// Renders a notification list grouped into "Today" / "Earlier" —
+// shared by both dashboards so the bell dropdown looks and behaves
+// identically for clients and providers.
+window.renderGroupedNotifications = function (notifications) {
+  if (notifications.length === 0) {
+    return `<div style="padding:1rem; text-align:center; color:var(--ink-soft); font-size:0.85rem;">No notifications yet.</div>`;
+  }
+  const today = new Date().toDateString();
+  const todayItems = notifications.filter(n => new Date(n.created_at).toDateString() === today);
+  const earlierItems = notifications.filter(n => new Date(n.created_at).toDateString() !== today);
+
+  const renderRow = (n) => `
+    <div class="suggestion-row" style="align-items:flex-start;" data-link="${n.link || ''}">
+      <div class="icon-chip" style="background:${n.read_at ? 'var(--surface)' : 'var(--primary-tint)'};">
+        <svg viewBox="0 0 24 24" fill="none" stroke="${n.read_at ? 'var(--ink-soft)' : 'var(--primary)'}" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+      </div>
+      <div>
+        <span style="display:block; font-weight:${n.read_at ? '500' : '700'};">${escapeHtml(n.body)}</span>
+        <span style="font-size:0.72rem; color:var(--ink-soft); font-weight:400;">${relativeTime(n.created_at)}</span>
+      </div>
+    </div>
+  `;
+  const sectionLabel = (text) => `<div style="padding:0.6rem 0.9rem 0.3rem; font-size:0.7rem; font-weight:700; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.03em;">${text}</div>`;
+
+  let html = '';
+  if (todayItems.length > 0) html += sectionLabel('Today') + todayItems.map(renderRow).join('');
+  if (earlierItems.length > 0) html += sectionLabel('Earlier') + earlierItems.map(renderRow).join('');
+  return html;
+};
+
 
 // --- PWA install prompt ---
 (function () {

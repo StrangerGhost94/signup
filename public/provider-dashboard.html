@@ -36,6 +36,10 @@
         </header>
 
         <div id="approvalBanner" style="display:none; border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem;"></div>
+        <div id="locationBanner" style="display:none; border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem; background:var(--primary-tint); display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+          <span>📍 Turn on location so nearby jobs can find you automatically — no need to set it manually again.</span>
+          <button type="button" id="enableLocationBtn" class="small-btn" style="width:auto; flex-shrink:0;">Enable</button>
+        </div>
 
         <div class="filters" id="jobTabBar" style="margin-bottom:1rem;">
           <button class="filter-btn active" data-tab="requests">Job Requests</button>
@@ -289,28 +293,15 @@
       if (!res.ok) return;
       const data = await res.json();
       document.getElementById('bellDot').style.display = data.unreadCount > 0 ? 'block' : 'none';
+      updateAppBadge(data.unreadCount);
       if (render) {
         const panel = document.getElementById('notifPanel');
-        if (data.notifications.length === 0) {
-          panel.innerHTML = `<div style="padding:1rem; text-align:center; color:var(--ink-soft); font-size:0.85rem;">No notifications yet.</div>`;
-        } else {
-          panel.innerHTML = data.notifications.map(n => `
-            <div class="suggestion-row" style="align-items:flex-start;" data-link="${n.link || ''}">
-              <div class="icon-chip" style="background:${n.read_at ? 'var(--surface)' : 'var(--primary-tint)'};">
-                <svg viewBox="0 0 24 24" fill="none" stroke="${n.read_at ? 'var(--ink-soft)' : 'var(--primary)'}" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
-              </div>
-              <div>
-                <span style="display:block; font-weight:${n.read_at ? '500' : '700'};">${escapeHtml(n.body)}</span>
-                <span style="font-size:0.72rem; color:var(--ink-soft); font-weight:400;">${relativeTime(n.created_at)}</span>
-              </div>
-            </div>
-          `).join('');
-          panel.querySelectorAll('.suggestion-row').forEach(row => {
-            row.addEventListener('click', () => {
-              if (row.dataset.link) window.location.href = row.dataset.link;
-            });
+        panel.innerHTML = renderGroupedNotifications(data.notifications);
+        panel.querySelectorAll('.suggestion-row').forEach(row => {
+          row.addEventListener('click', () => {
+            if (row.dataset.link) window.location.href = row.dataset.link;
           });
-        }
+        });
       }
     }
 
@@ -323,6 +314,7 @@
         await loadNotifications(true);
         await fetch('/api/notifications/read', { method: 'POST' });
         document.getElementById('bellDot').style.display = 'none';
+        updateAppBadge(0);
       }
     });
     document.addEventListener('click', (e) => {
@@ -361,6 +353,22 @@
       await loadOpenJobs();
       await loadApprovalBanner();
       await loadNotifications(false);
+
+      const locationState = await startAutoLocationIfPermitted();
+      const locationBanner = document.getElementById('locationBanner');
+      if (locationState === 'prompt') {
+        locationBanner.style.display = 'flex';
+        document.getElementById('enableLocationBtn').addEventListener('click', async (e) => {
+          const ok = await enableAutoLocationTracking(e.target);
+          if (ok) { locationBanner.style.display = 'none'; showToast('Location enabled — you\u2019re all set.', 'success'); }
+          else { showToast('Couldn\u2019t get your location. Please allow the permission prompt.', 'error'); }
+        });
+      } else if (locationState === 'denied') {
+        locationBanner.style.display = 'flex';
+        locationBanner.querySelector('span').textContent = '📍 Location is blocked in your browser settings — enable it there to be matched with nearby jobs automatically.';
+        document.getElementById('enableLocationBtn').style.display = 'none';
+      }
+
       if (new URLSearchParams(window.location.search).get('tab') === 'open') {
         document.querySelector('[data-tab="open"]').click();
       }

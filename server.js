@@ -356,6 +356,13 @@ async function initDb() {
   // without touching this column.
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE`);
 
+  // Granular categories instead of one all-or-nothing switch, plus an
+  // optional quiet-hours window that silences push (but keeps the
+  // in-app notification waiting) rather than losing it outright.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_categories JSONB NOT NULL DEFAULT '{"jobs":true,"messages":true,"offers":true,"payments":true}'`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_start SMALLINT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_end SMALLINT`);
+
   // Real push notifications — delivered to the device even when the app
   // isn't open, unlike the in-app bell (which only works while a tab is
   // active and polling). One row per subscribed device/browser.
@@ -953,17 +960,56 @@ async function requireLogin(req, res, next) {
   next();
 }
 
+// Maps a notification's internal type to one of the 4 user-facing
+// categories. Defaults unmatched/future types to 'jobs' deliberately —
+// a notification should never silently bypass the user's preferences
+// just because it's a new type nobody's categorized yet.
+function categorizeNotificationType(type) {
+  if (type === 'new_message') return 'messages';
+  if (type === 'new_offer' || type === 'offer_accepted' || type === 'offer_declined') return 'offers';
+  if (type === 'payment_recorded') return 'payments';
+  return 'jobs';
+}
+
+function pushTitleForCategory(category) {
+  return { jobs: 'Job update', messages: 'New message', offers: 'Offer update', payments: 'Payment update' }[category] || 'HandyLink';
+}
+
+// Quiet hours use the server's local hour — a real limitation, since
+// the server doesn't know each user's actual timezone. Good enough for
+// a single-country marketplace; would need a stored user timezone to
+// be fully correct elsewhere.
+function isWithinQuietHours(startHour, endHour) {
+  if (startHour == null || endHour == null || startHour === endHour) return false;
+  const currentHour = new Date().getHours();
+  if (startHour < endHour) return currentHour >= startHour && currentHour < endHour;
+  return currentHour >= startHour || currentHour < endHour; // wraps past midnight
+}
+
 async function createNotification(userId, type, body, link) {
   try {
-    const pref = await pool.query('SELECT notifications_enabled FROM users WHERE id = $1', [userId]);
-    if (pref.rows.length > 0 && pref.rows[0].notifications_enabled === false) {
-      return; // respected here, not just in the UI
-    }
+    const pref = await pool.query(
+      'SELECT notifications_enabled, notification_categories, quiet_hours_start, quiet_hours_end FROM users WHERE id = $1',
+      [userId]
+    );
+    if (pref.rows.length === 0) return;
+    const user = pref.rows[0];
+    if (user.notifications_enabled === false) return; // master switch, respected here not just in the UI
+
+    const category = categorizeNotificationType(type);
+    const categories = user.notification_categories || {};
+    if (categories[category] === false) return; // this category specifically turned off
+
     await pool.query(
       'INSERT INTO notifications (user_id, type, body, link) VALUES ($1, $2, $3, $4)',
       [userId, type, body, link || null]
     );
-    sendPushToUser(userId, 'HandyLink', body, link);
+
+    // Quiet hours silence the push, not the notification itself — it's
+    // still there waiting in the bell when they next open the app.
+    if (!isWithinQuietHours(user.quiet_hours_start, user.quiet_hours_end)) {
+      sendPushToUser(userId, pushTitleForCategory(category), body, link);
+    }
   } catch (err) {
     console.error('Notification creation failed:', err);
   }
@@ -1874,7 +1920,7 @@ app.get('/api/me', asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'Not logged in.' });
   }
   const result = await pool.query(
-    'SELECT id, email, role, name, phone, created_at, latitude, longitude, city, district, notifications_enabled FROM users WHERE id = $1',
+    'SELECT id, email, role, name, phone, created_at, latitude, longitude, city, district, notifications_enabled, notification_categories, quiet_hours_start, quiet_hours_end FROM users WHERE id = $1',
     [req.session.userId]
   );
   if (result.rows.length === 0) {
@@ -2037,9 +2083,32 @@ app.delete('/api/favorites/:providerId', requireRole('client'), asyncHandler(asy
 // --- Notification preferences ---
 
 app.put('/api/me/notification-preferences', requireLogin, asyncHandler(async (req, res) => {
-  const { notificationsEnabled } = req.body;
-  await pool.query('UPDATE users SET notifications_enabled = $1 WHERE id = $2', [!!notificationsEnabled, req.session.userId]);
+  const { notificationsEnabled, categories, quietHoursStart, quietHoursEnd } = req.body;
+
+  const validCategories = ['jobs', 'messages', 'offers', 'payments'];
+  let cleanCategories = null;
+  if (categories && typeof categories === 'object') {
+    cleanCategories = {};
+    validCategories.forEach(c => { cleanCategories[c] = categories[c] !== false; });
+  }
+
+  const startHour = Number.isInteger(quietHoursStart) && quietHoursStart >= 0 && quietHoursStart <= 23 ? quietHoursStart : null;
+  const endHour = Number.isInteger(quietHoursEnd) && quietHoursEnd >= 0 && quietHoursEnd <= 23 ? quietHoursEnd : null;
+
+  await pool.query(
+    `UPDATE users SET
+       notifications_enabled = COALESCE($1, notifications_enabled),
+       notification_categories = COALESCE($2, notification_categories),
+       quiet_hours_start = $3, quiet_hours_end = $4
+     WHERE id = $5`,
+    [typeof notificationsEnabled === 'boolean' ? notificationsEnabled : null, cleanCategories ? JSON.stringify(cleanCategories) : null, startHour, endHour, req.session.userId]
+  );
   res.json({ message: 'Preferences updated.' });
+}));
+
+app.get('/api/notifications/unread-count', requireLogin, asyncHandler(async (req, res) => {
+  const result = await pool.query('SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND read_at IS NULL', [req.session.userId]);
+  res.json({ count: result.rows[0].count });
 }));
 
 // --- Push notifications (real device delivery, not just in-app) ---

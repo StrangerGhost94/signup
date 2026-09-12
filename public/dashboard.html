@@ -259,28 +259,15 @@
       if (!res.ok) return;
       const data = await res.json();
       document.getElementById('bellDot').style.display = data.unreadCount > 0 ? 'block' : 'none';
+      updateAppBadge(data.unreadCount);
       if (render) {
         const panel = document.getElementById('notifPanel');
-        if (data.notifications.length === 0) {
-          panel.innerHTML = `<div style="padding:1rem; text-align:center; color:var(--ink-soft); font-size:0.85rem;">No notifications yet.</div>`;
-        } else {
-          panel.innerHTML = data.notifications.map(n => `
-            <div class="suggestion-row" style="align-items:flex-start;" data-link="${n.link || ''}">
-              <div class="icon-chip" style="background:${n.read_at ? 'var(--surface)' : 'var(--primary-tint)'};">
-                <svg viewBox="0 0 24 24" fill="none" stroke="${n.read_at ? 'var(--ink-soft)' : 'var(--primary)'}" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
-              </div>
-              <div>
-                <span style="display:block; font-weight:${n.read_at ? '500' : '700'};">${escapeHtml(n.body)}</span>
-                <span style="font-size:0.72rem; color:var(--ink-soft); font-weight:400;">${relativeTime(n.created_at)}</span>
-              </div>
-            </div>
-          `).join('');
-          panel.querySelectorAll('.suggestion-row').forEach(row => {
-            row.addEventListener('click', () => {
-              if (row.dataset.link) window.location.href = row.dataset.link;
-            });
+        panel.innerHTML = renderGroupedNotifications(data.notifications);
+        panel.querySelectorAll('.suggestion-row').forEach(row => {
+          row.addEventListener('click', () => {
+            if (row.dataset.link) window.location.href = row.dataset.link;
           });
-        }
+        });
       }
     }
 
@@ -293,6 +280,7 @@
         await loadNotifications(true);
         await fetch('/api/notifications/read', { method: 'POST' });
         document.getElementById('bellDot').style.display = 'none';
+        updateAppBadge(0);
       }
     });
     document.addEventListener('click', (e) => {

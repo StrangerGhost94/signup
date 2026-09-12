@@ -23,7 +23,44 @@
         </label>
       </div>
     </div>
-    <p class="job-meta" style="margin-bottom:1.5rem;">When off, HandyLink won't create new notifications for bookings, messages, or price changes. You can turn this back on anytime.</p>
+    <p class="job-meta" style="margin-bottom:1.5rem;">The master switch — turn this off and nothing below fires, in-app or push.</p>
+
+    <p class="settings-section-label">What you're notified about</p>
+    <div class="settings-group" id="categoryGroup">
+      <div class="settings-row" style="cursor:default;">
+        <span class="row-label">Jobs & bookings</span>
+        <label class="toggle-switch"><input type="checkbox" class="cat-toggle" data-cat="jobs"><span class="toggle-switch-track"></span></label>
+      </div>
+      <div class="settings-row" style="cursor:default;">
+        <span class="row-label">Messages</span>
+        <label class="toggle-switch"><input type="checkbox" class="cat-toggle" data-cat="messages"><span class="toggle-switch-track"></span></label>
+      </div>
+      <div class="settings-row" style="cursor:default;">
+        <span class="row-label">Offers</span>
+        <label class="toggle-switch"><input type="checkbox" class="cat-toggle" data-cat="offers"><span class="toggle-switch-track"></span></label>
+      </div>
+      <div class="settings-row" style="cursor:default;">
+        <span class="row-label">Payments</span>
+        <label class="toggle-switch"><input type="checkbox" class="cat-toggle" data-cat="payments"><span class="toggle-switch-track"></span></label>
+      </div>
+    </div>
+    <p class="job-meta" style="margin-bottom:1.5rem;">Turn off just the kinds you don't want — everything else keeps working.</p>
+
+    <p class="settings-section-label">Quiet hours</p>
+    <div class="settings-group">
+      <div class="settings-row" style="cursor:default;">
+        <span class="row-label">Pause push during</span>
+        <label class="toggle-switch"><input type="checkbox" id="quietHoursToggle"><span class="toggle-switch-track"></span></label>
+      </div>
+      <div id="quietHoursRange" style="display:none; padding:0.95rem 1.1rem; border-top:1px solid var(--line);">
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+          <select id="quietStart" style="margin-bottom:0;"></select>
+          <span class="job-meta">to</span>
+          <select id="quietEnd" style="margin-bottom:0;"></select>
+        </div>
+      </div>
+    </div>
+    <p class="job-meta" style="margin-bottom:1.5rem;">During this window, push notifications stay silent — they'll still be waiting in-app when you next open HandyLink.</p>
 
     <p class="settings-section-label">Push Notifications</p>
     <div class="settings-group">
@@ -39,11 +76,48 @@
   <script>
     const toggle = document.getElementById('notifToggle');
 
+    // Populate hour selects (0-23)
+    ['quietStart', 'quietEnd'].forEach(id => {
+      const sel = document.getElementById(id);
+      for (let h = 0; h < 24; h++) {
+        const opt = document.createElement('option');
+        opt.value = h;
+        opt.textContent = h === 0 ? '12:00 AM' : h < 12 ? `${h}:00 AM` : h === 12 ? '12:00 PM' : `${h - 12}:00 PM`;
+        sel.appendChild(opt);
+      }
+    });
+
+    async function savePreferences(partial) {
+      const res = await fetch('/api/me/notification-preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(partial)
+      });
+      if (!res.ok) { showToast('Could not save preference.', 'error'); return false; }
+      return true;
+    }
+
+    function getCategoryState() {
+      const state = {};
+      document.querySelectorAll('.cat-toggle').forEach(el => { state[el.dataset.cat] = el.checked; });
+      return state;
+    }
+
     (async () => {
       const res = await fetch('/api/me');
       if (!res.ok) { window.location.href = '/login.html'; return; }
       const me = await res.json();
       toggle.checked = me.notifications_enabled !== false;
+
+      const cats = me.notification_categories || { jobs: true, messages: true, offers: true, payments: true };
+      document.querySelectorAll('.cat-toggle').forEach(el => { el.checked = cats[el.dataset.cat] !== false; });
+
+      const hasQuietHours = me.quiet_hours_start != null && me.quiet_hours_end != null;
+      document.getElementById('quietHoursToggle').checked = hasQuietHours;
+      document.getElementById('quietHoursRange').style.display = hasQuietHours ? 'block' : 'none';
+      document.getElementById('quietStart').value = hasQuietHours ? me.quiet_hours_start : 22;
+      document.getElementById('quietEnd').value = hasQuietHours ? me.quiet_hours_end : 7;
+
       await refreshPushStatus();
     })();
 
@@ -87,13 +161,33 @@
     });
 
     toggle.addEventListener('change', async () => {
-      const res = await fetch('/api/me/notification-preferences', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notificationsEnabled: toggle.checked })
+      const ok = await savePreferences({ notificationsEnabled: toggle.checked });
+      if (ok) showToast(toggle.checked ? 'Notifications enabled.' : 'Notifications disabled.', 'success');
+    });
+
+    document.querySelectorAll('.cat-toggle').forEach(el => {
+      el.addEventListener('change', async () => {
+        const ok = await savePreferences({ categories: getCategoryState() });
+        if (ok) showToast('Preferences updated.', 'success');
       });
-      if (!res.ok) { showToast('Could not save preference.', 'error'); return; }
-      showToast(toggle.checked ? 'Notifications enabled.' : 'Notifications disabled.', 'success');
+    });
+
+    document.getElementById('quietHoursToggle').addEventListener('change', async (e) => {
+      document.getElementById('quietHoursRange').style.display = e.target.checked ? 'block' : 'none';
+      const start = e.target.checked ? parseInt(document.getElementById('quietStart').value, 10) : null;
+      const end = e.target.checked ? parseInt(document.getElementById('quietEnd').value, 10) : null;
+      const ok = await savePreferences({ quietHoursStart: start, quietHoursEnd: end });
+      if (ok) showToast(e.target.checked ? 'Quiet hours set.' : 'Quiet hours turned off.', 'success');
+    });
+
+    ['quietStart', 'quietEnd'].forEach(id => {
+      document.getElementById(id).addEventListener('change', async () => {
+        if (!document.getElementById('quietHoursToggle').checked) return;
+        const start = parseInt(document.getElementById('quietStart').value, 10);
+        const end = parseInt(document.getElementById('quietEnd').value, 10);
+        const ok = await savePreferences({ quietHoursStart: start, quietHoursEnd: end });
+        if (ok) showToast('Quiet hours updated.', 'success');
+      });
     });
   </script>
 </body>
