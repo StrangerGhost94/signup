@@ -2056,3 +2056,50 @@ html, body { max-width: 100%; overflow-x: hidden; }
 }
 .location-autofill-btn svg { width: 15px; height: 15px; }
 .location-autofill-btn:hover { background: var(--primary); color: #fff; }
+
+/* --- Notification sheet: slides up from the bottom, built once in JS
+   and shared by every page, so it's never subject to a page's own
+   header layout or positioning quirks. --- */
+.notif-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 24, 21, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 90;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.notif-sheet-overlay.open { opacity: 1; pointer-events: auto; }
+.notif-sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  background: var(--bg);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.18);
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.notif-sheet-overlay.open .notif-sheet { transform: translateY(0); }
+.notif-sheet-handle {
+  width: 40px; height: 4px; border-radius: 999px;
+  background: var(--line); margin: 0.7rem auto 0.4rem;
+  flex-shrink: 0;
+}
+.notif-sheet-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.5rem 1.25rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.notif-sheet-header h2 { font-size: 1.05rem; font-weight: 800; margin: 0; }
+.notif-sheet-header button {
+  width: auto; min-height: auto; padding: 0.35rem 0.7rem;
+  background: none; color: var(--primary); font-weight: 700; font-size: 0.84rem;
+}
+.notif-sheet-list { overflow-y: auto; padding: 0.4rem 0; }

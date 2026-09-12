@@ -408,11 +408,37 @@ window.enableAutoLocationTracking = async function (btn) {
 // entirely from every other page, which is why notifications felt
 // inconsistent between screens. Call once per page after the elements
 // exist; returns a refresh() function for polling/refreshOnResume.
-window.initNotificationBell = function (clickOutsideSelector = '.topbar-right, .dash-user') {
+window.initNotificationBell = function () {
   const bellBtn = document.getElementById('bellBtn');
   const bellDot = document.getElementById('bellDot');
-  const panel = document.getElementById('notifPanel');
-  if (!bellBtn || !bellDot || !panel) return () => {};
+  if (!bellBtn || !bellDot) return () => {};
+
+  // Built once, appended straight to <body> — this is what guarantees
+  // the panel looks and behaves identically everywhere, completely
+  // independent of whatever header layout a given page happens to use.
+  let overlay = document.getElementById('notifSheetOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'notifSheetOverlay';
+    overlay.className = 'notif-sheet-overlay';
+    overlay.innerHTML = `
+      <div class="notif-sheet">
+        <div class="notif-sheet-handle"></div>
+        <div class="notif-sheet-header">
+          <h2>Notifications</h2>
+          <button type="button" id="notifSheetClose">Close</button>
+        </div>
+        <div class="notif-sheet-list" id="notifSheetList"></div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSheet(); });
+    overlay.querySelector('#notifSheetClose').addEventListener('click', closeSheet);
+  }
+  const list = overlay.querySelector('#notifSheetList');
+
+  function openSheet() { overlay.classList.add('open'); }
+  function closeSheet() { overlay.classList.remove('open'); }
 
   async function loadNotifications(render) {
     const res = await fetch('/api/notifications');
@@ -421,8 +447,8 @@ window.initNotificationBell = function (clickOutsideSelector = '.topbar-right, .
     bellDot.style.display = data.unreadCount > 0 ? 'block' : 'none';
     updateAppBadge(data.unreadCount);
     if (render) {
-      panel.innerHTML = renderGroupedNotifications(data.notifications);
-      panel.querySelectorAll('.suggestion-row').forEach(row => {
+      list.innerHTML = renderGroupedNotifications(data.notifications);
+      list.querySelectorAll('.suggestion-row').forEach(row => {
         row.addEventListener('click', () => {
           if (row.dataset.link) window.location.href = row.dataset.link;
         });
@@ -432,17 +458,11 @@ window.initNotificationBell = function (clickOutsideSelector = '.topbar-right, .
 
   bellBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
-    const showing = panel.style.display === 'block';
-    panel.style.display = showing ? 'none' : 'block';
-    if (!showing) {
-      await loadNotifications(true);
-      await fetch('/api/notifications/read', { method: 'POST' });
-      bellDot.style.display = 'none';
-      updateAppBadge(0);
-    }
-  });
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest(clickOutsideSelector)) panel.style.display = 'none';
+    await loadNotifications(true);
+    openSheet();
+    await fetch('/api/notifications/read', { method: 'POST' });
+    bellDot.style.display = 'none';
+    updateAppBadge(0);
   });
 
   loadNotifications(false);
