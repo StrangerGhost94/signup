@@ -187,48 +187,64 @@ window.refreshOnResume = function (refreshFn) {
 // Fills any location text input from the device's real GPS position —
 // reusable anywhere a location field exists, without touching the
 // user's saved profile location.
-// Takes several GPS readings over a few seconds and keeps the most
-// accurate one, instead of trusting whatever the very first fix
-// happens to be — a single getCurrentPosition() call can return a
-// coarse, wifi/cell-tower-based fix (accuracy of hundreds of meters)
-// even on a device with a strong GPS signal, because it doesn't wait
-// for the receiver to lock on. Resolves with the best {latitude,
-// longitude, accuracy} reading found within the sampling window.
-window.getAccurateLocation = function (maxWaitMs = 6000) {
+// Takes up to 3 readings, keeping the most accurate one, instead of
+// trusting whatever the very first fix happens to be — a single
+// getCurrentPosition() call can return a coarse, wifi/cell-tower-based
+// fix (accuracy of hundreds of meters) even on a device with a strong
+// GPS signal, because it doesn't wait for the receiver to lock on.
+// Uses sequential getCurrentPosition calls rather than watchPosition —
+// simpler and more predictable across browsers, and each call gets its
+// own generous timeout that accounts for how long a person actually
+// takes to notice and respond to the permission prompt (which can
+// easily be several seconds), not just GPS acquisition time. A short
+// timeout here was the actual cause of the prompt looking
+// unresponsive: the code was giving up before the person had even
+// finished tapping "Allow."
+window.getAccurateLocation = function () {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error('unsupported'));
       return;
     }
     let best = null;
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        if (!best || pos.coords.accuracy < best.coords.accuracy) {
-          best = pos;
-        }
-        // A fix this precise (typical real GPS lock) is good enough —
-        // no need to keep draining battery waiting for the full window.
-        if (pos.coords.accuracy <= 20) {
-          navigator.geolocation.clearWatch(watchId);
-          resolve(best);
-        }
-      },
-      (err) => {
-        navigator.geolocation.clearWatch(watchId);
-        if (best) resolve(best); else reject(err);
-      },
-      { enableHighAccuracy: true, timeout: maxWaitMs, maximumAge: 0 }
-    );
-    setTimeout(() => {
-      navigator.geolocation.clearWatch(watchId);
-      if (best) resolve(best); else reject(new Error('timeout'));
-    }, maxWaitMs);
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    function takeReading() {
+      attempts++;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
+          const goodEnough = pos.coords.accuracy <= 30;
+          if (goodEnough || attempts >= maxAttempts) {
+            resolve(best);
+          } else {
+            takeReading();
+          }
+        },
+        (err) => {
+          // The very first attempt failing (e.g. permission denied, or
+          // the person dismissed the prompt) should surface immediately
+          // rather than retrying blind. A later attempt failing after
+          // we already have at least one reading just means "good
+          // enough, stop here."
+          if (best) resolve(best);
+          else reject(err);
+        },
+        // Only the first call needs a generous timeout — it's the one
+        // covering however long the person takes to notice and respond
+        // to the permission prompt. By the second call, permission is
+        // already resolved, so a shorter window is plenty.
+        { enableHighAccuracy: true, timeout: attempts === 1 ? 20000 : 8000, maximumAge: 0 }
+      );
+    }
+    takeReading();
   });
 };
 
 window.autofillLocation = function (inputId, btn) {
   const originalHtml = btn.innerHTML;
-  btn.innerHTML = 'Locating…';
+  btn.innerHTML = 'Allow location access…';
   btn.disabled = true;
   const restore = () => { btn.innerHTML = originalHtml; btn.disabled = false; };
 
@@ -264,7 +280,7 @@ let locationRefreshTimer = null;
 
 async function saveCurrentLocationSilently() {
   try {
-    const pos = await getAccurateLocation(6000);
+    const pos = await getAccurateLocation();
     await fetch('/api/me/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -280,6 +296,17 @@ async function saveCurrentLocationSilently() {
 // today). Checks the *existing* permission state — never prompts on its
 // own, since browsers require a real click to ask, which is what
 // enableAutoLocationTracking() below is for.
+let locationResumeListenerAdded = false;
+function ensureLocationResumeListener() {
+  if (locationResumeListenerAdded) return;
+  locationResumeListenerAdded = true;
+  // Background tabs get their timers throttled by the browser, so the
+  // fixed interval alone isn't enough to guarantee freshness — this
+  // makes a return to the app immediately trigger a fresh reading too,
+  // the same pattern already used for notifications and job lists.
+  refreshOnResume(saveCurrentLocationSilently);
+}
+
 window.startAutoLocationIfPermitted = async function () {
   if (!navigator.permissions || !navigator.geolocation) return 'unsupported';
   try {
@@ -289,6 +316,7 @@ window.startAutoLocationIfPermitted = async function () {
     if (!locationRefreshTimer) {
       locationRefreshTimer = setInterval(saveCurrentLocationSilently, LOCATION_REFRESH_MS);
     }
+    ensureLocationResumeListener();
     return 'granted';
   } catch (err) {
     return 'unsupported';
@@ -300,17 +328,65 @@ window.startAutoLocationIfPermitted = async function () {
 // refresh cycle the instant it's granted.
 window.enableAutoLocationTracking = async function (btn) {
   const originalHtml = btn ? btn.innerHTML : null;
-  if (btn) { btn.innerHTML = 'Enabling…'; btn.disabled = true; }
+  if (btn) { btn.innerHTML = 'Allow location access…'; btn.disabled = true; }
   const ok = await saveCurrentLocationSilently();
   if (ok && !locationRefreshTimer) {
     locationRefreshTimer = setInterval(saveCurrentLocationSilently, LOCATION_REFRESH_MS);
   }
+  if (ok) ensureLocationResumeListener();
   if (btn) { btn.innerHTML = originalHtml; btn.disabled = false; }
   return ok;
 };
 
 
-// --- App icon badge (Badging API) ---
+// One shared notification bell implementation for every page that has
+// the markup (#bellBtn, #bellDot, #notifPanel) — previously duplicated
+// separately in the client and provider home pages, and missing
+// entirely from every other page, which is why notifications felt
+// inconsistent between screens. Call once per page after the elements
+// exist; returns a refresh() function for polling/refreshOnResume.
+window.initNotificationBell = function (clickOutsideSelector = '.topbar-right, .dash-user') {
+  const bellBtn = document.getElementById('bellBtn');
+  const bellDot = document.getElementById('bellDot');
+  const panel = document.getElementById('notifPanel');
+  if (!bellBtn || !bellDot || !panel) return () => {};
+
+  async function loadNotifications(render) {
+    const res = await fetch('/api/notifications');
+    if (!res.ok) return;
+    const data = await res.json();
+    bellDot.style.display = data.unreadCount > 0 ? 'block' : 'none';
+    updateAppBadge(data.unreadCount);
+    if (render) {
+      panel.innerHTML = renderGroupedNotifications(data.notifications);
+      panel.querySelectorAll('.suggestion-row').forEach(row => {
+        row.addEventListener('click', () => {
+          if (row.dataset.link) window.location.href = row.dataset.link;
+        });
+      });
+    }
+  }
+
+  bellBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const showing = panel.style.display === 'block';
+    panel.style.display = showing ? 'none' : 'block';
+    if (!showing) {
+      await loadNotifications(true);
+      await fetch('/api/notifications/read', { method: 'POST' });
+      bellDot.style.display = 'none';
+      updateAppBadge(0);
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest(clickOutsideSelector)) panel.style.display = 'none';
+  });
+
+  loadNotifications(false);
+  return () => loadNotifications(false);
+};
+
+
 window.updateAppBadge = function (count) {
   if (!('setAppBadge' in navigator)) return;
   if (count > 0) navigator.setAppBadge(count).catch(() => {});

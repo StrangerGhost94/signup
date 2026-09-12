@@ -23,7 +23,16 @@
 
     <div class="app-main">
       <div class="dash-wrap">
-        <h1 style="font-size:1.4rem; font-weight:800; margin:0 0 0.35rem;">Earnings</h1>
+        <header class="dash-header">
+          <h1 style="font-size:1.4rem; font-weight:800; margin:0;">Earnings</h1>
+          <div class="dash-user" style="position:relative;">
+            <button class="bell-btn" id="bellBtn" aria-label="Notifications">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+              <span class="bell-dot" id="bellDot" style="display:none;"></span>
+            </button>
+            <div id="notifPanel" class="search-suggestions" style="display:none; right:0; left:auto; width:300px; max-width:80vw;"></div>
+          </div>
+        </header>
         <p class="job-meta" style="margin-bottom:1.5rem;">Estimated from completed jobs — not a real payment record yet.</p>
 
         <div class="stat-grid">
@@ -66,6 +75,9 @@
       if (!meRes.ok) { window.location.href = '/login.html'; return; }
       const me = await meRes.json();
       if (me.role !== 'provider') { window.location.href = '/dashboard.html'; return; }
+      const refreshNotifications = initNotificationBell();
+      setInterval(() => refreshNotifications(), 20000);
+      refreshOnResume(() => refreshNotifications());
 
       const res = await fetch('/api/provider/earnings');
       if (!res.ok) return;

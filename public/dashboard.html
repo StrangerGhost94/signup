@@ -41,6 +41,11 @@
       </div>
     </header>
 
+    <div id="locationBanner" style="display:none; border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem; background:var(--primary-tint); align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+      <span>📍 Turn on location so we can find the nearest pros for you automatically.</span>
+      <button type="button" id="enableLocationBtn" class="small-btn" style="width:auto; flex-shrink:0;">Enable</button>
+    </div>
+
     <div class="search-bar" style="position:relative;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <input type="text" id="searchInput" placeholder="What do you need help with?" autocomplete="off">
@@ -254,38 +259,7 @@
       }
     }
 
-    async function loadNotifications(render) {
-      const res = await fetch('/api/notifications');
-      if (!res.ok) return;
-      const data = await res.json();
-      document.getElementById('bellDot').style.display = data.unreadCount > 0 ? 'block' : 'none';
-      updateAppBadge(data.unreadCount);
-      if (render) {
-        const panel = document.getElementById('notifPanel');
-        panel.innerHTML = renderGroupedNotifications(data.notifications);
-        panel.querySelectorAll('.suggestion-row').forEach(row => {
-          row.addEventListener('click', () => {
-            if (row.dataset.link) window.location.href = row.dataset.link;
-          });
-        });
-      }
-    }
-
-    document.getElementById('bellBtn').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const panel = document.getElementById('notifPanel');
-      const showing = panel.style.display === 'block';
-      panel.style.display = showing ? 'none' : 'block';
-      if (!showing) {
-        await loadNotifications(true);
-        await fetch('/api/notifications/read', { method: 'POST' });
-        document.getElementById('bellDot').style.display = 'none';
-        updateAppBadge(0);
-      }
-    });
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('.topbar-right')) document.getElementById('notifPanel').style.display = 'none';
-    });
+    const refreshNotifications = initNotificationBell();
 
     document.getElementById('getHelpNowBtn').addEventListener('click', () => {
       sessionStorage.setItem('preferredUrgency', 'now');
@@ -681,10 +655,25 @@
       buildCategoryGrid();
       await loadSavedLocation();
       await loadBookings();
-      await loadNotifications(false);
-      setInterval(() => loadNotifications(false), 20000);
+
+      const locationState = await startAutoLocationIfPermitted();
+      const locationBanner = document.getElementById('locationBanner');
+      if (locationState === 'prompt') {
+        locationBanner.style.display = 'flex';
+        document.getElementById('enableLocationBtn').addEventListener('click', async (e) => {
+          const ok = await enableAutoLocationTracking(e.target);
+          if (ok) { locationBanner.style.display = 'none'; showToast('Location enabled — you\u2019re all set.', 'success'); loadSavedLocation(); }
+          else { showToast('Couldn\u2019t get your location. Please allow the permission prompt.', 'error'); }
+        });
+      } else if (locationState === 'denied') {
+        locationBanner.style.display = 'flex';
+        locationBanner.querySelector('span').textContent = '📍 Location is blocked in your browser settings — enable it there to find pros near you automatically.';
+        document.getElementById('enableLocationBtn').style.display = 'none';
+      }
+
+      setInterval(() => refreshNotifications(), 20000);
       setInterval(() => loadBookings(), 15000);
-      refreshOnResume(() => { loadBookings(); loadNotifications(false); });
+      refreshOnResume(() => { loadBookings(); refreshNotifications(); });
     })();
   </script>
 </body>

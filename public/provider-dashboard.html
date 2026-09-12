@@ -288,38 +288,7 @@
       loadJobs();
     }
 
-    async function loadNotifications(render) {
-      const res = await fetch('/api/notifications');
-      if (!res.ok) return;
-      const data = await res.json();
-      document.getElementById('bellDot').style.display = data.unreadCount > 0 ? 'block' : 'none';
-      updateAppBadge(data.unreadCount);
-      if (render) {
-        const panel = document.getElementById('notifPanel');
-        panel.innerHTML = renderGroupedNotifications(data.notifications);
-        panel.querySelectorAll('.suggestion-row').forEach(row => {
-          row.addEventListener('click', () => {
-            if (row.dataset.link) window.location.href = row.dataset.link;
-          });
-        });
-      }
-    }
-
-    document.getElementById('bellBtn').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const panel = document.getElementById('notifPanel');
-      const showing = panel.style.display === 'block';
-      panel.style.display = showing ? 'none' : 'block';
-      if (!showing) {
-        await loadNotifications(true);
-        await fetch('/api/notifications/read', { method: 'POST' });
-        document.getElementById('bellDot').style.display = 'none';
-        updateAppBadge(0);
-      }
-    });
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('.dash-user')) document.getElementById('notifPanel').style.display = 'none';
-    });
+    const refreshNotifications = initNotificationBell();
 
     async function loadApprovalBanner() {
       const res = await fetch('/api/provider/verification-status');
@@ -352,8 +321,7 @@
       await loadJobs();
       await loadOpenJobs();
       await loadApprovalBanner();
-      await loadNotifications(false);
-
+      
       const locationState = await startAutoLocationIfPermitted();
       const locationBanner = document.getElementById('locationBanner');
       if (locationState === 'prompt') {
@@ -372,10 +340,10 @@
       if (new URLSearchParams(window.location.search).get('tab') === 'open') {
         document.querySelector('[data-tab="open"]').click();
       }
-      setInterval(() => loadNotifications(false), 20000);
+      setInterval(() => refreshNotifications(), 20000);
       setInterval(() => loadJobs(), 10000);
       setInterval(() => loadOpenJobs(), 15000);
-      refreshOnResume(() => { loadJobs(); loadOpenJobs(); loadNotifications(false); });
+      refreshOnResume(() => { loadJobs(); loadOpenJobs(); refreshNotifications(); });
     })();
   </script>
 </body>
