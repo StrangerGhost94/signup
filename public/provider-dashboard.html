@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Job requests — HandyLink Pro</title>
+<title>Jobs — HandyLink Pro</title>
 <link rel="icon" type="image/png" href="images/icon-192.png">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0B6E4F">
@@ -15,7 +15,6 @@
     <nav class="sidebar-nav">
       <a href="/provider-dashboard.html" class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo"><span class="pro-badge">PRO</span></a>
       <a href="/provider-dashboard.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
-      <a href="/provider-my-jobs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>My Jobs</a>
       <a href="/provider-earnings.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Earnings</a>
       <a href="/messages.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
       <a href="/provider-profile.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
@@ -24,7 +23,7 @@
     <div class="app-main">
       <div class="dash-wrap">
         <header class="dash-header">
-          <h1 style="font-size:1.4rem; font-weight:800; margin:0;">Job requests</h1>
+          <h1 style="font-size:1.4rem; font-weight:800; margin:0;">Jobs</h1>
           <div class="dash-user" style="position:relative;">
             <span id="welcome"></span>
             <button class="bell-btn" id="bellBtn" aria-label="Notifications">
@@ -41,19 +40,22 @@
         </div>
 
         <div class="filters" id="jobTabBar" style="margin-bottom:1rem;">
-          <button class="filter-btn active" data-tab="requests">Job Requests</button>
+          <button class="filter-btn active" data-tab="requests">Requests<span id="requestsCount" style="display:none;"></span></button>
           <button class="filter-btn" data-tab="open">Open Jobs<span id="openJobsCount" style="display:none;"></span></button>
+          <button class="filter-btn" data-tab="active">Active<span id="activeCount" style="display:none;"></span></button>
+          <button class="filter-btn" data-tab="completed">Completed</button>
         </div>
 
-        <div id="jobsList" class="stagger"></div>
+        <div id="requestsList" class="stagger"></div>
         <div id="openJobsList" class="stagger" style="display:none;"></div>
+        <div id="activeList" class="stagger" style="display:none;"></div>
+        <div id="completedList" class="stagger" style="display:none;"></div>
       </div>
     </div>
   </div>
 
   <nav class="bottom-nav">
     <a href="/provider-dashboard.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
-    <a href="/provider-my-jobs.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>My Jobs</a>
     <a href="/provider-earnings.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Earnings</a>
     <a href="/messages.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
     <a href="/provider-profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
@@ -81,19 +83,307 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="priceChangeModal" style="display:none;">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h2>Request a price change</h2>
+      <p class="job-meta" id="pcCurrentNote" style="margin-top:-0.5rem; margin-bottom:1rem;"></p>
+      <div class="error" id="pcError"></div>
+      <label>Labour (UGX)</label>
+      <input type="number" id="pcLabour" min="0">
+      <label>Materials (UGX)</label>
+      <input type="number" id="pcMaterials" min="0" value="0">
+      <div class="est-cost-box" style="margin-bottom:1rem;">
+        <span class="est-label">New total</span>
+        <div class="est-total" id="pcTotalDisplay">UGX 0</div>
+      </div>
+      <label>Reason (shown to the client)</label>
+      <textarea id="pcReason" rows="3" placeholder="e.g. Found additional damage that needs a part replacement."></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelPc">Cancel</button>
+        <button type="button" id="submitPc">Send request</button>
+      </div>
+    </div>
+  </div>
+
   <script src="js/categories.js"></script>
   <script>
+    const ACTIVE_STATUSES = ['accepted', 'on_the_way', 'arrived', 'in_progress', 'awaiting_payment'];
+    let activeTab = 'requests';
+    let myJobsCache = []; // everything from GET /api/provider/jobs — requests, active, and completed all live in one response
+
     document.querySelectorAll('#jobTabBar .filter-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('#jobTabBar .filter-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        const tab = btn.dataset.tab;
-        document.getElementById('jobsList').style.display = tab === 'requests' ? 'block' : 'none';
-        document.getElementById('openJobsList').style.display = tab === 'open' ? 'block' : 'none';
-        if (tab === 'open') loadOpenJobs();
+        activeTab = btn.dataset.tab;
+        ['requestsList', 'openJobsList', 'activeList', 'completedList'].forEach(id => {
+          document.getElementById(id).style.display = 'none';
+        });
+        const targetId = { requests: 'requestsList', open: 'openJobsList', active: 'activeList', completed: 'completedList' }[activeTab];
+        document.getElementById(targetId).style.display = 'block';
+        if (activeTab === 'open') loadOpenJobs();
       });
     });
 
+    // --- Requests, Active, Completed: one fetch, three views ---
+    async function loadMyJobs() {
+      const res = await fetch('/api/provider/jobs');
+      if (!res.ok) return;
+      const data = await res.json();
+      myJobsCache = data.jobs;
+      renderRequests();
+      renderActive();
+      renderCompleted();
+    }
+
+    function renderRequests() {
+      const requested = myJobsCache.filter(j => j.status === 'requested');
+      const list = document.getElementById('requestsList');
+      const countEl = document.getElementById('requestsCount');
+      if (requested.length > 0) { countEl.textContent = ` (${requested.length})`; countEl.style.display = 'inline'; }
+      else { countEl.style.display = 'none'; }
+
+      if (requested.length === 0) {
+        list.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>No new job requests</strong>When a client books you, it'll show up here.</div>`;
+        return;
+      }
+      list.innerHTML = '';
+      requested.forEach(j => {
+        const urgencyMeta = URGENCY_OPTIONS.find(u => u.value === j.urgency);
+        const card = document.createElement('div');
+        card.className = 'job-card fade-in-up';
+        card.innerHTML = `
+          <div class="job-top">
+            <div>
+              <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
+              <p class="job-meta">${new Date(j.created_at).toLocaleDateString()} · ${escapeHtml(j.location)} · <span style="color:${urgencyMeta ? urgencyMeta.color : 'inherit'}">${urgencyMeta ? urgencyMeta.label : escapeHtml(j.urgency)}</span></p>
+            </div>
+            <span class="status-badge" style="color:${STATUS_META.requested.color}; background:${STATUS_META.requested.bg};">New</span>
+          </div>
+          <p class="job-desc">${escapeHtml(j.description)}${j.location_notes ? `<br><span class="job-meta">${escapeHtml(j.location_notes)}</span>` : ''}</p>
+          ${j.ai_complexity ? `<p class="job-meta">AI assessment: ${escapeHtml(j.ai_complexity)} complexity${(() => { try { const m = JSON.parse(j.ai_materials || '[]'); return m.length ? ' · ' + m.map(escapeHtml).join(', ') : ''; } catch (e) { return ''; } })()}${j.ai_total_min != null ? ` · Estimated UGX ${j.ai_total_min.toLocaleString()}–${j.ai_total_max.toLocaleString()}` : ''}</p>` : ''}
+          <div class="job-actions" data-actions></div>
+        `;
+        const actions = card.querySelector('[data-actions]');
+        if (j.ai_total_min != null) {
+          const acceptEstBtn = document.createElement('button');
+          acceptEstBtn.className = 'small-btn';
+          const midpoint = Math.round((j.ai_total_min + j.ai_total_max) / 2);
+          acceptEstBtn.textContent = `Accept UGX ${midpoint.toLocaleString()}`;
+          acceptEstBtn.onclick = () => actOnJob(j.id, 'accept');
+          actions.appendChild(acceptEstBtn);
+
+          const quoteBtn = document.createElement('button');
+          quoteBtn.className = 'small-btn btn-outline';
+          quoteBtn.textContent = 'Submit different quote';
+          quoteBtn.onclick = () => submitQuote(j.id, midpoint);
+          actions.appendChild(quoteBtn);
+        } else {
+          const acceptBtn = document.createElement('button');
+          acceptBtn.className = 'small-btn';
+          acceptBtn.textContent = 'Accept';
+          acceptBtn.onclick = () => actOnJob(j.id, 'accept');
+          actions.appendChild(acceptBtn);
+        }
+        const declineBtn = document.createElement('button');
+        declineBtn.className = 'small-btn btn-decline';
+        declineBtn.textContent = 'Decline';
+        declineBtn.onclick = () => { if (confirm('Decline this job request? The client will be notified.')) actOnJob(j.id, 'decline'); };
+        actions.appendChild(declineBtn);
+        const messageBtn = document.createElement('button');
+        messageBtn.className = 'small-btn btn-outline';
+        messageBtn.textContent = 'Message';
+        messageBtn.onclick = () => window.location.href = `/message-thread.html?jobId=${j.id}`;
+        actions.appendChild(messageBtn);
+        list.appendChild(card);
+      });
+    }
+
+    function jobCardHtml(j, currentAmount, meta) {
+      return `
+        <div class="job-top">
+          <div>
+            <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
+            <p class="job-meta">${escapeHtml(j.location)} · UGX ${currentAmount.toLocaleString()}${j.final_amount != null ? ' (price changed)' : ''}</p>
+            ${j.scheduled_for ? `<p class="job-meta" style="color:var(--primary-deep); font-weight:600;">📅 Scheduled for ${new Date(j.scheduled_for).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>` : ''}
+          </div>
+          <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
+        </div>
+        <p class="job-desc">${escapeHtml(j.description)}</p>
+        ${j.pending_price_change_id ? `<p class="job-meta" style="color:var(--warning); font-weight:600;">⏳ Price change pending client approval</p>` : ''}
+        ${j.status === 'completed' && j.payment_id ? `<p class="job-meta" style="color:var(--primary-deep); font-weight:600;">✓ Cash payment recorded</p>` : ''}
+        <div class="job-actions" data-actions></div>
+      `;
+    }
+
+    function renderActive() {
+      const active = myJobsCache.filter(j => ACTIVE_STATUSES.includes(j.status));
+      const list = document.getElementById('activeList');
+      const countEl = document.getElementById('activeCount');
+      if (active.length > 0) { countEl.textContent = ` (${active.length})`; countEl.style.display = 'inline'; }
+      else { countEl.style.display = 'none'; }
+
+      if (active.length === 0) {
+        list.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>Nothing in progress</strong>Accepted jobs will show up here.</div>`;
+        return;
+      }
+      list.innerHTML = '';
+      active.forEach(j => {
+        const meta = STATUS_META[j.status];
+        const currentAmount = j.final_amount != null ? j.final_amount : j.estimate_amount;
+        const card = document.createElement('div');
+        card.className = 'job-card fade-in-up';
+        card.innerHTML = jobCardHtml(j, currentAmount, meta);
+        const actions = card.querySelector('[data-actions]');
+
+        const btn = document.createElement('button');
+        btn.className = 'small-btn contact-btn';
+        btn.textContent = 'Mark completed';
+        btn.onclick = () => progressJob(j.id, 'complete');
+        actions.appendChild(btn);
+
+        if (j.status === 'accepted' && !j.pending_price_change_id) {
+          const priceBtn = document.createElement('button');
+          priceBtn.className = 'small-btn btn-outline';
+          priceBtn.textContent = 'Request price change';
+          priceBtn.onclick = () => openPriceChangeModal(j.id, currentAmount);
+          actions.appendChild(priceBtn);
+        }
+        if (j.status === 'awaiting_payment' && !j.payment_id) {
+          const payBtn = document.createElement('button');
+          payBtn.className = 'small-btn contact-btn';
+          payBtn.textContent = 'Mark as paid (cash)';
+          payBtn.onclick = () => markPaid(j.id);
+          actions.appendChild(payBtn);
+        }
+        const messageBtn = document.createElement('button');
+        messageBtn.className = 'small-btn btn-outline';
+        messageBtn.textContent = 'Message';
+        messageBtn.onclick = () => window.location.href = `/message-thread.html?jobId=${j.id}`;
+        actions.appendChild(messageBtn);
+        const reportBtn = document.createElement('button');
+        reportBtn.className = 'small-btn';
+        reportBtn.style.cssText = 'background:var(--bg); border:1.5px solid var(--danger); color:var(--danger);';
+        reportBtn.textContent = 'Report';
+        reportBtn.onclick = () => openReportModal(j.client_user_id, j.id, true);
+        actions.appendChild(reportBtn);
+        list.appendChild(card);
+      });
+    }
+
+    function renderCompleted() {
+      const completed = myJobsCache.filter(j => j.status === 'completed');
+      const list = document.getElementById('completedList');
+      if (completed.length === 0) {
+        list.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>Nothing completed yet</strong>Finished jobs will show up here.</div>`;
+        return;
+      }
+      list.innerHTML = '';
+      completed.forEach(j => {
+        const meta = STATUS_META[j.status];
+        const currentAmount = j.final_amount != null ? j.final_amount : j.estimate_amount;
+        const card = document.createElement('div');
+        card.className = 'job-card fade-in-up';
+        card.innerHTML = jobCardHtml(j, currentAmount, meta);
+        const actions = card.querySelector('[data-actions]');
+        const messageBtn = document.createElement('button');
+        messageBtn.className = 'small-btn btn-outline';
+        messageBtn.textContent = 'Message';
+        messageBtn.onclick = () => window.location.href = `/message-thread.html?jobId=${j.id}`;
+        actions.appendChild(messageBtn);
+        list.appendChild(card);
+      });
+    }
+
+    function submitQuote(jobId, suggestedTotal) {
+      const labour = prompt(`AI estimated around UGX ${suggestedTotal.toLocaleString()} total.\n\nYour labour amount (UGX):`);
+      if (labour === null) return;
+      const materials = prompt('Your materials amount (UGX):');
+      if (materials === null) return;
+      const reason = prompt('Why this amount? (shown to the client)');
+      if (!reason) return;
+
+      fetch(`/api/provider/jobs/${jobId}/accept-with-quote`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ labourAmount: parseInt(labour, 10), materialsAmount: parseInt(materials, 10), reason })
+      })
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok) { showToast(data.error, 'error'); return; }
+          showToast('Job accepted — your quote is awaiting client approval.', 'success');
+          loadMyJobs();
+        });
+    }
+
+    async function actOnJob(id, action) {
+      const res = await fetch(`/api/provider/jobs/${id}/${action}`, { method: 'PUT' });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast(action === 'accept' ? 'Job accepted.' : 'Job declined.', action === 'accept' ? 'success' : null);
+      loadMyJobs();
+    }
+
+    async function progressJob(id, action) {
+      const res = await fetch(`/api/provider/jobs/${id}/${action}`, { method: 'PUT' });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      const labels = { complete: 'Job marked completed — awaiting payment.' };
+      showToast(labels[action] || 'Updated.', 'success');
+      loadMyJobs();
+    }
+
+    async function markPaid(jobId) {
+      if (!confirm('Confirm you have received cash payment for this job?')) return;
+      const res = await fetch(`/api/jobs/${jobId}/payment`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'cash' })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast('Payment recorded.', 'success');
+      loadMyJobs();
+    }
+
+    let currentPcJobId = null;
+    function openPriceChangeModal(jobId, currentAmount) {
+      currentPcJobId = jobId;
+      document.getElementById('pcCurrentNote').textContent = `Current price: UGX ${currentAmount.toLocaleString()}`;
+      document.getElementById('pcLabour').value = '';
+      document.getElementById('pcMaterials').value = '0';
+      document.getElementById('pcReason').value = '';
+      document.getElementById('pcError').textContent = '';
+      updatePcTotal();
+      openModal(document.getElementById('priceChangeModal'));
+    }
+    function updatePcTotal() {
+      const labour = parseInt(document.getElementById('pcLabour').value, 10) || 0;
+      const materials = parseInt(document.getElementById('pcMaterials').value, 10) || 0;
+      document.getElementById('pcTotalDisplay').textContent = `UGX ${(labour + materials).toLocaleString()}`;
+    }
+    document.getElementById('pcLabour').addEventListener('input', updatePcTotal);
+    document.getElementById('pcMaterials').addEventListener('input', updatePcTotal);
+    document.getElementById('cancelPc').addEventListener('click', () => closeModal(document.getElementById('priceChangeModal')));
+    document.getElementById('submitPc').addEventListener('click', async () => {
+      const errorEl = document.getElementById('pcError');
+      const labour = parseInt(document.getElementById('pcLabour').value, 10);
+      const materials = parseInt(document.getElementById('pcMaterials').value, 10);
+      if (!Number.isInteger(labour) || labour < 0 || !Number.isInteger(materials) || materials < 0) {
+        errorEl.textContent = 'Please enter valid labour and materials amounts.';
+        return;
+      }
+      const reason = document.getElementById('pcReason').value.trim();
+      if (!reason) { errorEl.textContent = 'Please explain the price change to the client.'; return; }
+      const res = await fetch(`/api/jobs/${currentPcJobId}/price-change`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ labourAmount: labour, materialsAmount: materials, reason })
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      closeModal(document.getElementById('priceChangeModal'));
+      showToast('Price change request sent to the client.', 'success');
+      loadMyJobs();
+    });
+
+    // --- Open Jobs (unassigned, awaiting offers) ---
     async function loadOpenJobs() {
       const list = document.getElementById('openJobsList');
       list.innerHTML = `<div class="skeleton skeleton-row"></div>`;
@@ -102,18 +392,13 @@
       const data = await res.json();
 
       const countEl = document.getElementById('openJobsCount');
-      if (data.jobs.length > 0) {
-        countEl.textContent = ` (${data.jobs.length})`;
-        countEl.style.display = 'inline';
-      } else {
-        countEl.style.display = 'none';
-      }
+      if (data.jobs.length > 0) { countEl.textContent = ` (${data.jobs.length})`; countEl.style.display = 'inline'; }
+      else { countEl.style.display = 'none'; }
 
       if (data.jobs.length === 0) {
         list.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>No open jobs right now</strong>Jobs posted for multiple quotes in your category will show up here.</div>`;
         return;
       }
-
       list.innerHTML = '';
       data.jobs.forEach(j => {
         const card = document.createElement('div');
@@ -141,7 +426,6 @@
     }
 
     let currentOfferJobId = null;
-
     function openOfferModal(jobId, estimateAmount) {
       currentOfferJobId = jobId;
       document.getElementById('offerEstimateNote').textContent = `Estimated around UGX ${estimateAmount.toLocaleString()} total.`;
@@ -152,7 +436,6 @@
       updateOfferTotal();
       openModal(document.getElementById('offerModal'));
     }
-
     function updateOfferTotal() {
       const labour = parseInt(document.getElementById('offerLabour').value, 10) || 0;
       const materials = parseInt(document.getElementById('offerMaterials').value, 10) || 0;
@@ -160,23 +443,15 @@
     }
     document.getElementById('offerLabour').addEventListener('input', updateOfferTotal);
     document.getElementById('offerMaterials').addEventListener('input', updateOfferTotal);
-
     document.getElementById('cancelOffer').addEventListener('click', () => closeModal(document.getElementById('offerModal')));
-
     document.getElementById('submitOffer').addEventListener('click', async () => {
       const errorEl = document.getElementById('offerError');
       const labour = parseInt(document.getElementById('offerLabour').value, 10);
-      if (!Number.isInteger(labour) || labour < 0) {
-        errorEl.textContent = 'Please enter a valid labour amount.';
-        return;
-      }
+      if (!Number.isInteger(labour) || labour < 0) { errorEl.textContent = 'Please enter a valid labour amount.'; return; }
       const materials = parseInt(document.getElementById('offerMaterials').value, 10) || 0;
       const message = document.getElementById('offerMessage').value;
-
       const res = await fetch(`/api/jobs/${currentOfferJobId}/offers`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labourAmount: labour, materialsAmount: materials, message })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ labourAmount: labour, materialsAmount: materials, message })
       });
       const data = await res.json();
       if (!res.ok) { errorEl.textContent = data.error; return; }
@@ -185,108 +460,6 @@
       loadOpenJobs();
     });
 
-    async function loadJobs() {
-      const res = await fetch('/api/provider/jobs');
-      if (!res.ok) return;
-      const data = await res.json();
-      const requested = data.jobs.filter(j => j.status === 'requested');
-      const list = document.getElementById('jobsList');
-      list.innerHTML = '';
-
-      if (requested.length === 0) {
-        list.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>No new job requests</strong>When a client books you, it'll show up here.</div>`;
-        return;
-      }
-
-      requested.forEach(j => {
-        const urgencyMeta = URGENCY_OPTIONS.find(u => u.value === j.urgency);
-        const card = document.createElement('div');
-        card.className = 'job-card fade-in-up';
-        card.innerHTML = `
-          <div class="job-top">
-            <div>
-              <strong>${escapeHtml(j.category)} — ${escapeHtml(j.client_email)}</strong>
-              <p class="job-meta">${new Date(j.created_at).toLocaleDateString()} · ${escapeHtml(j.location)} · <span style="color:${(URGENCY_OPTIONS.find(u=>u.value===j.urgency)||{}).color}">${urgencyMeta ? urgencyMeta.label : escapeHtml(j.urgency)}</span></p>
-            </div>
-            <span class="status-badge" style="color:${STATUS_META.requested.color}; background:${STATUS_META.requested.bg};">New</span>
-          </div>
-          <p class="job-desc">${escapeHtml(j.description)}${j.location_notes ? `<br><span class="job-meta">${escapeHtml(j.location_notes)}</span>` : ''}</p>
-          ${j.ai_complexity ? `<p class="job-meta">AI assessment: ${escapeHtml(j.ai_complexity)} complexity${(() => { try { const m = JSON.parse(j.ai_materials || '[]'); return m.length ? ' · ' + m.map(escapeHtml).join(', ') : ''; } catch (e) { return ''; } })()}${j.ai_total_min != null ? ` · Estimated UGX ${j.ai_total_min.toLocaleString()}–${j.ai_total_max.toLocaleString()}` : ''}</p>` : ''}
-          <div class="job-actions" data-actions></div>
-        `;
-        const actions = card.querySelector('[data-actions]');
-
-        if (j.ai_total_min != null) {
-          const acceptEstBtn = document.createElement('button');
-          acceptEstBtn.className = 'small-btn';
-          const midpoint = Math.round((j.ai_total_min + j.ai_total_max) / 2);
-          acceptEstBtn.textContent = `Accept UGX ${midpoint.toLocaleString()}`;
-          acceptEstBtn.onclick = () => actOnJob(j.id, 'accept');
-          actions.appendChild(acceptEstBtn);
-
-          const quoteBtn = document.createElement('button');
-          quoteBtn.className = 'small-btn btn-outline';
-          quoteBtn.textContent = 'Submit different quote';
-          quoteBtn.onclick = () => submitQuote(j.id, midpoint);
-          actions.appendChild(quoteBtn);
-        } else {
-          const acceptBtn = document.createElement('button');
-          acceptBtn.className = 'small-btn';
-          acceptBtn.textContent = 'Accept';
-          acceptBtn.onclick = () => actOnJob(j.id, 'accept');
-          actions.appendChild(acceptBtn);
-        }
-
-        const declineBtn = document.createElement('button');
-        declineBtn.className = 'small-btn btn-decline';
-        declineBtn.textContent = 'Decline';
-        declineBtn.onclick = () => {
-          if (confirm('Decline this job request? The client will be notified.')) {
-            actOnJob(j.id, 'decline');
-          }
-        };
-        actions.appendChild(declineBtn);
-        const messageBtn = document.createElement('button');
-        messageBtn.className = 'small-btn btn-outline';
-        messageBtn.textContent = 'Message';
-        messageBtn.onclick = () => window.location.href = `/message-thread.html?jobId=${j.id}`;
-        actions.appendChild(messageBtn);
-        list.appendChild(card);
-      });
-    }
-
-    function submitQuote(jobId, suggestedTotal) {
-      const labour = prompt(`AI estimated around UGX ${suggestedTotal.toLocaleString()} total.\n\nYour labour amount (UGX):`);
-      if (labour === null) return;
-      const materials = prompt('Your materials amount (UGX):');
-      if (materials === null) return;
-      const reason = prompt('Why this amount? (shown to the client)');
-      if (!reason) return;
-
-      fetch(`/api/provider/jobs/${jobId}/accept-with-quote`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labourAmount: parseInt(labour, 10), materialsAmount: parseInt(materials, 10), reason })
-      })
-        .then(r => r.json().then(data => ({ ok: r.ok, data })))
-        .then(({ ok, data }) => {
-          if (!ok) { showToast(data.error, 'error'); return; }
-          showToast('Job accepted — your quote is awaiting client approval.', 'success');
-          loadJobs();
-        });
-    }
-
-    async function actOnJob(id, action) {
-      const res = await fetch(`/api/provider/jobs/${id}/${action}`, { method: 'PUT' });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.error, 'error');
-        return;
-      }
-      showToast(action === 'accept' ? 'Job accepted.' : 'Job declined.', action === 'accept' ? 'success' : null);
-      loadJobs();
-    }
-
     const refreshNotifications = initNotificationBell();
 
     async function loadApprovalBanner() {
@@ -294,10 +467,7 @@
       if (!res.ok) return;
       const data = await res.json();
       const banner = document.getElementById('approvalBanner');
-      if (data.approvalStatus === 'APPROVED') {
-        banner.style.display = 'none';
-        return;
-      }
+      if (data.approvalStatus === 'APPROVED') { banner.style.display = 'none'; return; }
       const msgs = {
         PENDING: { bg: 'var(--primary-tint)', color: 'var(--primary-deep)', text: '⏳ Your application is under review — you\u2019ll start receiving jobs once approved.' },
         REJECTED: { bg: '#FEE2E2', color: '#B91C1C', text: '✗ Your application was not approved. Visit your profile or contact Support for details.' },
@@ -317,10 +487,9 @@
       if (me.role !== 'provider') { window.location.href = '/dashboard.html'; return; }
       document.getElementById('welcome').textContent = me.email;
       document.getElementById('appShell').style.visibility = 'visible';
-      await loadJobs();
-      await loadOpenJobs();
+      await loadMyJobs();
       await loadApprovalBanner();
-      
+
       const locationState = await startAutoLocationIfPermitted();
       const locationBanner = document.getElementById('locationBanner');
       if (locationState === 'prompt') {
@@ -336,13 +505,15 @@
         document.getElementById('enableLocationBtn').style.display = 'none';
       }
 
-      if (new URLSearchParams(window.location.search).get('tab') === 'open') {
-        document.querySelector('[data-tab="open"]').click();
+      const requestedTab = new URLSearchParams(window.location.search).get('tab');
+      if (requestedTab && ['requests', 'open', 'active', 'completed'].includes(requestedTab)) {
+        document.querySelector(`[data-tab="${requestedTab}"]`).click();
       }
+
       setInterval(() => refreshNotifications(), 20000);
-      setInterval(() => loadJobs(), 10000);
-      setInterval(() => loadOpenJobs(), 15000);
-      refreshOnResume(() => { loadJobs(); loadOpenJobs(); refreshNotifications(); });
+      setInterval(() => loadMyJobs(), 10000);
+      setInterval(() => { if (activeTab === 'open') loadOpenJobs(); }, 15000);
+      refreshOnResume(() => { loadMyJobs(); if (activeTab === 'open') loadOpenJobs(); refreshNotifications(); });
     })();
   </script>
 </body>
