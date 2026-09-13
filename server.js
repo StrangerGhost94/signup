@@ -54,6 +54,38 @@ app.set('trust proxy', 1);
 // platform drains traffic away before the process actually exits.
 let isShuttingDown = false;
 
+// --- Startup configuration checks ---
+// SESSION_SECRET is the one that must never be wrong: with the dev
+// fallback, anyone who can read this source can forge a signed session
+// cookie for ANY user, including an admin. Silently falling back in
+// production is worse than not starting, so we refuse to boot.
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+  console.error('FATAL: SESSION_SECRET is not set. Refusing to start in production — ' +
+    'without it, session cookies are signed with a public fallback value and can be forged. ' +
+    'Set SESSION_SECRET in your environment variables and redeploy.');
+  process.exit(1);
+}
+
+// Everything else degrades rather than breaks, so we warn loudly at boot
+// instead of failing — but the point is that it appears in your deploy
+// logs rather than being discovered by a user hitting a dead feature.
+const OPTIONAL_ENV = [
+  ['ADMIN_EMAILS', 'Admin dashboard will be inaccessible — no account can be elevated to admin.'],
+  ['VAPID_PUBLIC_KEY', 'Push notifications disabled (in-app notifications still work).'],
+  ['VAPID_PRIVATE_KEY', 'Push notifications disabled (in-app notifications still work).'],
+  ['OPENROUTER_API_KEY', 'AI job assessment will always use the fallback estimate.'],
+  ['SMTP_HOST', 'PASSWORD RESET IS BROKEN — users who forget their password cannot recover it.'],
+  ['SMTP_USER', 'PASSWORD RESET IS BROKEN — users who forget their password cannot recover it.'],
+  ['SMTP_PASS', 'PASSWORD RESET IS BROKEN — users who forget their password cannot recover it.'],
+  ['GOOGLE_CLIENT_ID', 'Google sign-in unavailable (email/password still works).']
+];
+const missingEnv = OPTIONAL_ENV.filter(([name]) => !process.env[name]);
+if (missingEnv.length > 0) {
+  console.warn('\n=== CONFIGURATION WARNINGS ===');
+  missingEnv.forEach(([name, impact]) => console.warn(`  [MISSING] ${name} — ${impact}`));
+  console.warn('=== Visit /api/admin/config-check (as admin) for live status ===\n');
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
@@ -4781,6 +4813,61 @@ app.get('/api/providers/:id/public', requireLogin, asyncHandler(async (req, res)
     reviews: reviews.rows,
     services: services.rows,
     portfolio: portfolio.rows
+  });
+}));
+
+// Reports whether configuration is present and what each gap actually
+// breaks. Deliberately reports presence only — never values, never
+// prefixes, never lengths — so this can't become a secret-leak vector
+// even though it's admin-only.
+app.get('/api/admin/config-check', requireRole('admin'), asyncHandler(async (req, res) => {
+  const check = (name) => !!process.env[name];
+
+  const items = [
+    { key: 'SESSION_SECRET', set: check('SESSION_SECRET'), severity: 'critical',
+      impact: 'Session cookies signed with a public fallback value — sessions can be forged.' },
+    { key: 'DATABASE_URL', set: check('DATABASE_URL'), severity: 'critical',
+      impact: 'No database connection.' },
+    { key: 'ADMIN_EMAILS', set: check('ADMIN_EMAILS'), severity: 'high',
+      impact: 'No account can be elevated to admin.' },
+    { key: 'SMTP_HOST', set: check('SMTP_HOST'), severity: 'high',
+      impact: 'Password reset emails cannot be sent — users are locked out permanently if they forget.' },
+    { key: 'SMTP_USER', set: check('SMTP_USER'), severity: 'high', impact: 'Password reset emails cannot be sent.' },
+    { key: 'SMTP_PASS', set: check('SMTP_PASS'), severity: 'high', impact: 'Password reset emails cannot be sent.' },
+    { key: 'VAPID_PUBLIC_KEY', set: check('VAPID_PUBLIC_KEY'), severity: 'medium',
+      impact: 'Push notifications disabled; in-app notifications still work.' },
+    { key: 'VAPID_PRIVATE_KEY', set: check('VAPID_PRIVATE_KEY'), severity: 'medium',
+      impact: 'Push notifications disabled; in-app notifications still work.' },
+    { key: 'OPENROUTER_API_KEY', set: check('OPENROUTER_API_KEY'), severity: 'medium',
+      impact: 'AI job assessment always falls back to a generic estimate.' },
+    { key: 'GOOGLE_CLIENT_ID', set: check('GOOGLE_CLIENT_ID'), severity: 'low',
+      impact: 'Google sign-in unavailable; email/password still works.' },
+    { key: 'NODE_ENV', set: process.env.NODE_ENV === 'production', severity: 'high',
+      impact: 'Not set to "production" — secure cookies and HSTS are disabled.' }
+  ];
+
+  // Live functional checks, not just "is the variable present" — a key
+  // can be set and still be wrong.
+  let databaseOk = false;
+  try { await pool.query('SELECT 1'); databaseOk = true; } catch (err) { databaseOk = false; }
+
+  let adminEmailCount = 0;
+  if (process.env.ADMIN_EMAILS) {
+    adminEmailCount = process.env.ADMIN_EMAILS.split(',').map(s => s.trim()).filter(Boolean).length;
+  }
+
+  const missing = items.filter(i => !i.set);
+  res.json({
+    allConfigured: missing.length === 0,
+    criticalMissing: missing.filter(i => i.severity === 'critical').map(i => i.key),
+    highMissing: missing.filter(i => i.severity === 'high').map(i => i.key),
+    items,
+    live: {
+      databaseReachable: databaseOk,
+      pushConfigured,
+      adminEmailsCount: adminEmailCount,
+      sessionStore: 'postgres'
+    }
   });
 }));
 

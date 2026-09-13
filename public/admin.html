@@ -50,6 +50,7 @@
     <main class="admin-main">
       <div id="overviewSection">
         <h1>Overview</h1>
+        <div id="configBanner" style="display:none; background:#FEF3C7; color:#92400E; border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem;"></div>
         <div class="admin-stat-grid" id="overviewStats"></div>
       </div>
 
@@ -133,6 +134,21 @@
     async function loadOverview() {
       const grid = document.getElementById('overviewStats');
       grid.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+
+      // Surface misconfiguration where it'll actually be seen, rather
+      // than waiting for a user to hit a silently-dead feature.
+      fetch('/api/admin/config-check').then(r => r.ok ? r.json() : null).then(cfg => {
+        const banner = document.getElementById('configBanner');
+        if (!cfg || cfg.allConfigured) { if (banner) banner.style.display = 'none'; return; }
+        const broken = cfg.items.filter(i => !i.set && (i.severity === 'critical' || i.severity === 'high'));
+        if (broken.length === 0) { if (banner) banner.style.display = 'none'; return; }
+        banner.style.display = 'block';
+        banner.innerHTML = `
+          <strong style="display:block; margin-bottom:0.4rem;">⚠ ${broken.length} configuration issue${broken.length === 1 ? '' : 's'}</strong>
+          ${broken.map(i => `<div style="font-size:0.82rem; margin-bottom:0.2rem;"><code>${escapeHtml(i.key)}</code> — ${escapeHtml(i.impact)}</div>`).join('')}
+        `;
+      }).catch(() => {});
+
       const res = await fetch('/api/admin/overview-stats');
       if (!res.ok) { grid.innerHTML = errorStateHtml('loadOverview()'); return; }
       const d = await res.json();
