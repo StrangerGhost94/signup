@@ -2337,3 +2337,34 @@ html, body { max-width: 100%; overflow-x: hidden; }
 }
 .avatar-edit-badge svg { width: 13px; height: 13px; }
 .avatar-edit-wrap:active .avatar-edit-badge { transform: scale(0.88); }
+
+/* --- Swipe-to-delete notification rows (iOS-style) --- */
+.notif-swipe-wrap {
+  position: relative;
+  overflow: hidden;
+  background: var(--danger);
+}
+.notif-swipe-wrap .swipe-delete-label {
+  position: absolute;
+  right: 1.25rem;
+  top: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+.notif-swipe-wrap .suggestion-row {
+  position: relative;
+  background: var(--bg);
+  transition: transform 0.25s var(--spring);
+  will-change: transform;
+  touch-action: pan-y; /* let vertical scrolling through, we handle horizontal */
+}
+.notif-swipe-wrap.swiping .suggestion-row { transition: none; }
+.notif-swipe-wrap.removing {
+  transition: height 0.25s ease, opacity 0.2s ease;
+  height: 0 !important;
+  opacity: 0;
+}

@@ -199,9 +199,15 @@
           ${w.whyRecommended ? `<p class="job-meta" style="font-style:italic; margin-bottom:0.5rem;">${escapeHtml(w.whyRecommended)}</p>` : ''}
           <p class="bio">${escapeHtml(w.bio)}</p>
 
-          <button class="small-btn" data-book-id="${w.id}" data-name="${escapeHtml(w.name)}">Book ${escapeHtml(w.name.split(' ')[0])}</button>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button class="small-btn" data-book-id="${w.id}" data-name="${escapeHtml(w.name)}">Book ${escapeHtml(w.name.split(' ')[0])}</button>
+            <button class="small-btn btn-outline" data-profile-id="${w.id}">View profile</button>
+          </div>
         `;
         card.querySelector('[data-book-id]').addEventListener('click', () => openConfirm(w));
+        card.querySelector('[data-profile-id]').addEventListener('click', () => {
+          window.location.href = `/pro-profile.html?id=${w.id}`;
+        });
         card.querySelector('[data-fav-id]').addEventListener('click', (e) => toggleFavorite(e.currentTarget, w));
         grid.appendChild(card);
       });

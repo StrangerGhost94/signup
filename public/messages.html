@@ -110,32 +110,90 @@
         return;
       }
 
-      data.conversations.forEach(c => {
-        const color = categoryColor(c.category);
+      // Grouped by person (WhatsApp-style contact list). A person with
+      // a single job opens that thread directly; a person with several
+      // jobs expands to show each job's own thread, so messages stay
+      // tied to the specific job they belong to.
+      data.conversations.forEach(person => {
+        const hasUnread = person.totalUnread > 0;
+        const multi = person.threads.length > 1;
+        const firstColor = categoryColor(person.threads[0].category);
+
         const item = document.createElement('div');
         item.className = 'recent-job-item';
-        item.style.setProperty('--cat-color', color);
+        item.style.setProperty('--cat-color', firstColor);
         item.style.cursor = 'pointer';
-        const hasUnread = c.unread_count > 0;
-        const preview = c.last_message ? escapeHtml(c.last_message.slice(0, 50)) : 'No messages yet — say hello.';
-        const avatarHtml = c.other_party_photo
-          ? `<img class="avatar-img" src="${c.other_party_photo}" alt="">`
-          : initials(c.other_party_name);
+
+        const avatarHtml = person.otherPartyPhoto
+          ? `<img class="avatar-img" src="${person.otherPartyPhoto}" alt="">`
+          : initials(person.otherPartyName || '?');
+
+        const latest = person.threads[0];
+        const preview = latest.lastHasAttachment
+          ? '\uD83D\uDCF7 Photo'
+          : (person.lastMessage ? escapeHtml(person.lastMessage.slice(0, 50)) : 'No messages yet \u2014 say hello.');
+
+        const subtitle = multi
+          ? `${person.threads.length} jobs \u00B7 tap to view`
+          : escapeHtml(latest.category);
+
         item.innerHTML = `
-          <div class="avatar" style="background:color-mix(in srgb, ${color} 15%, white); color:${color};">${avatarHtml}</div>
+          <div class="avatar" style="background:color-mix(in srgb, ${firstColor} 15%, white); color:${firstColor};">${avatarHtml}</div>
           <div class="recent-job-info">
-            <strong style="${hasUnread ? 'font-weight:800;' : ''}">${escapeHtml(c.other_party_name || 'Unknown')} · ${escapeHtml(c.category)}</strong>
+            <strong style="${hasUnread ? 'font-weight:800;' : ''}">${escapeHtml(person.otherPartyName || 'Unknown')}</strong>
+            <span class="job-meta" style="display:block;">${subtitle}</span>
             <span style="${hasUnread ? 'color:var(--ink); font-weight:600;' : ''}">${preview}</span>
           </div>
           <div class="recent-job-right">
-            ${c.last_message_at ? `<span class="job-meta" style="display:block; margin-bottom:0.3rem;">${relativeTime(c.last_message_at)}</span>` : ''}
-            ${hasUnread ? `<span class="status-badge" style="color:#fff; background:var(--primary);">${c.unread_count}</span>` : ''}
+            ${person.lastMessageAt ? `<span class="job-meta" style="display:block; margin-bottom:0.3rem;">${relativeTime(person.lastMessageAt)}</span>` : ''}
+            ${hasUnread ? `<span class="status-badge" style="color:#fff; background:var(--primary);">${person.totalUnread}</span>` : ''}
           </div>
         `;
-        item.addEventListener('click', () => {
-          window.location.href = `/message-thread.html?jobId=${c.job_id}`;
+
+        if (!multi) {
+          item.addEventListener('click', () => {
+            window.location.href = `/message-thread.html?jobId=${latest.jobId}`;
+          });
+          list.appendChild(item);
+          return;
+        }
+
+        // Multiple jobs with this person: expand in place rather than
+        // navigating, so choosing the right thread is one tap away.
+        const threadsWrap = document.createElement('div');
+        threadsWrap.style.cssText = 'display:none; margin:-0.4rem 0 0.65rem 0; padding-left:1rem;';
+        person.threads.forEach(t => {
+          const meta = STATUS_META[t.status] || { label: t.status, color: 'var(--ink-soft)', bg: 'var(--surface)' };
+          const tColor = categoryColor(t.category);
+          const row = document.createElement('div');
+          row.className = 'recent-job-item';
+          row.style.setProperty('--cat-color', tColor);
+          row.style.cursor = 'pointer';
+          row.innerHTML = `
+            <div class="recent-job-icon"><svg viewBox="0 0 24 24" fill="none" stroke="${tColor}" stroke-width="2">${categoryIcon(t.category)}</svg></div>
+            <div class="recent-job-info">
+              <strong style="${t.unreadCount > 0 ? 'font-weight:800;' : ''}">${escapeHtml(t.category)}</strong>
+              <span>${t.lastHasAttachment ? '\uD83D\uDCF7 Photo' : (t.lastMessage ? escapeHtml(t.lastMessage.slice(0, 40)) : 'No messages yet')}</span>
+            </div>
+            <div class="recent-job-right">
+              <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
+              ${t.unreadCount > 0 ? `<span class="status-badge" style="color:#fff; background:var(--primary); margin-top:0.3rem;">${t.unreadCount}</span>` : ''}
+            </div>
+          `;
+          row.addEventListener('click', (e) => {
+            e.stopPropagation();
+            window.location.href = `/message-thread.html?jobId=${t.jobId}`;
+          });
+          threadsWrap.appendChild(row);
         });
+
+        item.addEventListener('click', () => {
+          const open = threadsWrap.style.display === 'block';
+          threadsWrap.style.display = open ? 'none' : 'block';
+        });
+
         list.appendChild(item);
+        list.appendChild(threadsWrap);
       });
     }
   </script>

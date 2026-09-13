@@ -275,7 +275,7 @@
 
       let res;
       try {
-        res = await fetch('/api/bookings/mine');
+        res = await fetch('/api/bookings/mine?activeOnly=true&limit=8');
       } catch (err) {
         list.innerHTML = errorStateHtml('loadBookings()');
         return;

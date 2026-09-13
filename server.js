@@ -331,6 +331,14 @@ async function initDb() {
     )
   `);
 
+  // Delivery status, distinct from read: delivered_at means it reached
+  // the recipient's device; read_at means they actually opened it.
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP`);
+  // Image attachments in chat. Stored inline like the app's other photos
+  // for now; moving all image blobs to object storage is tracked as a
+  // separate piece of work and would cover this column too.
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment TEXT`);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS reviews (
       id SERIAL PRIMARY KEY,
@@ -1189,20 +1197,41 @@ async function sendPushToUser(userId, title, body, link) {
     const payload = JSON.stringify({ title, body, url: link || '/' });
     for (const sub of subs.rows) {
       const pushSubscription = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
-      webpush.sendNotification(pushSubscription, payload).catch(async (err) => {
-        // 404/410 means the browser has permanently invalidated this
-        // subscription (uninstalled, permission revoked, etc.) — clean
-        // it up rather than retry a dead endpoint forever.
-        if (err.statusCode === 404 || err.statusCode === 410) {
-          await pool.query('DELETE FROM push_subscriptions WHERE id = $1', [sub.id]).catch(() => {});
-        } else {
-          console.error('Push send failed:', err.message);
-        }
-      });
+      deliverPushWithRetry(pushSubscription, payload, sub.id);
     }
   } catch (err) {
     console.error('Push lookup failed:', err.message);
   }
+}
+
+// Previously a single fire-and-forget attempt: any transient failure
+// (brief network blip, push service hiccup, 5xx) silently dropped the
+// notification forever, which is exactly how users learn not to trust
+// notifications. This retries transient failures with exponential
+// backoff, while still permanently removing genuinely dead
+// subscriptions. Runs detached so a slow push never delays the API
+// response that triggered it.
+function deliverPushWithRetry(pushSubscription, payload, subscriptionId, attempt = 1) {
+  const MAX_ATTEMPTS = 3;
+  webpush.sendNotification(pushSubscription, payload).catch(async (err) => {
+    // 404/410 = the browser permanently invalidated this subscription
+    // (uninstalled, permission revoked). Retrying is pointless; clean up.
+    if (err.statusCode === 404 || err.statusCode === 410) {
+      await pool.query('DELETE FROM push_subscriptions WHERE id = $1', [subscriptionId]).catch(() => {});
+      return;
+    }
+    // 4xx other than those means our request is malformed — retrying an
+    // identical bad request just wastes calls.
+    const isTransient = !err.statusCode || err.statusCode >= 500 || err.statusCode === 429;
+    if (isTransient && attempt < MAX_ATTEMPTS) {
+      const delayMs = Math.pow(2, attempt) * 1000; // 2s, then 4s
+      setTimeout(() => {
+        deliverPushWithRetry(pushSubscription, payload, subscriptionId, attempt + 1);
+      }, delayMs).unref();
+      return;
+    }
+    console.error(`Push delivery failed (attempt ${attempt}, status ${err.statusCode || 'network'}):`, err.message);
+  });
 }
 
 // The one place a job timeline entry gets written — kept deliberately
@@ -3147,6 +3176,22 @@ app.post('/api/bookings', requireRole('client'), async (req, res) => {
 });
 
 app.get('/api/bookings/mine', requireRole('client'), asyncHandler(async (req, res) => {
+  // The home screen previously received EVERY job this client had ever
+  // created, forever — the list grew without bound, got slower every
+  // month, and buried current work under years of finished jobs.
+  // Home shows a recent snapshot; the Jobs tab is the full history.
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+  const activeOnly = req.query.activeOnly === 'true';
+  const TERMINAL = ['completed', 'declined', 'cancelled'];
+
+  const params = [req.session.userId];
+  let statusClause = '';
+  if (activeOnly) {
+    params.push(TERMINAL);
+    statusClause = ` AND jr.status <> ALL($${params.length})`;
+  }
+  params.push(limit);
+
   const result = await pool.query(
     `SELECT jr.*, p.name AS provider_name, p.phone AS provider_phone, p.user_id AS provider_user_id,
             (r.id IS NOT NULL) AS reviewed,
@@ -3155,9 +3200,10 @@ app.get('/api/bookings/mine', requireRole('client'), asyncHandler(async (req, re
      JOIN providers p ON p.id = jr.provider_id
      LEFT JOIN reviews r ON r.job_id = jr.id
      LEFT JOIN price_change_requests pcr ON pcr.job_id = jr.id AND pcr.status = 'PENDING'
-     WHERE jr.client_user_id = $1
-     ORDER BY jr.created_at DESC`,
-    [req.session.userId]
+     WHERE jr.client_user_id = $1${statusClause}
+     ORDER BY jr.created_at DESC
+     LIMIT $${params.length}`,
+    params
   );
   res.json({ bookings: result.rows });
 }));
@@ -3599,9 +3645,12 @@ app.get('/api/conversations', requireLogin, asyncHandler(async (req, res) => {
   const userId = req.session.userId;
   const result = await pool.query(
     `SELECT jr.id AS job_id, jr.category, jr.status, jr.created_at,
+            CASE WHEN jr.client_user_id = $1 THEN p.user_id ELSE uc.id END AS other_party_id,
             CASE WHEN jr.client_user_id = $1 THEN p.name ELSE uc.name END AS other_party_name,
-            CASE WHEN jr.client_user_id = $1 THEN p.photo ELSE NULL END AS other_party_photo,
+            CASE WHEN jr.client_user_id = $1 THEN p.photo ELSE uc.photo END AS other_party_photo,
+            CASE WHEN jr.client_user_id = $1 THEN p.id ELSE NULL END AS other_provider_id,
             (SELECT body FROM messages m WHERE m.job_id = jr.id ORDER BY m.created_at DESC LIMIT 1) AS last_message,
+            (SELECT attachment IS NOT NULL FROM messages m WHERE m.job_id = jr.id ORDER BY m.created_at DESC LIMIT 1) AS last_has_attachment,
             (SELECT created_at FROM messages m WHERE m.job_id = jr.id ORDER BY m.created_at DESC LIMIT 1) AS last_message_at,
             (SELECT COUNT(*)::int FROM messages m WHERE m.job_id = jr.id AND m.sender_user_id != $1 AND m.read_at IS NULL) AS unread_count
      FROM job_requests jr
@@ -3614,7 +3663,50 @@ app.get('/api/conversations', requireLogin, asyncHandler(async (req, res) => {
      ) DESC`,
     [userId]
   );
-  res.json({ conversations: result.rows });
+
+  // Group by person for a WhatsApp-style contact list, while keeping
+  // each job as its own distinct thread underneath. This gives the
+  // familiar feel without collapsing separate jobs into one stream —
+  // which matters because every message stays tied to the specific job
+  // it belongs to, for disputes and payment history.
+  const byPerson = new Map();
+  for (const row of result.rows) {
+    const key = row.other_party_id;
+    if (key === null || key === undefined) continue; // open job, no counterparty yet
+    if (!byPerson.has(key)) {
+      byPerson.set(key, {
+        otherPartyId: key,
+        otherPartyName: row.other_party_name,
+        otherPartyPhoto: row.other_party_photo,
+        otherProviderId: row.other_provider_id,
+        totalUnread: 0,
+        lastMessageAt: null,
+        lastMessage: null,
+        threads: []
+      });
+    }
+    const person = byPerson.get(key);
+    person.threads.push({
+      jobId: row.job_id,
+      category: row.category,
+      status: row.status,
+      lastMessage: row.last_message,
+      lastHasAttachment: row.last_has_attachment,
+      lastMessageAt: row.last_message_at,
+      unreadCount: row.unread_count,
+      createdAt: row.created_at
+    });
+    person.totalUnread += row.unread_count;
+    // The rows arrive newest-first, so the first one we see for a
+    // person is their most recent activity.
+    if (!person.lastMessageAt) {
+      person.lastMessageAt = row.last_message_at || row.created_at;
+      person.lastMessage = row.last_message;
+    }
+  }
+
+  const conversations = Array.from(byPerson.values());
+  res.json({ conversations, people: conversations });
 }));
 
 app.get('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => {
@@ -3623,10 +3715,26 @@ app.get('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => {
     return res.status(404).json({ error: 'Conversation not found.' });
   }
 
-  const result = await pool.query(
-    'SELECT * FROM messages WHERE job_id = $1 ORDER BY created_at ASC',
-    [job.id]
+  // Cursor pagination. Previously this loaded every message in the
+  // conversation on every single poll (every 4s) — fine for 10
+  // messages, punishing on mobile data for a long thread, and unbounded
+  // as the thread grows. Newest-first with a cursor, reversed for
+  // display, so the client can page backwards through history.
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+  const beforeId = parseInt(req.query.beforeId, 10);
+  const params = [job.id];
+  let cursorClause = '';
+  if (Number.isInteger(beforeId)) {
+    params.push(beforeId);
+    cursorClause = ` AND id < $${params.length}`;
+  }
+  params.push(limit + 1); // one extra tells us whether more history exists
+  const paged = await pool.query(
+    `SELECT * FROM messages WHERE job_id = $1${cursorClause} ORDER BY id DESC LIMIT $${params.length}`,
+    params
   );
+  const hasMore = paged.rows.length > limit;
+  const result = { rows: (hasMore ? paged.rows.slice(0, limit) : paged.rows).reverse() };
 
   // Mark the other person's messages as read now that we've fetched them.
   await pool.query(
@@ -3634,24 +3742,51 @@ app.get('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => {
     [job.id, req.session.userId]
   );
 
+  // Delivery status: the recipient has "received" anything that exists
+  // once they've loaded the thread. Marking here (rather than a
+  // separate ack round-trip) keeps it accurate without extra traffic.
+  await pool.query(
+    'UPDATE messages SET delivered_at = NOW() WHERE job_id = $1 AND sender_user_id != $2 AND delivered_at IS NULL',
+    [job.id, req.session.userId]
+  );
+
   const otherPartyName = job.client_user_id === req.session.userId ? job.provider_name : (job.client_name || job.client_email);
   const otherPartyPhoto = job.client_user_id === req.session.userId ? job.provider_photo : null;
   res.json({
     messages: result.rows,
+    hasMore,
     job: { id: job.id, category: job.category, otherPartyName, otherPartyPhoto, otherPartyLastActive: job.other_last_active }
   });
 }));
 
-app.post('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => {
+// Messaging abuse protection. Sending was previously unrestricted — a
+// single account could flood a counterparty (or the database) as fast
+// as it could issue requests. Generous enough that real conversation
+// never hits it, tight enough to stop flooding.
+const messageLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'You\u2019re sending messages too quickly. Please wait a moment.' }
+});
+
+app.post('/api/messages/:jobId', messageLimiter, requireLogin, asyncHandler(async (req, res) => {
   const job = await getJobForParticipant(req.params.jobId, req.session.userId);
   if (!job) {
     return res.status(404).json({ error: 'Conversation not found.' });
   }
-  if (!isNonEmpty(req.body.body)) {
+  const hasAttachment = isNonEmpty(req.body.attachment);
+  // A message is valid with text, an image, or both — an image-only
+  // message is perfectly normal in a real chat.
+  if (!isNonEmpty(req.body.body) && !hasAttachment) {
     return res.status(400).json({ error: 'Message can\u2019t be empty.' });
   }
-  if (req.body.body.length > 2000) {
+  if (req.body.body && req.body.body.length > 2000) {
     return res.status(400).json({ error: 'Message is too long.' });
+  }
+  if (hasAttachment && !isValidPhoto(req.body.attachment)) {
+    return res.status(400).json({ error: 'That image is too large or in an unsupported format.' });
   }
 
   // Detect, never auto-block, attempts to move the transaction off-platform
@@ -3668,8 +3803,8 @@ app.post('/api/messages/:jobId', requireLogin, asyncHandler(async (req, res) => 
   const matchedPattern = SUSPICIOUS_PATTERNS.find(p => p.test(req.body.body));
 
   const result = await pool.query(
-    'INSERT INTO messages (job_id, sender_user_id, body, flagged, flag_reason) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-    [job.id, req.session.userId, req.body.body.trim(), !!matchedPattern, matchedPattern ? 'Possible off-platform payment language' : null]
+    'INSERT INTO messages (job_id, sender_user_id, body, attachment, flagged, flag_reason) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+    [job.id, req.session.userId, (req.body.body || '').trim(), hasAttachment ? req.body.attachment : null, !!matchedPattern, matchedPattern ? 'Possible off-platform payment language' : null]
   );
 
   const recipientUserId = job.client_user_id === req.session.userId ? job.provider_user_id : job.client_user_id;
@@ -4580,6 +4715,74 @@ app.get('/readyz', async (req, res) => {
     res.status(503).json({ status: 'database_unavailable' });
   }
 });
+
+// Clearing was previously impossible — notifications accumulated
+// forever with no way to dismiss them, so the list became unusable.
+app.delete('/api/notifications/:id', requireLogin, asyncHandler(async (req, res) => {
+  // Scoped to the owner so one user can never delete another's.
+  const result = await pool.query(
+    'DELETE FROM notifications WHERE id = $1 AND user_id = $2 RETURNING id',
+    [req.params.id, req.session.userId]
+  );
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Notification not found.' });
+  res.json({ message: 'Cleared.' });
+}));
+
+app.delete('/api/notifications', requireLogin, asyncHandler(async (req, res) => {
+  await pool.query('DELETE FROM notifications WHERE user_id = $1', [req.session.userId]);
+  res.json({ message: 'All notifications cleared.' });
+}));
+
+// Clients previously had no way to view a worker's full profile before
+// booking — a real trust gap, since deciding who to let into your home
+// on a name and star rating alone is exactly the decision that needs
+// the most information. Public-safe fields only: no raw coordinates,
+// no email, no internal scoring.
+app.get('/api/providers/:id/public', requireLogin, asyncHandler(async (req, res) => {
+  const providerResult = await pool.query(
+    `SELECT p.id, p.name, p.category, p.location, p.city, p.district, p.bio, p.photo, p.rating,
+            p.experience_years, p.availability_status, p.professional_type,
+            p.hourly_rate, p.callout_fee, p.minimum_charge, p.provides_own_materials,
+            p.approval_status,
+            (SELECT COUNT(*)::int FROM job_requests WHERE provider_id = p.id AND status = 'completed') AS completed_jobs,
+            COALESCE((SELECT status FROM verifications WHERE provider_id = p.id AND type = 'identity'), 'PENDING') AS identity_status,
+            COALESCE((SELECT status FROM verifications WHERE provider_id = p.id AND type = 'phone'), 'PENDING') AS phone_status
+     FROM providers p WHERE p.id = $1 AND p.approval_status = 'APPROVED'`,
+    [req.params.id]
+  );
+  if (providerResult.rows.length === 0) {
+    return res.status(404).json({ error: 'Professional not found.' });
+  }
+
+  const [reviews, services, portfolio] = await Promise.all([
+    pool.query(
+      `SELECT r.rating, r.comment, r.created_at, r.quality_rating, r.punctuality_rating,
+              r.professionalism_rating, r.communication_rating, r.price_fairness_rating,
+              u.name AS reviewer_name
+       FROM reviews r JOIN users u ON u.id = r.client_user_id
+       WHERE r.provider_id = $1 AND r.flagged_suspicious IS NOT TRUE
+       ORDER BY r.created_at DESC LIMIT 20`,
+      [req.params.id]
+    ),
+    pool.query(
+      `SELECT s.name, ws.verification_status FROM worker_services ws
+       JOIN services s ON s.id = ws.service_id WHERE ws.provider_id = $1`,
+      [req.params.id]
+    ),
+    pool.query(
+      `SELECT photo, job_type, description FROM portfolio_items
+       WHERE provider_id = $1 ORDER BY created_at DESC LIMIT 12`,
+      [req.params.id]
+    )
+  ]);
+
+  res.json({
+    provider: providerResult.rows[0],
+    reviews: reviews.rows,
+    services: services.rows,
+    portfolio: portfolio.rows
+  });
+}));
 
 // --- 404 and error handling (must be last, after all routes) ---
 

@@ -42,20 +42,20 @@
 
     let response = await originalFetch(input, init);
 
-    // A rotated session (e.g. after re-login) invalidates the cached
-    // token. Refresh once and retry transparently so the user never
-    // sees a spurious failure.
-    if (response.status === 403 && !SAFE_METHODS.includes(method) && isSameOrigin) {
-      const clone = response.clone();
-      const body = await clone.json().catch(() => null);
-      if (body && typeof body.error === 'string' && body.error.includes('couldn\u2019t be verified')) {
-        csrfToken = null;
-        await loadToken();
-        if (csrfToken) {
-          const headers = new Headers(init.headers || {});
-          headers.set('X-CSRF-Token', csrfToken);
-          response = await originalFetch(input, { ...init, headers, credentials: 'same-origin' });
-        }
+    // A rotated session (re-login) or a token we never managed to load
+    // invalidates the cached token. Retry once on any 403 for a mutating
+    // same-origin request. Keying off the status code rather than
+    // matching the server's error wording means this keeps working even
+    // if that message is ever reworded or localised.
+    if (response.status === 403 && !SAFE_METHODS.includes(method) && isSameOrigin && !init._csrfRetried) {
+      csrfToken = null;
+      await loadToken();
+      if (csrfToken) {
+        const headers = new Headers(init.headers || {});
+        headers.set('X-CSRF-Token', csrfToken);
+        response = await originalFetch(input, {
+          ...init, headers, credentials: 'same-origin', _csrfRetried: true
+        });
       }
     }
     return response;
@@ -362,14 +362,25 @@ let lastLocationSaveAt = 0;
 async function saveCurrentLocationSilently() {
   try {
     const pos = await getAccurateLocation();
-    await fetch('/api/me/location', {
+    const res = await fetch('/api/me/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy })
     });
+    // fetch() only rejects on network failure — an HTTP 403/500 resolves
+    // normally. Without this check the code treated a rejected save as a
+    // success, stamped lastLocationSaveAt, and then suppressed retries
+    // for the next 5 minutes: location silently stopped working while
+    // reporting that it worked.
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      console.error('Location save failed:', res.status, detail.error || '');
+      return false;
+    }
     lastLocationSaveAt = Date.now();
     return true;
   } catch (err) {
+    console.error('Location save error:', err && err.message ? err.message : err);
     return false;
   }
 }
@@ -506,7 +517,10 @@ window.initNotificationBell = function () {
         <div class="notif-sheet-handle"></div>
         <div class="notif-sheet-header">
           <h2>Notifications</h2>
-          <button type="button" id="notifSheetClose">Close</button>
+          <div style="display:flex; gap:0.25rem;">
+            <button type="button" id="notifSheetClear">Clear all</button>
+            <button type="button" id="notifSheetClose">Close</button>
+          </div>
         </div>
         <div class="notif-sheet-list" id="notifSheetList"></div>
       </div>
@@ -514,6 +528,14 @@ window.initNotificationBell = function () {
     document.body.appendChild(overlay);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSheet(); });
     overlay.querySelector('#notifSheetClose').addEventListener('click', closeSheet);
+    overlay.querySelector('#notifSheetClear').addEventListener('click', async () => {
+      const res = await fetch('/api/notifications', { method: 'DELETE' });
+      if (!res.ok) { showToast('Couldn\u2019t clear notifications.', 'error'); return; }
+      list.innerHTML = renderGroupedNotifications([]);
+      bellDot.style.display = 'none';
+      updateAppBadge(0);
+      showToast('Notifications cleared.', 'success');
+    });
   }
   const list = overlay.querySelector('#notifSheetList');
 
@@ -530,8 +552,15 @@ window.initNotificationBell = function () {
       list.innerHTML = renderGroupedNotifications(data.notifications);
       list.querySelectorAll('.suggestion-row').forEach(row => {
         row.addEventListener('click', () => {
+          // A swipe leaves the row translated; don't also navigate when
+          // the user was clearly swiping rather than tapping.
+          if (row.style.transform && row.style.transform !== 'translateX(0px)') return;
           if (row.dataset.link) window.location.href = row.dataset.link;
         });
+      });
+      attachNotificationSwipe(list, () => {
+        // Keep the badge honest as rows are cleared one by one.
+        loadNotifications(false);
       });
     }
   }
@@ -559,6 +588,67 @@ window.updateAppBadge = function (count) {
 // Renders a notification list grouped into "Today" / "Earlier" —
 // shared by both dashboards so the bell dropdown looks and behaves
 // identically for clients and providers.
+// iOS-style swipe-left-to-clear on a notification row. Deliberately
+// requires clear horizontal intent and a real distance threshold, so a
+// vertical scroll never deletes something by accident.
+window.attachNotificationSwipe = function (container, onDeleted) {
+  container.querySelectorAll('.notif-swipe-wrap').forEach(wrap => {
+    const row = wrap.querySelector('.suggestion-row');
+    const id = wrap.dataset.notifId;
+    let startX = 0, startY = 0, dx = 0, tracking = false, decided = false, horizontal = false;
+
+    row.addEventListener('touchstart', (e) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      tracking = true; decided = false; horizontal = false;
+      wrap.classList.add('swiping');
+    }, { passive: true });
+
+    row.addEventListener('touchmove', (e) => {
+      if (!tracking) return;
+      dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+      // Decide once, early, whether this is a horizontal swipe or a
+      // vertical scroll — flip-flopping mid-gesture feels broken.
+      if (!decided && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+        decided = true;
+        horizontal = Math.abs(dx) > Math.abs(dy);
+      }
+      if (!horizontal) return;
+      row.style.transform = `translateX(${Math.min(0, dx)}px)`; // left only
+    }, { passive: true });
+
+    function finish() {
+      if (!tracking) return;
+      tracking = false;
+      wrap.classList.remove('swiping');
+      if (horizontal && dx < -90) {
+        row.style.transform = 'translateX(-100%)';
+        wrap.style.height = wrap.offsetHeight + 'px';
+        requestAnimationFrame(() => wrap.classList.add('removing'));
+        fetch(`/api/notifications/${id}`, { method: 'DELETE' })
+          .then(res => {
+            if (!res.ok) throw new Error('delete failed');
+            setTimeout(() => { wrap.remove(); if (onDeleted) onDeleted(); }, 260);
+          })
+          .catch(() => {
+            // Roll back rather than leave it visually deleted while it
+            // still exists on the server.
+            wrap.classList.remove('removing');
+            wrap.style.height = '';
+            row.style.transform = '';
+            showToast('Couldn\u2019t clear that notification.', 'error');
+          });
+      } else {
+        row.style.transform = '';
+      }
+      dx = 0;
+    }
+    row.addEventListener('touchend', finish, { passive: true });
+    row.addEventListener('touchcancel', finish, { passive: true });
+  });
+};
+
 window.renderGroupedNotifications = function (notifications) {
   if (notifications.length === 0) {
     return `<div style="padding:1rem; text-align:center; color:var(--ink-soft); font-size:0.85rem;">No notifications yet.</div>`;
@@ -568,13 +658,16 @@ window.renderGroupedNotifications = function (notifications) {
   const earlierItems = notifications.filter(n => new Date(n.created_at).toDateString() !== today);
 
   const renderRow = (n) => `
-    <div class="suggestion-row" style="align-items:flex-start;" data-link="${n.link || ''}">
-      <div class="icon-chip" style="background:${n.read_at ? 'var(--surface)' : 'var(--primary-tint)'};">
-        <svg viewBox="0 0 24 24" fill="none" stroke="${n.read_at ? 'var(--ink-soft)' : 'var(--primary)'}" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
-      </div>
-      <div>
-        <span style="display:block; font-weight:${n.read_at ? '500' : '700'};">${escapeHtml(n.body)}</span>
-        <span style="font-size:0.72rem; color:var(--ink-soft); font-weight:400;">${relativeTime(n.created_at)}</span>
+    <div class="notif-swipe-wrap" data-notif-id="${n.id}">
+      <span class="swipe-delete-label">Clear</span>
+      <div class="suggestion-row" style="align-items:flex-start;" data-link="${n.link || ''}">
+        <div class="icon-chip" style="background:${n.read_at ? 'var(--surface)' : 'var(--primary-tint)'};">
+          <svg viewBox="0 0 24 24" fill="none" stroke="${n.read_at ? 'var(--ink-soft)' : 'var(--primary)'}" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+        </div>
+        <div>
+          <span style="display:block; font-weight:${n.read_at ? '500' : '700'};">${escapeHtml(n.body)}</span>
+          <span style="font-size:0.72rem; color:var(--ink-soft); font-weight:400;">${relativeTime(n.created_at)}</span>
+        </div>
       </div>
     </div>
   `;

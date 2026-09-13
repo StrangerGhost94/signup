@@ -27,8 +27,17 @@
     <div class="chat-thread" id="chatThread"></div>
 
     <div class="error" id="error"></div>
+    <div id="attachPreview" style="display:none; padding:0.5rem 1rem; align-items:center; gap:0.6rem;">
+      <img id="attachThumb" alt="" style="width:48px; height:48px; border-radius:8px; object-fit:cover;">
+      <span class="job-meta" style="flex:1;">Image ready to send</span>
+      <button type="button" id="attachRemove" class="small-btn btn-outline" style="width:auto; padding:0.3rem 0.6rem; font-size:0.75rem;">Remove</button>
+    </div>
     <form id="messageForm" class="chat-input-row">
-      <input type="text" id="messageInput" placeholder="Type a message..." maxlength="2000" required autocomplete="off">
+      <button type="button" id="attachBtn" class="chat-back" style="margin:0;" aria-label="Attach image">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.67 3.67 0 0 1 5.19 5.19l-9.2 9.19a1.83 1.83 0 0 1-2.59-2.59l8.49-8.48"/></svg>
+      </button>
+      <input type="file" id="attachInput" accept="image/*" style="display:none;">
+      <input type="text" id="messageInput" placeholder="Type a message..." maxlength="2000" autocomplete="off">
       <button type="submit">Send</button>
     </form>
   </div>
@@ -102,25 +111,55 @@
         if (mine && i === lastMineIndex) {
           receipt = m.read_at ? ' · Seen' : ' · Delivered';
         }
-        bubble.innerHTML = `${escapeHtml(m.body)}<time>${formatTime(m.created_at)}${receipt}</time>`;
+        const attachmentHtml = m.attachment
+          ? `<img src="${m.attachment}" alt="Attachment" class="chat-attachment" style="max-width:220px; width:100%; border-radius:12px; display:block; margin-bottom:${m.body ? '0.4rem' : '0'}; cursor:pointer;">`
+          : '';
+        bubble.innerHTML = `${attachmentHtml}${escapeHtml(m.body || '')}<time>${formatTime(m.created_at)}${receipt}</time>`;
+        const img = bubble.querySelector('.chat-attachment');
+        if (img) img.addEventListener('click', () => window.open(m.attachment, '_blank'));
         thread.appendChild(bubble);
       });
 
       if (scrollToBottom) thread.scrollTop = thread.scrollHeight;
     }
 
+    let pendingAttachment = null;
+
+    document.getElementById('attachBtn').addEventListener('click', () => {
+      document.getElementById('attachInput').click();
+    });
+    document.getElementById('attachInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        // Compressed before upload — a raw phone photo would be several
+        // megabytes and slow on Ugandan mobile data.
+        pendingAttachment = await compressImageFile(file, 1000, 0.7);
+        document.getElementById('attachThumb').src = pendingAttachment;
+        document.getElementById('attachPreview').style.display = 'flex';
+      } catch (err) {
+        document.getElementById('error').textContent = err.message || 'Couldn\u2019t attach that image.';
+      }
+      e.target.value = ''; // allow re-picking the same file
+    });
+    document.getElementById('attachRemove').addEventListener('click', () => {
+      pendingAttachment = null;
+      document.getElementById('attachPreview').style.display = 'none';
+    });
+
     document.getElementById('messageForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('messageInput');
       const body = input.value.trim();
-      if (!body) return;
+      // An image on its own is a valid message.
+      if (!body && !pendingAttachment) return;
       const errorEl = document.getElementById('error');
       errorEl.textContent = '';
 
       const res = await fetch(`/api/messages/${jobId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body })
+        body: JSON.stringify({ body, attachment: pendingAttachment })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -128,6 +167,8 @@
         return;
       }
       input.value = '';
+      pendingAttachment = null;
+      document.getElementById('attachPreview').style.display = 'none';
       await loadThread(true);
     });
 
