@@ -51,6 +51,10 @@
       <div id="overviewSection">
         <h1>Overview</h1>
         <div id="configBanner" style="display:none; background:#FEF3C7; color:#92400E; border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem;"></div>
+        <div style="margin-bottom:1.25rem;">
+          <button type="button" id="testEmailBtn" class="small-btn btn-outline" style="width:auto;">Send test email</button>
+          <span id="testEmailResult" style="font-size:0.84rem; margin-left:0.6rem;"></span>
+        </div>
         <div class="admin-stat-grid" id="overviewStats"></div>
       </div>
 
@@ -129,6 +133,30 @@
         if (section === 'audit') initAuditLog();
         if (section === 'users') initUsersDirectory();
       });
+    });
+
+    document.getElementById('testEmailBtn').addEventListener('click', async (e) => {
+      const out = document.getElementById('testEmailResult');
+      e.target.disabled = true;
+      out.textContent = 'Sending...';
+      out.style.color = 'var(--ink-soft)';
+      try {
+        const res = await fetch('/api/admin/test-email', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+        });
+        const d = await res.json();
+        if (d.ok) {
+          out.style.color = 'var(--primary-deep)';
+          out.textContent = `✓ Sent via ${d.provider} from ${d.from} — check inbox and spam.`;
+        } else {
+          out.style.color = 'var(--danger)';
+          out.textContent = `✗ ${d.provider}: ${d.error}`;
+        }
+      } catch (err) {
+        out.style.color = 'var(--danger)';
+        out.textContent = 'Request failed — check your connection.';
+      }
+      e.target.disabled = false;
     });
 
     async function loadOverview() {

@@ -5001,6 +5001,34 @@ app.post('/api/resend-verification', verifyResendLimiter, requireLogin, asyncHan
   res.json({ message: 'Verification email sent.' });
 }));
 
+// Sends a real test email and returns the provider's actual error on
+// failure. Email problems are otherwise near-impossible to diagnose:
+// the user-facing message has to stay vague, and the real cause only
+// appears in deploy logs.
+app.post('/api/admin/test-email', requireRole('admin'), asyncHandler(async (req, res) => {
+  const to = isNonEmpty(req.body.to) ? req.body.to.trim() : req.session.userEmail;
+  if (!to || !EMAIL_RE.test(to)) {
+    return res.status(400).json({ error: 'Provide a valid recipient address.' });
+  }
+  const provider = RESEND_API_KEY ? 'resend' : (mailTransport ? 'smtp' : 'none');
+  if (provider === 'none') {
+    return res.status(503).json({ ok: false, provider, error: 'No email provider configured. Set RESEND_API_KEY.' });
+  }
+  try {
+    await sendEmail({
+      to,
+      subject: 'HandyLink test email',
+      text: 'This is a test email from HandyLink. If you received it, email delivery is working.',
+      html: '<p>This is a test email from HandyLink. If you received it, email delivery is working.</p>'
+    });
+    res.json({ ok: true, provider, from: MAIL_FROM, to, message: 'Sent. Check the inbox (and spam folder).' });
+  } catch (err) {
+    // Surfacing the raw provider message is the entire point here —
+    // it names the exact problem (unverified domain, bad key, etc.).
+    res.status(502).json({ ok: false, provider, from: MAIL_FROM, to, error: err.message });
+  }
+}));
+
 // --- 404 and error handling (must be last, after all routes) ---
 
 app.use((req, res) => {
