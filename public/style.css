@@ -2564,3 +2564,46 @@ html, body { max-width: 100%; overflow-x: hidden; }
 @media (prefers-reduced-motion: no-preference) {
   .auth-page::before { transition: opacity 0.4s var(--ease-out); }
 }
+
+/* Fix: the auth input rules above target `.auth-page input[type=...]`,
+   which outranks `.input-icon-wrap input` and re-applied a bottom
+   margin INSIDE the icon wrapper. That made the wrapper taller than the
+   input itself, and since the leading icon is centred against the
+   wrapper, it drifted above the text. Spacing belongs on the wrapper. */
+.auth-page .input-icon-wrap input[type="email"],
+.auth-page .input-icon-wrap input[type="password"],
+.auth-page .input-icon-wrap input[type="text"],
+.auth-page .input-icon-wrap input[type="tel"] {
+  margin-bottom: 0;
+}
+.auth-page .input-icon-wrap { margin-bottom: 0.75rem; }
+
+/* Role segmented control with icons — horizontal layout so the icon
+   sits beside the label rather than stacking and adding height. */
+.auth-page .role-toggle .role-btn {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.auth-page .role-toggle .role-btn svg {
+  width: 19px;
+  height: 19px;
+  flex-shrink: 0;
+  color: var(--ink-soft);
+}
+.auth-page .role-toggle .role-btn.active svg { color: var(--primary-deep); }
+
+/* Icon rendering consistency. The category icons are drawn as pure
+   geometry with no fills, so a stray `fill` from a parent or a
+   mismatched stroke width makes one icon in a row look heavier than
+   its neighbours — the main reason icon sets look "off" even when each
+   icon is fine in isolation. */
+.icon-chip svg,
+.home-cat-tile svg,
+.recent-job-icon svg,
+.big-choice-icon svg {
+  fill: none;
+  stroke-width: 1.9;
+  vector-effect: non-scaling-stroke;
+}

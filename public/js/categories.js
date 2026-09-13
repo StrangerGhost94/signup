@@ -76,16 +76,32 @@ window.CATEGORY_COLORS = {
   'Construction': '#C1440E'
 };
 
+// All icons are drawn on the same 24x24 grid with matching optical
+// weight and detail level, so a row of them reads as one set rather
+// than a collection of clip-art. Stroke width and caps are applied
+// globally in CSS, so paths stay purely geometric here.
 window.CATEGORY_ICONS = {
-  'Plumbing': '<path d="M14.7 6.3a4 4 0 0 0-5.66 5.66L4 17l3 3 5.04-5.04a4 4 0 0 0 5.66-5.66l-2.12 2.12-2.12-.7-.7-2.12 2.12-2.12z"/>',
-  'Electrical': '<path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/>',
-  'Carpentry': '<path d="M4 20l7-7M14 4l6 6-3 3-6-6 3-3zM10 10l4 4"/>',
-  'Painting': '<rect x="9" y="3" width="6" height="8" rx="1"/><path d="M12 11v10M8 21h8"/>',
-  'Cleaning': '<path d="M9 3l6 6M4 20l6-6M13 6l5 5-8 8-4-1 1-4 6-6z"/>',
-  'Moving': '<path d="M3 16V6h11v10M3 16h13M14 10h4l3 3v3M14 16h9M7 19a2 2 0 1 0 0-.01M18 19a2 2 0 1 0 0-.01"/>',
-  'Mechanical': '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
-  'Realtor': '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><circle cx="12" cy="15" r="1.5"/>',
-  'Construction': '<path d="M4 18a8 8 0 0 1 16 0z"/><path d="M2 18h20"/><path d="M12 6v4"/>'
+  // Pipe with joint and a drip — reads as plumbing at small sizes
+  // better than a bare wrench, which was ambiguous next to Mechanical.
+  'Plumbing': '<path d="M7 4v5a3 3 0 0 0 3 3h4a3 3 0 0 1 3 3v5"/><path d="M4.5 4h5"/><path d="M14.5 20h5"/><path d="M10.5 8.5h3"/>',
+  // Bolt inside a rounded plate — more deliberate than a lone zigzag.
+  'Electrical': '<path d="M13.5 3 6 13h5l-1.5 8L17 11h-5z"/>',
+  // Hand saw with a visible blade edge and handle.
+  'Carpentry': '<path d="M3 17.5 13.5 7l3.5 3.5L6.5 21H3z"/><path d="M16 4.5 19.5 8l-2 2L14 6.5z"/><path d="M6 14.5l1.5 1.5M8.5 12l1.5 1.5M11 9.5l1.5 1.5"/>',
+  // Roller with handle and tray edge.
+  'Painting': '<rect x="4" y="4" width="12" height="5" rx="1.5"/><path d="M16 6.5h2.5A1.5 1.5 0 0 1 20 8v2.5a1.5 1.5 0 0 1-1.5 1.5H12"/><path d="M12 12v2"/><rect x="10" y="14" width="4" height="6" rx="1.5"/>',
+  // Spray bottle with motion lines — clearer than a generic sparkle.
+  'Cleaning': '<path d="M9 8h5a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-3a2 2 0 0 1-2-2z"/><path d="M9 8V5.5A1.5 1.5 0 0 1 10.5 4h2"/><path d="M16 6h3M17.5 3.5 19.5 6l-2 2.5"/><path d="M12 12v3"/>',
+  // Box truck, drawn to the same optical box as its neighbours. The
+  // earlier version ran edge-to-edge horizontally and sat low, which
+  // made it read as noticeably larger than the icons beside it.
+  'Moving': '<path d="M3.5 6.5h9v8h-9z"/><path d="M12.5 9h3.2l2.8 3v2.5h-6z"/><circle cx="7" cy="17" r="1.7"/><circle cx="16" cy="17" r="1.7"/><path d="M8.7 17h5.6"/><path d="M3.5 14.5h1.8M17.7 14.5h1.3"/>',
+  // Gear with a clear tooth profile and centre bore.
+  'Mechanical': '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4 5.3 5.3"/>',
+  // House with a key — property/realtor rather than just another house.
+  'Realtor': '<path d="M3.5 10.5 12 4l8.5 6.5"/><path d="M5.5 9.5V20h13V9.5"/><circle cx="12" cy="14" r="1.8"/><path d="M12 15.8V18"/><path d="M11 17h2"/>',
+  // Crane hook and load — construction as a site, not a single tool.
+  'Construction': '<path d="M4 20h16"/><path d="M6 20V6h12"/><path d="M6 6 18 6"/><path d="M15 6v4"/><path d="M13.5 10h3l-1.5 3.5z"/><path d="M6 9.5 11 6"/><rect x="7.5" y="15" width="6" height="5" rx="1"/>'
 };
 
 window.URGENCY_OPTIONS = [
