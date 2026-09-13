@@ -5444,45 +5444,67 @@ app.get('/api/geocode/search', geocodeSearchLimiter, requireLogin, asyncHandler(
   const q = isNonEmpty(req.query.q) ? req.query.q.trim() : '';
   if (q.length < 3) return res.json({ results: [] });
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  try {
-    // countrycodes=ug biases to Uganda so "Kira" returns Kira Road
-    // rather than somewhere in Europe. Nominatim's policy requires a
-    // identifying User-Agent — omitting it risks being blocked.
-    const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&countrycodes=ug&q=${encodeURIComponent(q)}`;
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'HandyLink/1.0 (handyman marketplace, Uganda)' },
-      signal: controller.signal
-    });
-    clearTimeout(timeout);
-    if (!response.ok) return res.json({ results: [] });
-    const data = await response.json();
+  // Nominatim matches quite literally, so a single query often misses.
+  // Two passes: first biased tightly around the Kampala metro area
+  // (where nearly all activity is), then a broader Uganda-wide pass if
+  // that came back thin. Results are merged and de-duplicated.
+  const KAMPALA_VIEWBOX = '32.40,0.15,32.80,0.48'; // left,bottom,right,top
+  const attempts = [
+    `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=8&countrycodes=ug&viewbox=${KAMPALA_VIEWBOX}&bounded=0&q=${encodeURIComponent(q)}`,
+    `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=8&countrycodes=ug&q=${encodeURIComponent(q)}`
+  ];
 
-    res.json({
-      results: (data || []).map(r => {
+  const seen = new Set();
+  const merged = [];
+
+  for (const url of attempts) {
+    if (merged.length >= 6) break;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'HandyLink/1.0 (handyman marketplace, Uganda)' },
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (!response.ok) continue;
+      const data = await response.json();
+
+      for (const r of (data || [])) {
+        const lat = parseFloat(r.lat), lng = parseFloat(r.lon);
+        if (isNaN(lat) || isNaN(lng)) continue;
+        // De-dupe by rounded coordinate: the two passes overlap heavily.
+        const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
         const a = r.address || {};
-        // Build a short, human label — Nominatim's display_name is a
-        // long comma-chain that's unreadable in a dropdown.
-        const primary = a.road || a.neighbourhood || a.suburb || a.village || a.town || a.city || r.name || '';
-        const secondary = [a.suburb || a.neighbourhood, a.city || a.town || a.county]
+        // Nominatim's display_name is a long comma-chain that's
+        // unreadable in a dropdown — build a short human label instead.
+        const primary = r.name || a.road || a.neighbourhood || a.suburb ||
+                        a.village || a.town || a.city || r.display_name.split(',')[0];
+        const secondary = [a.suburb || a.neighbourhood, a.city || a.town || a.county, a.state]
           .filter((v, i, arr) => v && arr.indexOf(v) === i && v !== primary)
+          .slice(0, 2)
           .join(', ');
-        return {
-          label: primary || r.display_name.split(',')[0],
-          sublabel: secondary || a.state || 'Uganda',
-          latitude: parseFloat(r.lat),
-          longitude: parseFloat(r.lon),
+
+        merged.push({
+          label: primary,
+          sublabel: secondary || 'Uganda',
+          latitude: lat,
+          longitude: lng,
           fullAddress: r.display_name
-        };
-      }).filter(r => !isNaN(r.latitude) && !isNaN(r.longitude))
-    });
-  } catch (err) {
-    clearTimeout(timeout);
-    // A geocoding outage must never block the form — the user can still
-    // type a free-text location.
-    res.json({ results: [] });
+        });
+        if (merged.length >= 6) break;
+      }
+    } catch (err) {
+      clearTimeout(timeout);
+      // A geocoding outage must never block the form — the user can
+      // still type a free-text location.
+    }
   }
+
+  res.json({ results: merged });
 }));
 
 // --- 404 and error handling (must be last, after all routes) ---

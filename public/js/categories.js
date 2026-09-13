@@ -369,6 +369,17 @@ window.autofillLocation = function (inputId, btn) {
       const input = document.getElementById(inputId);
       input.value = data.formattedAddress;
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      // Also publish the raw coordinates — callers that need to store
+      // an exact position (worker signup, job posting) would otherwise
+      // only get the display text and lose the precision entirely.
+      window.dispatchEvent(new CustomEvent('handylink:location-autofilled', {
+        detail: {
+          inputId,
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy
+        }
+      }));
     } catch (err) {
       showToast('Couldn\u2019t look up your address right now.', 'error');
     } finally {

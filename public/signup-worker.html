@@ -87,9 +87,7 @@
             Use GPS
           </button>
         </div>
-        <button type="button" id="useLocationBtn" class="btn-outline" style="margin-top:-0.5rem; margin-bottom:1rem; font-size:0.85rem; padding:0.5rem 0.9rem;">
-          <span id="useLocationLabel">📍 Use my current location</span>
-        </button>
+        <p class="job-meta" style="margin:-0.35rem 0 1rem;">Start typing to pick your area, or use GPS.</p>
 
         <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.5rem;">How far will you travel for a job?</label>
         <select id="serviceRadius" style="width:100%; padding:0.85rem 1rem; margin-bottom:1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
@@ -199,7 +197,24 @@
 
   <script src="js/categories.js"></script>
   <script>
-    attachAddressAutocomplete('location');
+    attachAddressAutocomplete('location', (r) => {
+      // Picking an address is the primary way coordinates get captured —
+      // it works indoors and on weak signal where GPS often doesn't.
+      capturedLat = r.latitude;
+      capturedLng = r.longitude;
+      capturedAccuracy = null; // address-derived, not a GPS reading
+    });
+
+    // The GPS button writes the same variables, so either path produces
+    // a coordinate-backed location. Without this the payload would send
+    // nulls and the worker would never surface in distance-based search.
+    window.addEventListener('handylink:location-autofilled', (e) => {
+      if (e.detail && e.detail.inputId === 'location') {
+        capturedLat = e.detail.latitude;
+        capturedLng = e.detail.longitude;
+        capturedAccuracy = e.detail.accuracy;
+      }
+    });
     let currentStep = 0;
     let compressedPhoto = null;
     let compressedIdDoc = null;
@@ -225,27 +240,33 @@
     }
 
     function validateStep1() {
-      if (!document.getElementById('location').value.trim()) {
-        document.getElementById('error').textContent = 'Please enter the area you serve.';
-        return;
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = '';
+
+      // Validate every required field on this step, not just location —
+      // previously a missing name passed silently and only the location
+      // check ran, so the real problem was never reported.
+      const name = document.getElementById('name');
+      const location = document.getElementById('location');
+
+      if (name && !name.value.trim()) {
+        return failStep1('Please enter your full name.', name);
+      }
+      if (!location.value.trim()) {
+        return failStep1('Please enter the area you serve.', location);
       }
       goToStep(2);
     }
 
-    document.getElementById('useLocationBtn').addEventListener('click', () => {
-      document.getElementById('useLocationLabel').textContent = 'Getting your location...';
-      window.promptForLocation((lat, lng) => {
-        if (lat === null) {
-          document.getElementById('useLocationLabel').textContent = '📍 Use my current location';
-          showToast('Couldn\u2019t get your location. Check permissions.', 'error');
-          return;
-        }
-        capturedLat = lat;
-        capturedLng = lng;
-        document.getElementById('useLocationLabel').textContent = '✓ Location captured';
-        showToast('Location captured.', 'success');
-      });
-    });
+    // The error banner sits at the top of the form. On a long step the
+    // user has scrolled past it, so pressing Continue appeared to do
+    // nothing at all. Scroll it into view and focus the offending field.
+    function failStep1(message, field) {
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = message;
+      errorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (field) setTimeout(() => field.focus(), 300);
+    }
 
     const EXPERIENCE_LEVELS = [['less_than_1', 'Less than 1 year'], ['1_2', '1–2 years'], ['3_5', '3–5 years'], ['6_10', '6–10 years'], ['10_plus', '10+ years']];
     const JOBS_RANGES = [['0_10', '0–10'], ['11_25', '11–25'], ['26_50', '26–50'], ['51_100', '51–100'], ['101_250', '101–250'], ['250_plus', '250+']];
