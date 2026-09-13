@@ -1576,9 +1576,18 @@ html, body { max-width: 100%; overflow-x: hidden; }
   display: flex;
   gap: 0.6rem;
   position: sticky;
-  bottom: calc(1rem + env(safe-area-inset-bottom));
+  /* The safe-area inset reserves room for the home indicator. When the
+     keyboard opens, that indicator is hidden — but the inset stays
+     applied, leaving a dead gap between the input bar and the keyboard.
+     The keyboard-open class (set from JS below) drops it to zero. */
+  bottom: calc(0.5rem + env(safe-area-inset-bottom));
   background: var(--bg);
   padding-top: 0.4rem;
+  transition: bottom 0.15s ease;
+}
+body.keyboard-open .chat-input-row {
+  bottom: 0;
+  padding-bottom: 0.4rem;
 }
 .chat-input-row input {
   margin-bottom: 0;

@@ -44,6 +44,35 @@
 
   <script src="js/categories.js"></script>
   <script>
+    // Keeps the composer sitting directly on top of the keyboard.
+    // visualViewport reports the area NOT covered by the keyboard, so
+    // comparing it to the full window height tells us the keyboard's
+    // real height — there's no dedicated "keyboard opened" event on
+    // mobile browsers, and guessing from focus events is unreliable
+    // because the keyboard animates in after focus fires.
+    (function () {
+      const vv = window.visualViewport;
+      if (!vv) return; // older browsers keep the static safe-area spacing
+
+      function sync() {
+        const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop;
+        // A small threshold avoids reacting to browser chrome collapsing
+        // on scroll, which also changes the viewport height slightly.
+        const open = keyboardHeight > 120;
+        document.body.classList.toggle('keyboard-open', open);
+        if (open) {
+          // Keep the newest message visible above the keyboard rather
+          // than hidden behind it.
+          const thread = document.getElementById('chatThread');
+          if (thread) thread.scrollTop = thread.scrollHeight;
+        }
+      }
+      vv.addEventListener('resize', sync);
+      vv.addEventListener('scroll', sync);
+      sync();
+    })();
+  </script>
+  <script>
     const jobId = new URLSearchParams(window.location.search).get('jobId');
     let myUserEmail = null;
     let pollTimer = null;
