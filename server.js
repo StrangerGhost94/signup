@@ -5373,6 +5373,61 @@ app.get('/api/admin/export/:type', requireRole('admin'), asyncHandler(async (req
   res.send('\ufeff' + csv); // BOM so Excel reads UTF-8 correctly
 }));
 
+// Proper server-side pagination and search. The admin jobs list
+// previously fetched the entire export endpoint and filtered in the
+// browser — acceptable at a few hundred jobs, untenable beyond that:
+// it transfers every row on every keystroke. Cursor-based rather than
+// OFFSET, since OFFSET degrades badly on large tables and can skip or
+// repeat rows when data changes between pages.
+app.get('/api/admin/jobs', requireRole('admin'), asyncHandler(async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 25, 100);
+  const { search, status, beforeId } = req.query;
+
+  const conditions = [];
+  const params = [];
+
+  if (isNonEmpty(status)) {
+    params.push(status);
+    conditions.push(`jr.status = $${params.length}`);
+  }
+  if (isNonEmpty(search)) {
+    const term = search.trim();
+    // Numeric input is almost always a job ID — match it exactly rather
+    // than forcing the admin to remember a separate "search by ID" field.
+    if (/^\d+$/.test(term)) {
+      params.push(parseInt(term, 10));
+      conditions.push(`jr.id = $${params.length}`);
+    } else {
+      params.push(`%${term}%`);
+      conditions.push(`(jr.category ILIKE $${params.length} OR jr.location ILIKE $${params.length}
+                        OR uc.email ILIKE $${params.length} OR p.name ILIKE $${params.length})`);
+    }
+  }
+  if (beforeId && /^\d+$/.test(String(beforeId))) {
+    params.push(parseInt(beforeId, 10));
+    conditions.push(`jr.id < $${params.length}`);
+  }
+
+  const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+  params.push(limit + 1); // one extra reveals whether more pages exist
+
+  const result = await pool.query(
+    `SELECT jr.id, jr.category, jr.status, jr.urgency, jr.location,
+            jr.estimate_amount, jr.final_amount, jr.created_at, jr.scheduled_for,
+            uc.email AS client_email, p.name AS provider_name
+     FROM job_requests jr
+     JOIN users uc ON uc.id = jr.client_user_id
+     LEFT JOIN providers p ON p.id = jr.provider_id
+     ${where}
+     ORDER BY jr.id DESC
+     LIMIT $${params.length}`,
+    params
+  );
+
+  const hasMore = result.rows.length > limit;
+  res.json({ jobs: hasMore ? result.rows.slice(0, limit) : result.rows, hasMore });
+}));
+
 // --- 404 and error handling (must be last, after all routes) ---
 
 app.use((req, res) => {

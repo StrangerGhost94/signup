@@ -126,8 +126,22 @@
           <h1 style="margin:0;">Jobs</h1>
           <button type="button" class="small-btn btn-outline" style="width:auto;" onclick="window.location.href='/api/admin/export/jobs'">Export CSV</button>
         </div>
-        <input type="text" id="jobSearch" placeholder="Search by job ID, category or client email..." style="margin:1rem 0;">
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin:1rem 0;">
+          <input type="text" id="jobSearch" placeholder="Search job ID, category, location, client or pro..." style="flex:1; min-width:200px; margin-bottom:0;">
+          <select id="jobStatusFilter" style="width:auto; padding:0.85rem 1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
+            <option value="">Any status</option>
+            <option value="awaiting_offers">Awaiting offers</option>
+            <option value="requested">Requested</option>
+            <option value="accepted">Booked</option>
+            <option value="in_progress">In progress</option>
+            <option value="awaiting_payment">Awaiting payment</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="declined">Declined</option>
+          </select>
+        </div>
         <div class="admin-list" id="adminJobsList"></div>
+        <button type="button" id="jobsLoadMore" class="btn-outline" style="display:none; margin-top:0.75rem;">Load more</button>
       </div>
 
       <div id="securitySection" style="display:none;">
@@ -206,7 +220,7 @@
         if (section === 'audit') initAuditLog();
         if (section === 'users') initUsersDirectory();
         if (section === 'security') loadMfaStatus();
-        if (section === 'jobs') loadAdminJobs();
+        if (section === 'jobs') loadAdminJobs(false);
       });
     });
 
@@ -236,67 +250,61 @@
 
     // --- Admin jobs browser + detail ---
     let jobSearchDebounce;
+    let lastJobId = null;
     document.getElementById('jobSearch').addEventListener('input', () => {
       clearTimeout(jobSearchDebounce);
-      jobSearchDebounce = setTimeout(loadAdminJobs, 300);
+      jobSearchDebounce = setTimeout(() => loadAdminJobs(false), 300);
     });
 
-    async function loadAdminJobs() {
+    async function loadAdminJobs(append) {
       const list = document.getElementById('adminJobsList');
-      list.innerHTML = '<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>';
-      const q = document.getElementById('jobSearch').value.trim().toLowerCase();
-
-      // Reuses the existing export query shape via a light fetch of
-      // recent jobs, filtered client-side — adequate at current volume
-      // and avoids adding another paginated endpoint.
-      const res = await fetch('/api/admin/export/jobs');
-      if (!res.ok) { list.innerHTML = errorStateHtml('loadAdminJobs()'); return; }
-      const csv = await res.text();
-      const lines = csv.replace(/^\ufeff/, '').split('\n');
-      const headers = lines[0].split(',');
-      const parsed = lines.slice(1).filter(Boolean).map(line => {
-        const vals = line.match(/("([^"]|"")*")/g) || [];
-        const obj = {};
-        headers.forEach((h, i) => {
-          obj[h] = vals[i] ? vals[i].slice(1, -1).replace(/""/g, '"') : '';
-        });
-        return obj;
-      });
-
-      const filtered = q
-        ? parsed.filter(j => `${j.id} ${j.category} ${j.client_email} ${j.provider_name}`.toLowerCase().includes(q))
-        : parsed;
-      const shown = filtered.slice(0, 50);
-
-      if (shown.length === 0) {
-        list.innerHTML = '<div class="empty-state"><strong>No matching jobs</strong>Try a different search.</div>';
-        return;
+      if (!append) {
+        list.innerHTML = '<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>';
+        lastJobId = null;
       }
-      list.innerHTML = '';
-      shown.forEach(j => {
+
+      const params = new URLSearchParams();
+      const q = document.getElementById('jobSearch').value.trim();
+      const status = document.getElementById('jobStatusFilter').value;
+      if (q) params.set('search', q);
+      if (status) params.set('status', status);
+      if (append && lastJobId) params.set('beforeId', lastJobId);
+
+      const res = await fetch('/api/admin/jobs?' + params.toString());
+      if (!res.ok) { list.innerHTML = errorStateHtml('loadAdminJobs()'); return; }
+      const data = await res.json();
+
+      if (!append) list.innerHTML = '';
+      if (!append && data.jobs.length === 0) {
+        list.innerHTML = '<div class="empty-state"><strong>No matching jobs</strong>Try a different search or filter.</div>';
+      }
+
+      data.jobs.forEach(j => {
         const meta = STATUS_META[j.status] || { color: 'var(--ink-soft)', bg: 'var(--surface)', label: j.status };
+        const amount = j.final_amount != null ? j.final_amount : j.estimate_amount;
         const row = document.createElement('div');
         row.className = 'job-card';
         row.style.cursor = 'pointer';
         row.innerHTML = `
           <div class="job-top">
             <div>
-              <strong>#${escapeHtml(j.id)} · ${escapeHtml(j.category)}</strong>
+              <strong>#${j.id} · ${escapeHtml(j.category)}</strong>
               <p class="job-meta">${escapeHtml(j.client_email)}${j.provider_name ? ' → ' + escapeHtml(j.provider_name) : ' · unassigned'}</p>
+              <p class="job-meta">UGX ${(amount || 0).toLocaleString()} · ${new Date(j.created_at).toLocaleDateString()}</p>
             </div>
             <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
           </div>
         `;
         row.addEventListener('click', () => openJobDetail(j.id));
         list.appendChild(row);
+        lastJobId = j.id;
       });
-      if (filtered.length > shown.length) {
-        const note = document.createElement('p');
-        note.className = 'job-meta';
-        note.textContent = `Showing 50 of ${filtered.length} matches — refine your search to narrow it down.`;
-        list.appendChild(note);
-      }
+
+      document.getElementById('jobsLoadMore').style.display = data.hasMore ? 'block' : 'none';
     }
+
+    document.getElementById('jobStatusFilter').addEventListener('change', () => loadAdminJobs(false));
+    document.getElementById('jobsLoadMore').addEventListener('click', () => loadAdminJobs(true));
 
     async function openJobDetail(jobId) {
       const overlay = document.createElement('div');
