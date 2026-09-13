@@ -2729,20 +2729,21 @@ select { margin-bottom: 1rem; }
 select[style*="margin-bottom:0"] { margin-bottom: 0; }
 .filters select, .admin-list select { margin-bottom: 0; }
 
-/* Category tile tap feedback. Touch devices don't have hover, and a
-   lingering focus ring after tapping reads as "stuck selected" rather
-   than "tapped". A brief press-in is clearer and disappears on release. */
+/* Category tile tap feedback: a green glow around the tile. Both
+   shadows are listed in one box-shadow so they stack — declaring them
+   separately would mean the second overwrites the first, which is what
+   previously stripped the card's depth and left a flat ring. */
 .home-cat-tile {
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s var(--spring), box-shadow 0.2s ease;
+  transition: transform 0.15s var(--spring), box-shadow 0.2s var(--ease-out);
 }
 .home-cat-tile:active {
-  transform: scale(0.94);
-  box-shadow: var(--shadow-sm);
+  transform: scale(0.96);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 3px color-mix(in srgb, var(--primary) 28%, transparent),
+    0 0 16px 2px color-mix(in srgb, var(--primary) 30%, transparent);
 }
-/* Don't leave a focus ring sitting on a tile after a tap — only show it
-   for genuine keyboard navigation, which :focus-visible already scopes,
-   but Safari is inconsistent so this keeps the shadow intact regardless. */
 .home-cat-tile:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 3px;
