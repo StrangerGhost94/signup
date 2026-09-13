@@ -20,7 +20,8 @@
       <div class="error" id="error"></div>
 
       <form id="requestForm">
-        <textarea id="description" rows="4" placeholder="e.g. My bathroom tap is leaking and water is coming from underneath." required></textarea>
+        <textarea id="description" rows="4" required></textarea>
+        <p class="job-meta" id="descriptionHint" style="margin:-0.5rem 0 1rem;"></p>
 
         <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.5rem;">Photos (optional)</label>
         <div class="photo-upload-strip" id="photoStrip">
@@ -75,6 +76,25 @@
 
     document.getElementById('categoryLabel').innerHTML =
       `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(category)}" stroke-width="2" style="width:1.15em;height:1.15em;">${categoryIcon(category)}</svg> ${escapeHtml(category)}`;
+
+    // Match the example and guidance to the chosen service. A plumbing
+    // example on a Realtor request actively misleads — it prompts people
+    // to describe the wrong things, which then degrades the AI estimate.
+    const prompt = promptForCategory(category);
+    document.getElementById('description').placeholder = prompt.placeholder;
+    document.getElementById('descriptionHint').textContent = prompt.hint;
+
+    // "What needs to be fixed?" is wrong for services that aren't repairs
+    // — nothing is broken when you're hiring a realtor or a cleaner.
+    const NON_REPAIR_HEADINGS = {
+      'Realtor': 'What are you looking for?',
+      'Construction': 'What do you want built?',
+      'Cleaning': 'What needs cleaning?',
+      'Moving': 'What are you moving?',
+      'Painting': 'What needs painting?'
+    };
+    document.querySelector('#formStep h1').textContent =
+      NON_REPAIR_HEADINGS[category] || 'What needs to be fixed?';
 
     const urgencyGrid = document.getElementById('urgencyGrid');
     URGENCY_OPTIONS.forEach(opt => {

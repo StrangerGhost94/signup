@@ -1163,3 +1163,56 @@ window.attachAddressAutocomplete = function (inputId, onSelect) {
     if (!wrap.contains(e.target)) close();
   });
 };
+
+// Category-specific description prompts. A plumbing example shown to
+// someone booking a realtor is worse than no example — it signals the
+// app isn't paying attention, and it nudges people to describe the
+// wrong things. Each prompt models the detail that actually helps a
+// professional quote accurately for THAT trade.
+window.CATEGORY_PROMPTS = {
+  'Plumbing': {
+    placeholder: 'e.g. The kitchen sink drains very slowly and water backs up. It started about a week ago.',
+    hint: 'Mention where it is, when it started, and whether water is still running or leaking.'
+  },
+  'Electrical': {
+    placeholder: 'e.g. Two sockets in the sitting room stopped working. The breaker trips when I plug in the fridge.',
+    hint: 'Mention which rooms or appliances are affected, and whether the breaker trips.'
+  },
+  'Carpentry': {
+    placeholder: 'e.g. A wardrobe door has come off its hinge and won\u2019t close properly.',
+    hint: 'Mention the item, what\u2019s broken, and rough size or measurements if you know them.'
+  },
+  'Painting': {
+    placeholder: 'e.g. Repaint two bedrooms, about 4m x 4m each. Walls are currently cream with some peeling.',
+    hint: 'Mention how many rooms or walls, rough size, and the current condition.'
+  },
+  'Cleaning': {
+    placeholder: 'e.g. Deep clean of a 3-bedroom house after moving out, including kitchen and bathrooms.',
+    hint: 'Mention the property size, number of rooms, and whether it\u2019s a one-off or regular.'
+  },
+  'Moving': {
+    placeholder: 'e.g. Moving a 2-bedroom apartment from Ntinda to Kira. Includes a fridge, bed and sofa. Second floor, no lift.',
+    hint: 'Mention both locations, rough volume, and whether there are stairs or a lift.'
+  },
+  'Mechanical': {
+    placeholder: 'e.g. Toyota Premio 2010 making a grinding noise when braking. Gets worse at low speed.',
+    hint: 'Mention the make, model, year, and what the problem sounds or feels like.'
+  },
+  'Realtor': {
+    placeholder: 'e.g. Looking for a 2-bedroom apartment to rent in Ntinda or Kiwatule, budget around UGX 800,000/month.',
+    hint: 'Mention whether you\u2019re buying, selling or renting, the areas you want, and your budget.'
+  },
+  'Construction': {
+    placeholder: 'e.g. Build a boundary wall about 30m long around a plot in Gayaza, including a metal gate.',
+    hint: 'Mention the scope, rough dimensions, and whether you already have drawings or materials.'
+  }
+};
+
+// Falls back to neutral wording rather than a plumbing example, so an
+// unrecognised or newly-added category never shows a mismatched prompt.
+window.promptForCategory = function (category) {
+  return window.CATEGORY_PROMPTS[category] || {
+    placeholder: 'e.g. Describe what needs doing, where it is, and when you noticed it.',
+    hint: 'The more detail you give, the more accurate the estimate.'
+  };
+};
