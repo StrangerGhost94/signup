@@ -26,6 +26,7 @@ const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : nul
 // Email is configured via generic SMTP env vars, so it works with a Gmail
 // app password, or any SMTP-speaking provider (Resend, SendGrid, etc.).
 const SMTP_HOST = process.env.SMTP_HOST || null;
+const RESEND_API_KEY = process.env.RESEND_API_KEY || null;
 const mailTransport = SMTP_HOST
   ? nodemailer.createTransport({
       host: SMTP_HOST,
@@ -34,8 +35,46 @@ const mailTransport = SMTP_HOST
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
     })
   : null;
-const MAIL_FROM = process.env.MAIL_FROM || process.env.SMTP_USER || 'no-reply@handylink.app';
+const MAIL_FROM = process.env.MAIL_FROM || process.env.SMTP_USER || 'onboarding@resend.dev';
 const APP_URL = process.env.APP_URL || null; // e.g. https://your-app.up.railway.app
+
+// True if ANY email provider is usable. Resend is preferred: it's an
+// HTTPS API call rather than an SMTP connection, so it isn't affected
+// by hosts blocking SMTP ports, has no connection pool to hang, and
+// returns a clear error body when something is wrong — which is exactly
+// what was missing when password reset "just stayed still".
+const emailEnabled = !!(RESEND_API_KEY || mailTransport);
+
+async function sendEmail({ to, subject, text, html }) {
+  if (RESEND_API_KEY) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ from: MAIL_FROM, to: [to], subject, text, html }),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(`Resend ${response.status}: ${detail}`);
+      }
+      return true;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  if (mailTransport) {
+    await mailTransport.sendMail({ from: MAIL_FROM, to, subject, text, html });
+    return true;
+  }
+  throw new Error('No email provider configured');
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -414,6 +453,13 @@ async function initDb() {
   // Simple master toggle for now — real and checked by createNotification
   // below, not decorative. Per-category granularity can be added later
   // without touching this column.
+  // Email verification. Without this, anyone can register with an
+  // address they don't control — which undermines password reset,
+  // notifications, and any trust signal tied to a real identity.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_sent_at TIMESTAMP`);
+
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE`);
 
   // Granular categories instead of one all-or-nothing switch, plus an
@@ -1968,6 +2014,28 @@ app.post('/api/signup', authLimiter, async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Send verification after COMMIT, and detached — a mail provider
+    // outage must never roll back or block a successful signup. The
+    // user can always request a resend.
+    if (emailEnabled) {
+      const verifyToken = crypto.randomBytes(32).toString('hex');
+      pool.query(
+        'UPDATE users SET email_verify_token = $1, email_verify_sent_at = NOW() WHERE id = $2',
+        [verifyToken, userId]
+      ).then(() => {
+        const baseUrl = APP_URL || `${req.protocol}://${req.get('host')}`;
+        const verifyLink = `${baseUrl}/api/verify-email?token=${verifyToken}`;
+        return sendEmail({
+          to: email,
+          subject: 'Confirm your HandyLink email',
+          text: `Welcome to HandyLink. Confirm your email address: ${verifyLink}`,
+          html: `<p>Welcome to HandyLink.</p>
+                 <p><a href="${verifyLink}">Confirm your email address</a> to secure your account and enable password recovery.</p>
+                 <p>If you didn't create this account, you can ignore this email.</p>`
+        });
+      }).catch(err => console.error('Verification email failed:', err.message));
+    }
+
     req.session.userId = userId;
     req.session.userEmail = email;
     req.session.role = role;
@@ -2040,7 +2108,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
 // Tells the frontend whether Google sign-in is actually wired up, so it can
 // hide the button (falling back to the honest placeholder) when it's not.
 app.get('/api/config', (req, res) => {
-  res.json({ googleEnabled: !!googleClient, googleClientId: GOOGLE_CLIENT_ID, emailEnabled: !!mailTransport });
+  res.json({ googleEnabled: !!googleClient, googleClientId: GOOGLE_CLIENT_ID, emailEnabled });
 });
 
 app.post('/api/auth/google', authLimiter, asyncHandler(async (req, res) => {
@@ -2088,7 +2156,7 @@ app.post('/api/forgot-password', authLimiter, asyncHandler(async (req, res) => {
   // have accounts.
   const genericResponse = { message: 'If an account exists for that email, a reset link has been sent.' };
 
-  if (!mailTransport) {
+  if (!emailEnabled) {
     return res.status(503).json({ error: 'Password reset by email isn\u2019t set up yet.' });
   }
   if (!email || !EMAIL_RE.test(email)) {
@@ -2111,8 +2179,7 @@ app.post('/api/forgot-password', authLimiter, asyncHandler(async (req, res) => {
   const resetLink = `${baseUrl}/reset-password.html?token=${token}`;
 
   try {
-    await mailTransport.sendMail({
-      from: MAIL_FROM,
+    await sendEmail({
       to: email,
       subject: 'Reset your HandyLink password',
       text: `Reset your password: ${resetLink}\n\nThis link expires in 1 hour. If you didn't request this, you can ignore this email.`,
@@ -2121,7 +2188,9 @@ app.post('/api/forgot-password', authLimiter, asyncHandler(async (req, res) => {
              <p>If you didn't request this, you can safely ignore this email.</p>`
     });
   } catch (err) {
-    console.error('Password reset email failed:', err);
+    // Log the provider's actual message — a generic failure here is
+    // what made this impossible to diagnose before.
+    console.error('Password reset email failed:', err.message);
     return res.status(500).json({ error: 'Could not send the reset email. Please try again shortly.' });
   }
 
@@ -2165,7 +2234,7 @@ app.get('/api/me', asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'Not logged in.' });
   }
   const result = await pool.query(
-    'SELECT id, email, role, name, phone, photo, created_at, latitude, longitude, city, district, notifications_enabled, notification_categories, quiet_hours_start, quiet_hours_end FROM users WHERE id = $1',
+    'SELECT id, email, role, name, phone, photo, created_at, latitude, longitude, city, district, notifications_enabled, notification_categories, quiet_hours_start, quiet_hours_end, email_verified FROM users WHERE id = $1',
     [req.session.userId]
   );
   if (result.rows.length === 0) {
@@ -4830,8 +4899,12 @@ app.get('/api/admin/config-check', requireRole('admin'), asyncHandler(async (req
       impact: 'No database connection.' },
     { key: 'ADMIN_EMAILS', set: check('ADMIN_EMAILS'), severity: 'high',
       impact: 'No account can be elevated to admin.' },
+    { key: 'RESEND_API_KEY', set: check('RESEND_API_KEY'), severity: 'high',
+      impact: 'Preferred email provider not configured (falls back to SMTP if set).' },
+    { key: 'MAIL_FROM', set: check('MAIL_FROM'), severity: 'medium',
+      impact: 'Using default sender — set this to a verified address on your own domain.' },
     { key: 'SMTP_HOST', set: check('SMTP_HOST'), severity: 'high',
-      impact: 'Password reset emails cannot be sent — users are locked out permanently if they forget.' },
+      impact: 'SMTP fallback not configured. Fine if RESEND_API_KEY is set.' },
     { key: 'SMTP_USER', set: check('SMTP_USER'), severity: 'high', impact: 'Password reset emails cannot be sent.' },
     { key: 'SMTP_PASS', set: check('SMTP_PASS'), severity: 'high', impact: 'Password reset emails cannot be sent.' },
     { key: 'VAPID_PUBLIC_KEY', set: check('VAPID_PUBLIC_KEY'), severity: 'medium',
@@ -4865,10 +4938,67 @@ app.get('/api/admin/config-check', requireRole('admin'), asyncHandler(async (req
     live: {
       databaseReachable: databaseOk,
       pushConfigured,
+      emailProvider: process.env.RESEND_API_KEY ? 'resend' : (process.env.SMTP_HOST ? 'smtp' : 'none'),
       adminEmailsCount: adminEmailCount,
       sessionStore: 'postgres'
     }
   });
+}));
+
+// Clicked from the verification email. Redirects to a friendly page
+// rather than returning raw JSON to someone who arrived from their inbox.
+app.get('/api/verify-email', asyncHandler(async (req, res) => {
+  const { token } = req.query;
+  if (!isNonEmpty(token)) return res.redirect('/login.html?verified=invalid');
+
+  const result = await pool.query(
+    `UPDATE users SET email_verified = TRUE, email_verify_token = NULL
+     WHERE email_verify_token = $1 RETURNING id`,
+    [token]
+  );
+  if (result.rows.length === 0) return res.redirect('/login.html?verified=invalid');
+  res.redirect('/login.html?verified=success');
+}));
+
+// Rate-limited hard: without this, an authenticated account could be
+// used to send repeated mail to its own address, burning quota and
+// risking the sending domain's reputation.
+const verifyResendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please wait before requesting another verification email.' }
+});
+
+app.post('/api/resend-verification', verifyResendLimiter, requireLogin, asyncHandler(async (req, res) => {
+  if (!emailEnabled) {
+    return res.status(503).json({ error: 'Email isn\u2019t set up on this server yet.' });
+  }
+  const userResult = await pool.query('SELECT email, email_verified FROM users WHERE id = $1', [req.session.userId]);
+  const user = userResult.rows[0];
+  if (!user) return res.status(404).json({ error: 'Account not found.' });
+  if (user.email_verified) return res.json({ message: 'Your email is already verified.' });
+
+  const token = crypto.randomBytes(32).toString('hex');
+  await pool.query(
+    'UPDATE users SET email_verify_token = $1, email_verify_sent_at = NOW() WHERE id = $2',
+    [token, req.session.userId]
+  );
+  const baseUrl = APP_URL || `${req.protocol}://${req.get('host')}`;
+  const verifyLink = `${baseUrl}/api/verify-email?token=${token}`;
+  try {
+    await sendEmail({
+      to: user.email,
+      subject: 'Confirm your HandyLink email',
+      text: `Confirm your email address: ${verifyLink}`,
+      html: `<p><a href="${verifyLink}">Confirm your email address</a></p>`
+    });
+  } catch (err) {
+    console.error('Resend verification failed:', err.message);
+    return res.status(500).json({ error: 'Could not send the email. Please try again shortly.' });
+  }
+  res.json({ message: 'Verification email sent.' });
 }));
 
 // --- 404 and error handling (must be last, after all routes) ---
