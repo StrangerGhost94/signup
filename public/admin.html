@@ -128,7 +128,7 @@
         </div>
         <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin:1rem 0;">
           <input type="text" id="jobSearch" placeholder="Search job ID, category, location, client or pro..." style="flex:1; min-width:200px; margin-bottom:0;">
-          <select id="jobStatusFilter" style="width:auto; padding:0.85rem 1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
+          <select id="jobStatusFilter" style="width:auto;">
             <option value="">Any status</option>
             <option value="awaiting_offers">Awaiting offers</option>
             <option value="requested">Requested</option>
@@ -1142,13 +1142,13 @@
         section.innerHTML = `
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;">
             <input type="text" id="userSearch" placeholder="Search name, email, or phone..." style="flex:1; min-width:200px; margin-bottom:0;">
-            <select id="userRoleFilter" style="width:auto; padding:0.85rem 1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
+            <select id="userRoleFilter" style="width:auto;">
               <option value="">All roles</option>
               <option value="client">Clients</option>
               <option value="provider">Providers</option>
               <option value="admin">Admins</option>
             </select>
-            <select id="userStatusFilter" style="width:auto; padding:0.85rem 1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
+            <select id="userStatusFilter" style="width:auto;">
               <option value="">Any status</option>
               <option value="NORMAL">Normal</option>
               <option value="SUSPENDED">Suspended</option>
@@ -1256,7 +1256,7 @@
         section.innerHTML = `
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;">
             <input type="text" id="auditSearch" placeholder="Search action, notes, or admin email..." style="flex:1; min-width:200px; margin-bottom:0;">
-            <select id="auditActionFilter" style="width:auto; padding:0.85rem 1rem; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-family:inherit; background:var(--surface);">
+            <select id="auditActionFilter" style="width:auto;">
               <option value="">All actions</option>
               ${actionsData.actions.map(a => `<option value="${a}">${a}</option>`).join('')}
             </select>
