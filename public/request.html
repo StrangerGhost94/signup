@@ -112,6 +112,19 @@
       scheduleTimeInput.value = defaultTime.toTimeString().slice(0, 5);
     }
 
+    // Coordinates captured when an address is picked from the dropdown.
+    // Far more reliable than GPS indoors or on a weak signal, and gives
+    // the matching engine exact coordinates rather than a place name.
+    let pickedLocationCoords = null;
+    attachAddressAutocomplete('location', (r) => {
+      pickedLocationCoords = { latitude: r.latitude, longitude: r.longitude };
+    });
+    // Typing freely after a pick invalidates those coordinates — keeping
+    // stale ones would silently match against the wrong place.
+    document.getElementById('location').addEventListener('input', (e) => {
+      if (e.isTrusted) pickedLocationCoords = null;
+    });
+
     function getScheduledForIso() {
       if (selectedUrgency !== 'schedule') return null;
       if (!scheduleDateInput.value || !scheduleTimeInput.value) return undefined; // missing
@@ -200,6 +213,7 @@
         scheduledFor: scheduledForIso,
         location,
         locationNotes: document.getElementById('locationNotes').value.trim(),
+        locationCoords: pickedLocationCoords,
         photos,
         assessmentId: data.assessment.id,
         estimateMin: data.assessment.total_min,

@@ -5428,6 +5428,63 @@ app.get('/api/admin/jobs', requireRole('admin'), asyncHandler(async (req, res) =
   res.json({ jobs: hasMore ? result.rows.slice(0, limit) : result.rows, hasMore });
 }));
 
+// Address autocomplete. GPS is unreliable indoors, in dense buildings
+// and on low-end handsets — all common here — so typing an address must
+// be a first-class path, not a fallback. Results are coordinate-backed,
+// so matching and distance stay exact rather than name-based.
+const geocodeSearchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many searches. Please wait a moment.' }
+});
+
+app.get('/api/geocode/search', geocodeSearchLimiter, requireLogin, asyncHandler(async (req, res) => {
+  const q = isNonEmpty(req.query.q) ? req.query.q.trim() : '';
+  if (q.length < 3) return res.json({ results: [] });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    // countrycodes=ug biases to Uganda so "Kira" returns Kira Road
+    // rather than somewhere in Europe. Nominatim's policy requires a
+    // identifying User-Agent — omitting it risks being blocked.
+    const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&countrycodes=ug&q=${encodeURIComponent(q)}`;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'HandyLink/1.0 (handyman marketplace, Uganda)' },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return res.json({ results: [] });
+    const data = await response.json();
+
+    res.json({
+      results: (data || []).map(r => {
+        const a = r.address || {};
+        // Build a short, human label — Nominatim's display_name is a
+        // long comma-chain that's unreadable in a dropdown.
+        const primary = a.road || a.neighbourhood || a.suburb || a.village || a.town || a.city || r.name || '';
+        const secondary = [a.suburb || a.neighbourhood, a.city || a.town || a.county]
+          .filter((v, i, arr) => v && arr.indexOf(v) === i && v !== primary)
+          .join(', ');
+        return {
+          label: primary || r.display_name.split(',')[0],
+          sublabel: secondary || a.state || 'Uganda',
+          latitude: parseFloat(r.lat),
+          longitude: parseFloat(r.lon),
+          fullAddress: r.display_name
+        };
+      }).filter(r => !isNaN(r.latitude) && !isNaN(r.longitude))
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    // A geocoding outage must never block the form — the user can still
+    // type a free-text location.
+    res.json({ results: [] });
+  }
+}));
+
 // --- 404 and error handling (must be last, after all routes) ---
 
 app.use((req, res) => {

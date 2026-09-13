@@ -2636,3 +2636,40 @@ html, body { max-width: 100%; overflow-x: hidden; }
   white-space: nowrap;
   max-width: 100%;
 }
+
+/* --- Address autocomplete dropdown --- */
+.addr-ac-wrap { position: relative; }
+.addr-ac-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0; right: 0;
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  z-index: 60;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 0.25rem;
+}
+.addr-ac-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.7rem;
+  min-height: auto;
+  color: var(--ink);
+  box-shadow: none;
+}
+.addr-ac-item:hover, .addr-ac-item.active { background: var(--surface); }
+.addr-ac-item svg { width: 16px; height: 16px; color: var(--primary); flex-shrink: 0; }
+.addr-ac-item span { display: flex; flex-direction: column; min-width: 0; }
+.addr-ac-item strong { font-size: 0.88rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.addr-ac-item em { font-size: 0.76rem; color: var(--ink-soft); font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

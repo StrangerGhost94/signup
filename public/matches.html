@@ -132,7 +132,21 @@
 
     async function fetchCandidates() {
       const params = new URLSearchParams({ category });
-      if (myLat !== null) { params.set('lat', myLat); params.set('lng', myLng); }
+      // The address picked for THIS job wins over device GPS: someone
+      // may be booking a plumber for a property they aren't standing in.
+      // GPS only fills in when no address was picked.
+      let jobCoords = null;
+      try {
+        const pending = JSON.parse(sessionStorage.getItem('pendingJob') || 'null');
+        if (pending && pending.locationCoords) jobCoords = pending.locationCoords;
+      } catch (e) { /* fall back to GPS below */ }
+
+      if (jobCoords) {
+        params.set('lat', jobCoords.latitude);
+        params.set('lng', jobCoords.longitude);
+      } else if (myLat !== null) {
+        params.set('lat', myLat); params.set('lng', myLng);
+      }
       if (pendingJob?.urgency) params.set('urgency', pendingJob.urgency);
       if (pendingJob?.estimateMin != null) { params.set('estimateMin', pendingJob.estimateMin); params.set('estimateMax', pendingJob.estimateMax); }
 

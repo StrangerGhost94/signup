@@ -1071,3 +1071,84 @@ window.animateCount = function (el, target, opts) {
   }
   requestAnimationFrame(frame);
 };
+
+// --- Address autocomplete ---
+// Attaches to any text input and turns it into a coordinate-backed
+// address picker. GPS stays available as a shortcut, but typing is the
+// dependable path — it works indoors, on weak signal and on low-end
+// handsets, where GPS routinely doesn't.
+//
+// onSelect receives { label, latitude, longitude, fullAddress } so the
+// caller can store exact coordinates alongside the display text.
+window.attachAddressAutocomplete = function (inputId, onSelect) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'addr-ac-wrap';
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+
+  const list = document.createElement('div');
+  list.className = 'addr-ac-list';
+  list.style.display = 'none';
+  wrap.appendChild(list);
+
+  let debounce, activeIndex = -1, results = [];
+
+  function close() { list.style.display = 'none'; activeIndex = -1; }
+
+  function render() {
+    if (results.length === 0) { close(); return; }
+    list.innerHTML = results.map((r, i) => `
+      <button type="button" class="addr-ac-item${i === activeIndex ? ' active' : ''}" data-i="${i}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        <span><strong>${escapeHtml(r.label)}</strong><em>${escapeHtml(r.sublabel)}</em></span>
+      </button>`).join('');
+    list.style.display = 'block';
+    list.querySelectorAll('.addr-ac-item').forEach(btn => {
+      btn.addEventListener('click', () => choose(parseInt(btn.dataset.i, 10)));
+    });
+  }
+
+  function choose(i) {
+    const r = results[i];
+    if (!r) return;
+    input.value = r.label + (r.sublabel ? `, ${r.sublabel}` : '');
+    close();
+    if (onSelect) onSelect(r);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  input.setAttribute('autocomplete', 'off');
+  input.addEventListener('input', () => {
+    clearTimeout(debounce);
+    const q = input.value.trim();
+    if (q.length < 3) { close(); return; }
+    // Debounced so a typed address doesn't fire a request per keystroke.
+    debounce = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/geocode/search?q=' + encodeURIComponent(q));
+        if (!res.ok) { close(); return; }
+        const data = await res.json();
+        results = data.results || [];
+        activeIndex = -1;
+        render();
+      } catch (err) { close(); }
+    }, 350);
+  });
+
+  // Keyboard support — a dropdown that only works with a mouse isn't
+  // usable for anyone navigating by keyboard.
+  input.addEventListener('keydown', (e) => {
+    if (list.style.display === 'none') return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIndex = Math.min(activeIndex + 1, results.length - 1); render(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIndex = Math.max(activeIndex - 1, 0); render(); }
+    else if (e.key === 'Enter' && activeIndex >= 0) { e.preventDefault(); choose(activeIndex); }
+    else if (e.key === 'Escape') { close(); }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target)) close();
+  });
+};
