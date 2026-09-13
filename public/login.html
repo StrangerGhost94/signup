@@ -93,6 +93,25 @@
 
   <script src="js/categories.js"></script>
   <script>
+    // If the session expired mid-use, send them back to the page they
+    // were on rather than dumping them at the dashboard.
+    function postLoginDestination(role) {
+      let saved = null;
+      try { saved = sessionStorage.getItem('returnTo'); sessionStorage.removeItem('returnTo'); } catch (e) {}
+      // Only honour same-origin app paths — never an absolute URL, which
+      // would be an open-redirect vector.
+      if (saved && saved.startsWith('/') && !saved.startsWith('//')) return saved;
+      return role === 'admin' ? '/admin.html' : (role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html');
+    }
+
+    // Explain why they're here if they were bounced by an expired session.
+    if (new URLSearchParams(window.location.search).get('expired') === '1') {
+      const el = document.getElementById('error');
+      if (el) el.textContent = 'Your session expired. Please sign in again.';
+    }
+  </script>
+
+  <script>
     let expectedRole = 'client';
     document.querySelectorAll('#accountToggle .role-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -155,7 +174,7 @@
             setTimeout(() => { window.location.href = '/signup.html'; }, 1200);
             return;
           }
-          window.location.href = data.role === 'admin' ? '/admin.html' : (data.role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html');
+          window.location.href = postLoginDestination(data.role);
         })
         .catch(() => {
           document.getElementById('error').textContent = 'Something went wrong with Google sign-in. Please try again.';
@@ -205,7 +224,7 @@
         errorEl.textContent = data.error;
         return;
       }
-      window.location.href = data.role === 'admin' ? '/admin.html' : (data.role === 'provider' ? '/provider-dashboard.html' : '/dashboard.html');
+      window.location.href = postLoginDestination(data.role);
     });
   </script>
 

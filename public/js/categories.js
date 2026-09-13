@@ -42,6 +42,23 @@
 
     let response = await originalFetch(input, init);
 
+    // Session expiry is the single most common cause of "everything
+    // stopped working" in an installed PWA — it stays open for days, the
+    // session lapses, and every request then 401s. Previously each
+    // failure surfaced as "Something went wrong — check your connection",
+    // which is actively misleading: the network is fine, and no amount
+    // of retrying will help. Send them to sign in instead.
+    if (response.status === 401 && isSameOrigin && !url.includes('/api/me') && !url.includes('/api/login')) {
+      const onAuthPage = /\/(login|signup|index|reset-password)\.html$/.test(window.location.pathname) ||
+                         window.location.pathname === '/';
+      if (!onAuthPage) {
+        // Remember where they were so they land back here after signing in.
+        try { sessionStorage.setItem('returnTo', window.location.pathname + window.location.search); } catch (e) {}
+        window.location.href = '/login.html?expired=1';
+      }
+      return response;
+    }
+
     // A rotated session (re-login) or a token we never managed to load
     // invalidates the cached token. Retry once on any 403 for a mutating
     // same-origin request. Keying off the status code rather than
@@ -883,10 +900,20 @@ window.errorStateHtml = function (retryFnName) {
   const retryButton = retryFnName
     ? `<div style="margin-top:0.75rem;"><button class="small-btn btn-outline" style="width:auto;" onclick="${retryFnName}">Retry</button></div>`
     : `<div style="margin-top:0.75rem;"><button class="small-btn btn-outline" style="width:auto;" onclick="window.location.reload()">Reload</button></div>`;
+
+  // Only blame the connection when the device actually reports being
+  // offline. Saying "check your connection" for a server-side error
+  // sends people to restart their router over something they can't fix.
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const title = offline ? 'You\u2019re offline' : 'Couldn\u2019t load this';
+  const detail = offline
+    ? 'Reconnect to the internet and try again.'
+    : 'Something went wrong on our side. Please try again.';
+
   return `<div class="empty-state">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
-    <strong>Something went wrong</strong>
-    Check your connection and try again.
+    <strong>${title}</strong>
+    ${detail}
     ${retryButton}
   </div>`;
 };
