@@ -118,7 +118,12 @@ const OPTIONAL_ENV = [
   ['SMTP_PASS', 'PASSWORD RESET IS BROKEN — users who forget their password cannot recover it.'],
   ['GOOGLE_CLIENT_ID', 'Google sign-in unavailable (email/password still works).']
 ];
-const missingEnv = OPTIONAL_ENV.filter(([name]) => !process.env[name]);
+// Don't warn about SMTP when Resend is configured — a false alarm at
+// boot trains you to ignore the warnings that actually matter.
+const missingEnv = OPTIONAL_ENV.filter(([name]) => {
+  if (name.startsWith('SMTP_') && process.env.RESEND_API_KEY) return false;
+  return !process.env[name];
+});
 if (missingEnv.length > 0) {
   console.warn('\n=== CONFIGURATION WARNINGS ===');
   missingEnv.forEach(([name, impact]) => console.warn(`  [MISSING] ${name} — ${impact}`));
@@ -4892,21 +4897,32 @@ app.get('/api/providers/:id/public', requireLogin, asyncHandler(async (req, res)
 app.get('/api/admin/config-check', requireRole('admin'), asyncHandler(async (req, res) => {
   const check = (name) => !!process.env[name];
 
+  // Email is satisfied by EITHER provider. Flagging SMTP as broken
+  // while Resend is working was a false alarm that buries real issues.
+  const hasEmailProvider = check('RESEND_API_KEY') || (check('SMTP_HOST') && check('SMTP_USER') && check('SMTP_PASS'));
+  const smtpSeverity = check('RESEND_API_KEY') ? 'info' : 'high';
+  const smtpImpact = check('RESEND_API_KEY')
+    ? 'Not needed — Resend is configured and takes priority.'
+    : 'No email provider configured. Password reset and verification cannot be sent.';
+
   const items = [
     { key: 'SESSION_SECRET', set: check('SESSION_SECRET'), severity: 'critical',
       impact: 'Session cookies signed with a public fallback value — sessions can be forged.' },
     { key: 'DATABASE_URL', set: check('DATABASE_URL'), severity: 'critical',
       impact: 'No database connection.' },
+    { key: 'EMAIL_PROVIDER', set: hasEmailProvider, severity: 'high',
+      impact: 'No email provider configured — password reset and email verification cannot be sent.' },
     { key: 'ADMIN_EMAILS', set: check('ADMIN_EMAILS'), severity: 'high',
       impact: 'No account can be elevated to admin.' },
-    { key: 'RESEND_API_KEY', set: check('RESEND_API_KEY'), severity: 'high',
-      impact: 'Preferred email provider not configured (falls back to SMTP if set).' },
+    { key: 'RESEND_API_KEY', set: check('RESEND_API_KEY'), severity: hasEmailProvider ? 'info' : 'high',
+      impact: check('RESEND_API_KEY') ? 'Configured.' : 'Recommended email provider not set.' },
     { key: 'MAIL_FROM', set: check('MAIL_FROM'), severity: 'medium',
-      impact: 'Using default sender — set this to a verified address on your own domain.' },
-    { key: 'SMTP_HOST', set: check('SMTP_HOST'), severity: 'high',
-      impact: 'SMTP fallback not configured. Fine if RESEND_API_KEY is set.' },
-    { key: 'SMTP_USER', set: check('SMTP_USER'), severity: 'high', impact: 'Password reset emails cannot be sent.' },
-    { key: 'SMTP_PASS', set: check('SMTP_PASS'), severity: 'high', impact: 'Password reset emails cannot be sent.' },
+      impact: 'Using default sender — set to a verified address on your own domain to avoid spam folders.' },
+    { key: 'APP_URL', set: check('APP_URL'), severity: 'medium',
+      impact: 'Email links are built from request headers, which can break behind a proxy.' },
+    { key: 'SMTP_HOST', set: check('SMTP_HOST'), severity: smtpSeverity, impact: smtpImpact },
+    { key: 'SMTP_USER', set: check('SMTP_USER'), severity: smtpSeverity, impact: smtpImpact },
+    { key: 'SMTP_PASS', set: check('SMTP_PASS'), severity: smtpSeverity, impact: smtpImpact },
     { key: 'VAPID_PUBLIC_KEY', set: check('VAPID_PUBLIC_KEY'), severity: 'medium',
       impact: 'Push notifications disabled; in-app notifications still work.' },
     { key: 'VAPID_PRIVATE_KEY', set: check('VAPID_PRIVATE_KEY'), severity: 'medium',

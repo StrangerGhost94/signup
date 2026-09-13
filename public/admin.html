@@ -168,8 +168,7 @@
       fetch('/api/admin/config-check').then(r => r.ok ? r.json() : null).then(cfg => {
         const banner = document.getElementById('configBanner');
         if (!cfg || cfg.allConfigured) { if (banner) banner.style.display = 'none'; return; }
-        const broken = cfg.items.filter(i => !i.set && (i.severity === 'critical' || i.severity === 'high'));
-        if (broken.length === 0) { if (banner) banner.style.display = 'none'; return; }
+        const broken = cfg.items.filter(i => !i.set && (i.severity === 'critical' || i.severity === 'high'));        if (broken.length === 0) { if (banner) banner.style.display = 'none'; return; }
         banner.style.display = 'block';
         banner.innerHTML = `
           <strong style="display:block; margin-bottom:0.4rem;">⚠ ${broken.length} configuration issue${broken.length === 1 ? '' : 's'}</strong>
