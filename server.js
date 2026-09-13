@@ -3704,7 +3704,7 @@ app.post('/api/price-changes/:id/decide', requireRole('client'), asyncHandler(as
       providerUser.rows[0].user_id,
       'price_change_decided',
       `Your price change for ${pc.category} was ${decision === 'ACCEPTED' ? 'accepted' : 'declined'}.`,
-      '/provider-my-jobs.html'
+      '/provider-dashboard.html?tab=active'
     );
   }
 

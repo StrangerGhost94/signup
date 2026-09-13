@@ -18,7 +18,7 @@
       <a href="/client-jobs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
       <a href="/messages.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
       <a href="/profile.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
-      <button type="button" class="sidebar-post" onclick="openPostModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Post a job</button>
+      <button type="button" class="sidebar-post" onclick="startPostJob()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Post a job</button>
     </nav>
 
     <div class="app-main">
@@ -261,12 +261,22 @@
 
     const refreshNotifications = initNotificationBell();
 
+    // Shared entry point for starting a job post. Both the desktop
+    // sidebar button and "Get Help Now" route here, so there's one
+    // definition rather than duplicated scroll logic.
+    window.startPostJob = function () {
+      const pager = document.getElementById('catPager');
+      if (!pager) return;
+      pager.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      pager.style.outline = '2px solid var(--primary)';
+      pager.style.outlineOffset = '6px';
+      pager.style.borderRadius = 'var(--radius)';
+      setTimeout(() => { pager.style.outline = 'none'; }, 1500);
+    };
+
     document.getElementById('getHelpNowBtn').addEventListener('click', () => {
       sessionStorage.setItem('preferredUrgency', 'now');
-      document.getElementById('homeCatGrid').scrollIntoView({ behavior: 'smooth', block: 'center' });
-      document.getElementById('homeCatGrid').style.outline = '2px solid var(--primary)';
-      document.getElementById('homeCatGrid').style.outlineOffset = '6px';
-      setTimeout(() => { document.getElementById('homeCatGrid').style.outline = 'none'; }, 1500);
+      startPostJob();
     });
 
     let bookingsShowAll = false;
@@ -365,8 +375,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision })
       });
-      const data = await res.json();
-      if (!res.ok) { showToast(data.error, 'error'); return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error('Price change decision failed:', res.status, data.error);
+        showToast(data.error || `Couldn't ${decision === 'ACCEPTED' ? 'accept' : 'decline'} (error ${res.status}).`, 'error');
+        return;
+      }
       showToast(decision === 'ACCEPTED' ? 'Price change accepted.' : 'Price change declined.', 'success');
       loadBookings();
     };

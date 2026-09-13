@@ -189,8 +189,14 @@
       const res = await fetch(`/api/price-changes/${id}/decide`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision })
       });
-      const data = await res.json();
-      if (!res.ok) { showToast(data.error, 'error'); return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Surface the real reason — a silent failure here is
+        // indistinguishable from a dead button.
+        console.error('Price change decision failed:', res.status, data.error);
+        showToast(data.error || `Couldn't ${decision === 'ACCEPTED' ? 'accept' : 'decline'} (error ${res.status}).`, 'error');
+        return;
+      }
       showToast(decision === 'ACCEPTED' ? 'Price change accepted.' : 'Price change declined.', 'success');
       loadJobs();
     }
