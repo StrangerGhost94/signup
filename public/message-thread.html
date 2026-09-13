@@ -108,8 +108,16 @@
         const bubble = document.createElement('div');
         bubble.className = 'chat-bubble ' + (mine ? 'mine' : 'theirs');
         let receipt = '';
-        if (mine && i === lastMineIndex) {
-          receipt = m.read_at ? ' · Seen' : ' · Delivered';
+        if (mine) {
+          // WhatsApp convention: one tick sent, two grey delivered, two
+          // blue read. Shown on every sent message rather than only the
+          // last — WhatsApp does the same, and it's how you tell which
+          // specific message got read.
+          const single = '<path d="M1 7.5 4.2 11 11 3.2"/>';
+          const double = '<path d="M1 7.5 4.2 11 11 3.2"/><path d="M6 7.5 9.2 11 16 3.2"/>';
+          const cls = m.read_at ? 'tick read' : 'tick';
+          const paths = (m.read_at || m.delivered_at) ? double : single;
+          receipt = ` <svg class="${cls}" viewBox="0 0 17 14" fill="none" stroke="currentColor" stroke-width="1.9">${paths}</svg>`;
         }
         const attachmentHtml = m.attachment
           ? `<img src="${m.attachment}" alt="Attachment" class="chat-attachment" style="max-width:220px; width:100%; border-radius:12px; display:block; margin-bottom:${m.body ? '0.4rem' : '0'}; cursor:pointer;">`

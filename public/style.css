@@ -2820,3 +2820,44 @@ html[data-auth-ready] body.app-body > .dash-wrap,
 html[data-auth-ready] body.app-body > .bottom-nav {
   visibility: visible;
 }
+
+/* --- WhatsApp-style read receipts --- */
+.chat-bubble .tick {
+  width: 15px;
+  height: 12px;
+  display: inline-block;
+  vertical-align: -1px;
+  margin-left: 2px;
+  color: rgba(255, 255, 255, 0.65); /* on the sent (green) bubble */
+}
+.chat-bubble .tick.read { color: #4FC3F7; } /* the familiar blue */
+
+/* --- Unread count badges --- */
+/* A dot only says "something happened". A number says how much, which
+   is the difference between checking now and checking later. */
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  flex-shrink: 0;
+}
+/* Bell badge sits on the icon rather than beside it. */
+.bell-btn .unread-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  height: 18px;
+  font-size: 0.66rem;
+  border: 2px solid var(--bg);
+  background: var(--danger);
+}

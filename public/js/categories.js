@@ -577,6 +577,9 @@ window.initNotificationBell = function () {
       if (!res.ok) { showToast('Couldn\u2019t clear notifications.', 'error'); return; }
       list.innerHTML = renderGroupedNotifications([]);
       bellDot.style.display = 'none';
+      // Clear the count too, or a stale number lingers after reading.
+      const staleBadge = bellDot.parentElement.querySelector('.unread-badge');
+      if (staleBadge) staleBadge.remove();
       updateAppBadge(0);
       showToast('Notifications cleared.', 'success');
     });
@@ -590,7 +593,21 @@ window.initNotificationBell = function () {
     const res = await fetch('/api/notifications');
     if (!res.ok) return;
     const data = await res.json();
-    bellDot.style.display = data.unreadCount > 0 ? 'block' : 'none';
+    // A number rather than a dot: "3 waiting" prompts action in a way
+    // that an anonymous dot doesn't.
+    let badge = bellDot.parentElement.querySelector('.unread-badge');
+    if (data.unreadCount > 0) {
+      bellDot.style.display = 'none'; // the number replaces the dot
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'unread-badge';
+        bellDot.parentElement.appendChild(badge);
+      }
+      badge.textContent = data.unreadCount > 99 ? '99+' : data.unreadCount;
+    } else {
+      bellDot.style.display = 'none';
+      if (badge) badge.remove();
+    }
     updateAppBadge(data.unreadCount);
     if (render) {
       list.innerHTML = renderGroupedNotifications(data.notifications);

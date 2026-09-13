@@ -116,7 +116,6 @@
       // tied to the specific job they belong to.
       data.conversations.forEach(person => {
         const hasUnread = person.totalUnread > 0;
-        const multi = person.threads.length > 1;
         const firstColor = categoryColor(person.threads[0].category);
 
         const item = document.createElement('div');
@@ -133,67 +132,27 @@
           ? '\uD83D\uDCF7 Photo'
           : (person.lastMessage ? escapeHtml(person.lastMessage.slice(0, 50)) : 'No messages yet \u2014 say hello.');
 
-        const subtitle = multi
-          ? `${person.threads.length} jobs \u00B7 tap to view`
-          : escapeHtml(latest.category);
-
         item.innerHTML = `
           <div class="avatar" style="background:color-mix(in srgb, ${firstColor} 15%, white); color:${firstColor};">${avatarHtml}</div>
           <div class="recent-job-info">
             <strong style="${hasUnread ? 'font-weight:800;' : ''}">${escapeHtml(person.otherPartyName || 'Unknown')}</strong>
-            <span class="job-meta" style="display:block;">${subtitle}</span>
             <span style="${hasUnread ? 'color:var(--ink); font-weight:600;' : ''}">${preview}</span>
           </div>
           <div class="recent-job-right">
             ${person.lastMessageAt ? `<span class="job-meta" style="display:block; margin-bottom:0.3rem;">${relativeTime(person.lastMessageAt)}</span>` : ''}
-            ${hasUnread ? `<span class="status-badge" style="color:#fff; background:var(--primary);">${person.totalUnread}</span>` : ''}
+            ${hasUnread ? `<span class="unread-badge">${person.totalUnread > 99 ? '99+' : person.totalUnread}</span>` : ''}
           </div>
         `;
 
-        if (!multi) {
-          item.addEventListener('click', () => {
-            window.location.href = `/message-thread.html?jobId=${latest.jobId}`;
-          });
-          list.appendChild(item);
-          return;
-        }
-
-        // Multiple jobs with this person: expand in place rather than
-        // navigating, so choosing the right thread is one tap away.
-        const threadsWrap = document.createElement('div');
-        threadsWrap.style.cssText = 'display:none; margin:-0.4rem 0 0.65rem 0; padding-left:1rem;';
-        person.threads.forEach(t => {
-          const meta = STATUS_META[t.status] || { label: t.status, color: 'var(--ink-soft)', bg: 'var(--surface)' };
-          const tColor = categoryColor(t.category);
-          const row = document.createElement('div');
-          row.className = 'recent-job-item';
-          row.style.setProperty('--cat-color', tColor);
-          row.style.cursor = 'pointer';
-          row.innerHTML = `
-            <div class="recent-job-icon"><svg viewBox="0 0 24 24" fill="none" stroke="${tColor}" stroke-width="2">${categoryIcon(t.category)}</svg></div>
-            <div class="recent-job-info">
-              <strong style="${t.unreadCount > 0 ? 'font-weight:800;' : ''}">${escapeHtml(t.category)}</strong>
-              <span>${t.lastHasAttachment ? '\uD83D\uDCF7 Photo' : (t.lastMessage ? escapeHtml(t.lastMessage.slice(0, 40)) : 'No messages yet')}</span>
-            </div>
-            <div class="recent-job-right">
-              <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
-              ${t.unreadCount > 0 ? `<span class="status-badge" style="color:#fff; background:var(--primary); margin-top:0.3rem;">${t.unreadCount}</span>` : ''}
-            </div>
-          `;
-          row.addEventListener('click', (e) => {
-            e.stopPropagation();
-            window.location.href = `/message-thread.html?jobId=${t.jobId}`;
-          });
-          threadsWrap.appendChild(row);
-        });
-
+        // One row per person, always opening their most recent
+        // conversation — the same behaviour whether you've worked
+        // together once or ten times. No expanding, no choosing a job.
         item.addEventListener('click', () => {
-          const open = threadsWrap.style.display === 'block';
-          threadsWrap.style.display = open ? 'none' : 'block';
+          window.location.href = `/message-thread.html?jobId=${latest.jobId}`;
         });
-
         list.appendChild(item);
-        list.appendChild(threadsWrap);
+        return;
+
       });
     }
   </script>
