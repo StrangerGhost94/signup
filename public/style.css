@@ -2737,6 +2737,18 @@ select[style*="margin-bottom:0"] { margin-bottom: 0; }
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.15s var(--spring), box-shadow 0.2s var(--ease-out);
 }
+/* The global `button:hover { background: var(--primary-deep) }` has
+   higher specificity (0,1,1) than `.home-cat-tile` (0,1,0), so it was
+   filling the tile solid green — and on touch devices that hover state
+   sticks after the tap. The card must stay white; only the glow
+   outside it should change. */
+.home-cat-tile,
+.home-cat-tile:hover,
+.home-cat-tile:active,
+.home-cat-tile:focus {
+  background: var(--bg);
+  color: var(--ink);
+}
 .home-cat-tile:active {
   transform: scale(0.96);
   box-shadow:
@@ -2748,3 +2760,39 @@ select[style*="margin-bottom:0"] { margin-bottom: 0; }
   outline: 2px solid var(--primary);
   outline-offset: 3px;
 }
+
+/* Guard against the global `button:hover { background: var(--primary-deep) }`.
+   That rule (specificity 0,1,1) outranks a plain component class
+   (0,1,0), so any button-based component that sets its own background
+   gets overwritten with solid green on hover — and on touch devices
+   that state sticks after the tap. Each of these keeps its own
+   background across every interaction state. */
+.bell-btn, .bell-btn:hover, .bell-btn:focus {
+  background: var(--surface);
+  color: var(--ink);
+}
+.bell-btn:active { background: var(--surface-alt); }
+
+.chat-back, .chat-back:hover, .chat-back:focus {
+  background: var(--surface);
+  color: var(--ink);
+}
+.chat-back:active { background: var(--surface-alt); }
+
+.filter-btn:not(.active),
+.filter-btn:not(.active):hover,
+.filter-btn:not(.active):focus {
+  background: var(--bg);
+  color: var(--ink);
+}
+/* The active pill keeps its original dark fill — guarding hover here
+   only stops the global button:hover from recolouring it, it must not
+   change the design. */
+.filter-btn.active, .filter-btn.active:hover, .filter-btn.active:focus {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+.addr-ac-item, .addr-ac-item:hover, .addr-ac-item:focus { color: var(--ink); }
+.addr-ac-item:hover, .addr-ac-item.active { background: var(--surface); }
