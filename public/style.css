@@ -2383,3 +2383,47 @@ html, body { max-width: 100%; overflow-x: hidden; }
   height: 0 !important;
   opacity: 0;
 }
+
+/* --- Admin: grouped sidebar navigation --- */
+.admin-nav-group {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  opacity: 0.65;
+  padding: 0.9rem 0.75rem 0.35rem;
+}
+.admin-sidebar .admin-nav-group:first-of-type { padding-top: 0; }
+
+/* The active item gets a leading accent bar — a stronger signal of
+   "you are here" than a background tint alone, especially once the
+   sidebar has grouped sections. */
+.admin-nav-item {
+  position: relative;
+}
+.admin-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -0.9rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  border-radius: 0 3px 3px 0;
+  background: var(--primary);
+}
+
+/* Alert cards should read as urgent at a glance, not just have red
+   text — an admin scanning the dashboard shouldn't have to read. */
+.admin-stat-card.alert {
+  border: 1px solid #FCA5A5;
+  background: linear-gradient(180deg, #FEF2F2 0%, var(--bg) 60%);
+}
+
+@media (max-width: 860px) {
+  /* Group labels waste horizontal space in the mobile scroll strip. */
+  .admin-nav-group { display: none; }
+  .admin-nav-item.active::before { display: none; }
+}

@@ -12,11 +12,17 @@
   <div class="admin-shell">
     <nav class="admin-sidebar">
       <div class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo" style="height:26px;"><span class="admin-badge">ADMIN</span></div>
+      <span class="admin-nav-group">Overview</span>
       <button class="admin-nav-item active" data-section="overview">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
         Overview
       </button>
-      <button class="admin-nav-item" data-section="applications">
+      <span class="admin-nav-group">Operations</span>
+      <button class="admin-nav-item" data-section="jobs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>
+        Jobs
+      </button>
+      <button class="admin-nav-item" data-section="applications" data-badge="navBadgeApps">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
         Applications
       </button>
@@ -28,10 +34,12 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
         Pricing
       </button>
-      <button class="admin-nav-item" data-section="safety">
+      <span class="admin-nav-group">Trust &amp; Safety</span>
+      <button class="admin-nav-item" data-section="safety" data-badge="navBadgeSafety">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6z"/></svg>
         Safety
       </button>
+      <span class="admin-nav-group">System</span>
       <button class="admin-nav-item" data-section="audit">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>
         Audit Log
@@ -72,6 +80,14 @@
           <button class="admin-tab" data-filter="SUSPENDED">Suspended</button>
         </div>
         <div class="admin-list" id="adminList"></div>
+        <div id="bulkBar" style="display:none; position:sticky; bottom:1rem; background:var(--glass-bg-strong); backdrop-filter:var(--glass-blur); -webkit-backdrop-filter:var(--glass-blur); border:1px solid var(--glass-border); border-radius:var(--radius); padding:0.85rem 1.1rem; margin-top:1rem; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+          <span id="bulkCount" style="font-weight:700; font-size:0.88rem;"></span>
+          <div style="display:flex; gap:0.5rem;">
+            <button type="button" id="bulkApprove" class="small-btn" style="width:auto;">Approve selected</button>
+            <button type="button" id="bulkReject" class="small-btn btn-decline" style="width:auto;">Reject selected</button>
+            <button type="button" id="bulkClear" class="small-btn btn-outline" style="width:auto;">Clear</button>
+          </div>
+        </div>
       </div>
 
       <div id="mapSection" style="display:none;">
@@ -98,8 +114,20 @@
         <div class="admin-list" id="auditList2"></div>
       </div>
       <div id="usersSection" style="display:none;">
-        <h1>Users</h1>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+          <h1 style="margin:0 0 1rem;">Users</h1>
+          <button type="button" class="small-btn btn-outline" style="width:auto;" onclick="window.location.href='/api/admin/export/users'">Export CSV</button>
+        </div>
         <div class="admin-list" id="usersList2"></div>
+      </div>
+
+      <div id="jobsSection" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+          <h1 style="margin:0;">Jobs</h1>
+          <button type="button" class="small-btn btn-outline" style="width:auto;" onclick="window.location.href='/api/admin/export/jobs'">Export CSV</button>
+        </div>
+        <input type="text" id="jobSearch" placeholder="Search by job ID, category or client email..." style="margin:1rem 0;">
+        <div class="admin-list" id="adminJobsList"></div>
       </div>
 
       <div id="securitySection" style="display:none;">
@@ -170,6 +198,7 @@
         document.getElementById('auditSection').style.display = section === 'audit' ? 'block' : 'none';
         document.getElementById('usersSection').style.display = section === 'users' ? 'block' : 'none';
         document.getElementById('securitySection').style.display = section === 'security' ? 'block' : 'none';
+        document.getElementById('jobsSection').style.display = section === 'jobs' ? 'block' : 'none';
         if (section === 'overview') loadOverview();
         if (section === 'map') loadMap();
         if (section === 'pricing') loadPricing();
@@ -177,6 +206,7 @@
         if (section === 'audit') initAuditLog();
         if (section === 'users') initUsersDirectory();
         if (section === 'security') loadMfaStatus();
+        if (section === 'jobs') loadAdminJobs();
       });
     });
 
@@ -204,7 +234,159 @@
       e.target.disabled = false;
     });
 
+    // --- Admin jobs browser + detail ---
+    let jobSearchDebounce;
+    document.getElementById('jobSearch').addEventListener('input', () => {
+      clearTimeout(jobSearchDebounce);
+      jobSearchDebounce = setTimeout(loadAdminJobs, 300);
+    });
+
+    async function loadAdminJobs() {
+      const list = document.getElementById('adminJobsList');
+      list.innerHTML = '<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>';
+      const q = document.getElementById('jobSearch').value.trim().toLowerCase();
+
+      // Reuses the existing export query shape via a light fetch of
+      // recent jobs, filtered client-side — adequate at current volume
+      // and avoids adding another paginated endpoint.
+      const res = await fetch('/api/admin/export/jobs');
+      if (!res.ok) { list.innerHTML = errorStateHtml('loadAdminJobs()'); return; }
+      const csv = await res.text();
+      const lines = csv.replace(/^\ufeff/, '').split('\n');
+      const headers = lines[0].split(',');
+      const parsed = lines.slice(1).filter(Boolean).map(line => {
+        const vals = line.match(/("([^"]|"")*")/g) || [];
+        const obj = {};
+        headers.forEach((h, i) => {
+          obj[h] = vals[i] ? vals[i].slice(1, -1).replace(/""/g, '"') : '';
+        });
+        return obj;
+      });
+
+      const filtered = q
+        ? parsed.filter(j => `${j.id} ${j.category} ${j.client_email} ${j.provider_name}`.toLowerCase().includes(q))
+        : parsed;
+      const shown = filtered.slice(0, 50);
+
+      if (shown.length === 0) {
+        list.innerHTML = '<div class="empty-state"><strong>No matching jobs</strong>Try a different search.</div>';
+        return;
+      }
+      list.innerHTML = '';
+      shown.forEach(j => {
+        const meta = STATUS_META[j.status] || { color: 'var(--ink-soft)', bg: 'var(--surface)', label: j.status };
+        const row = document.createElement('div');
+        row.className = 'job-card';
+        row.style.cursor = 'pointer';
+        row.innerHTML = `
+          <div class="job-top">
+            <div>
+              <strong>#${escapeHtml(j.id)} · ${escapeHtml(j.category)}</strong>
+              <p class="job-meta">${escapeHtml(j.client_email)}${j.provider_name ? ' → ' + escapeHtml(j.provider_name) : ' · unassigned'}</p>
+            </div>
+            <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
+          </div>
+        `;
+        row.addEventListener('click', () => openJobDetail(j.id));
+        list.appendChild(row);
+      });
+      if (filtered.length > shown.length) {
+        const note = document.createElement('p');
+        note.className = 'job-meta';
+        note.textContent = `Showing 50 of ${filtered.length} matches — refine your search to narrow it down.`;
+        list.appendChild(note);
+      }
+    }
+
+    async function openJobDetail(jobId) {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay admin-detail-overlay';
+      overlay.innerHTML = `<div class="modal-box" role="dialog" aria-modal="true" style="max-width:640px; max-height:85vh; overflow-y:auto;">
+        <div id="jobDetailBody"><div class="skeleton skeleton-row"></div></div>
+        <div class="modal-actions"><button type="button" class="btn-outline" id="closeJobDetail">Close</button></div>
+      </div>`;
+      document.body.appendChild(overlay);
+      openModal(overlay);
+      overlay.querySelector('#closeJobDetail').addEventListener('click', () => { closeModal(overlay); overlay.remove(); });
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) { closeModal(overlay); overlay.remove(); } });
+
+      const res = await fetch(`/api/admin/jobs/${jobId}`);
+      const body = overlay.querySelector('#jobDetailBody');
+      if (!res.ok) { body.innerHTML = errorStateHtml(''); return; }
+      const d = await res.json();
+      const j = d.job;
+      const amount = j.final_amount != null ? j.final_amount : j.estimate_amount;
+
+      body.innerHTML = `
+        <h2 style="margin-bottom:0.2rem;">Job #${j.id} — ${escapeHtml(j.category)}</h2>
+        <p class="job-meta" style="margin-bottom:1rem;">${escapeHtml(j.status)} · UGX ${(amount || 0).toLocaleString()} · ${new Date(j.created_at).toLocaleString()}</p>
+
+        <p class="settings-section-label">Parties</p>
+        <div class="settings-group">
+          <div class="settings-row" style="cursor:default;"><span class="row-label">Client</span><span class="row-value">${escapeHtml(j.client_name || j.client_email)}</span></div>
+          <div class="settings-row" style="cursor:default;"><span class="row-label">Professional</span><span class="row-value">${escapeHtml(j.provider_name || 'Unassigned')}</span></div>
+          <div class="settings-row" style="cursor:default;"><span class="row-label">Location</span><span class="row-value">${escapeHtml(j.location || '—')}</span></div>
+        </div>
+
+        <p class="settings-section-label">Description</p>
+        <div class="job-card"><p class="job-desc" style="margin:0;">${escapeHtml(j.description || '')}</p></div>
+
+        ${d.offers.length ? `<p class="settings-section-label">Offers (${d.offers.length})</p>
+          ${d.offers.map(o => `<div class="job-card"><div class="job-top"><strong>${escapeHtml(o.provider_name)}</strong><span class="status-badge" style="color:var(--ink-soft); background:var(--surface);">${escapeHtml(o.status)}</span></div><p class="job-meta">UGX ${o.total_amount.toLocaleString()}</p></div>`).join('')}` : ''}
+
+        ${d.priceChanges.length ? `<p class="settings-section-label">Price changes</p>
+          ${d.priceChanges.map(pc => `<div class="job-card"><p class="job-meta">UGX ${pc.new_amount.toLocaleString()} — ${escapeHtml(pc.status)}</p><p class="job-desc">${escapeHtml(pc.reason || '')}</p></div>`).join('')}` : ''}
+
+        <p class="settings-section-label">Timeline</p>
+        ${d.events.length === 0 ? '<p class="job-meta">No events recorded.</p>' : `<div class="timeline-list">${d.events.map(e => `
+          <div class="timeline-item"><strong>${escapeHtml(e.description)}</strong><span>${new Date(e.created_at).toLocaleString()}</span></div>`).join('')}</div>`}
+
+        <p class="settings-section-label">Messages (${d.messages.length})</p>
+        ${d.messages.length === 0 ? '<p class="job-meta">No messages.</p>' : `<div style="max-height:260px; overflow-y:auto; background:var(--surface); border-radius:var(--radius-sm); padding:0.75rem;">
+          ${d.messages.map(m => `<div style="margin-bottom:0.6rem;">
+            <strong style="font-size:0.8rem;">${escapeHtml(m.sender_email)}</strong>
+            ${m.flagged ? '<span class="verif-badge" style="color:#B91C1C; background:#FEE2E2; margin-left:0.3rem;">Flagged</span>' : ''}
+            <p style="font-size:0.85rem; margin:0.2rem 0;">${escapeHtml(m.body || '')}${m.has_attachment ? ' <em>[image]</em>' : ''}</p>
+            <span class="job-meta">${new Date(m.created_at).toLocaleString()}</span>
+          </div>`).join('')}</div>`}
+
+        <p class="settings-section-label">Payment &amp; review</p>
+        <div class="settings-group">
+          <div class="settings-row" style="cursor:default;"><span class="row-label">Payment</span><span class="row-value">${d.payment ? `UGX ${d.payment.amount.toLocaleString()} (${escapeHtml(d.payment.method)})` : 'None recorded'}</span></div>
+          <div class="settings-row" style="cursor:default;"><span class="row-label">Review</span><span class="row-value">${d.review ? `★ ${d.review.rating}` : 'None'}</span></div>
+        </div>
+      `;
+    }
+
     // --- Admin MFA ---
+    // Live attention badges. Without these an admin has to click into
+    // each section to discover there's pending work — the whole point of
+    // a dashboard is that what needs action finds you, not the reverse.
+    async function refreshNavBadges() {
+      try {
+        const res = await fetch('/api/admin/overview-stats');
+        if (!res.ok) return;
+        const d = await res.json();
+        const set = (badgeId, count) => {
+          const btn = document.querySelector(`[data-badge="${badgeId}"]`);
+          if (!btn) return;
+          let el = btn.querySelector('.nav-badge');
+          if (count > 0) {
+            if (!el) {
+              el = document.createElement('span');
+              el.className = 'nav-badge';
+              btn.appendChild(el);
+            }
+            el.textContent = count > 99 ? '99+' : count;
+          } else if (el) {
+            el.remove();
+          }
+        };
+        set('navBadgeApps', d.pendingApplications || 0);
+        set('navBadgeSafety', (d.openReports || 0) + (d.openDisputes || 0));
+      } catch (err) { /* badges are non-critical; never block the UI */ }
+    }
+
     async function loadMfaStatus() {
       const el = document.getElementById('mfaStatus');
       el.innerHTML = '<div class="skeleton skeleton-row"></div>';
@@ -466,7 +648,12 @@
         const meta = STATUS_META[p.approval_status.toLowerCase()] || { color: 'var(--ink-soft)', bg: 'var(--surface)', label: p.approval_status };
         const row = document.createElement('div');
         row.className = 'app-row';
+        // Only pending applications are selectable — bulk-approving an
+        // already-rejected application makes no sense and the engine
+        // would reject it anyway.
+        const selectable = p.approval_status === 'PENDING';
         row.innerHTML = `
+          ${selectable ? `<input type="checkbox" class="bulk-select" data-id="${p.id}" style="width:auto; margin:0 0.2rem 0 0; flex-shrink:0;">` : ''}
           <div class="avatar" style="background:var(--surface);">${p.photo ? `<img class="avatar-img" src="${p.photo}" alt="">` : initials(p.name)}</div>
           <div class="app-row-info">
             <strong>${escapeHtml(p.name)}</strong>
@@ -474,10 +661,56 @@
           </div>
           <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${p.approval_status}</span>
         `;
-        row.addEventListener('click', () => openDetail(p.id));
+        row.addEventListener('click', (e) => {
+          // Ticking the box shouldn't also open the detail panel.
+          if (e.target.classList.contains('bulk-select')) return;
+          openDetail(p.id);
+        });
+        const cb = row.querySelector('.bulk-select');
+        if (cb) cb.addEventListener('change', updateBulkBar);
         list.appendChild(row);
       });
+      updateBulkBar();
     }
+
+    function selectedBulkIds() {
+      return Array.from(document.querySelectorAll('.bulk-select:checked')).map(cb => parseInt(cb.dataset.id, 10));
+    }
+
+    function updateBulkBar() {
+      const ids = selectedBulkIds();
+      const bar = document.getElementById('bulkBar');
+      bar.style.display = ids.length > 0 ? 'flex' : 'none';
+      document.getElementById('bulkCount').textContent = `${ids.length} selected`;
+    }
+
+    async function runBulk(decision) {
+      const providerIds = selectedBulkIds();
+      if (providerIds.length === 0) return;
+      let reason = '';
+      if (decision === 'reject') {
+        reason = prompt(`Reason for rejecting ${providerIds.length} application(s)? This is sent to each applicant.`);
+        if (!reason) return;
+      } else if (!confirm(`Approve ${providerIds.length} application(s)? They'll be able to accept jobs immediately.`)) {
+        return;
+      }
+      const res = await fetch('/api/admin/applications/bulk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerIds, decision, reason })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      showToast(data.message, data.failed.length > 0 ? 'error' : 'success');
+      loadApplications();
+      refreshNavBadges();
+    }
+
+    document.getElementById('bulkApprove').addEventListener('click', () => runBulk('approve'));
+    document.getElementById('bulkReject').addEventListener('click', () => runBulk('reject'));
+    document.getElementById('bulkClear').addEventListener('click', () => {
+      document.querySelectorAll('.bulk-select:checked').forEach(cb => { cb.checked = false; });
+      updateBulkBar();
+    });
 
     async function openDetail(providerId) {
       const res = await fetch(`/api/admin/providers/${providerId}`);
@@ -1095,6 +1328,9 @@
       const me = await res.json();
       if (me.role !== 'admin') { window.location.href = '/dashboard.html'; return; }
       await loadOverview();
+      await refreshNavBadges();
+      setInterval(refreshNavBadges, 60000);
+      refreshOnResume(refreshNavBadges);
     })();
   </script>
 </body>

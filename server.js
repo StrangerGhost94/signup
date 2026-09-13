@@ -5240,6 +5240,139 @@ app.post('/api/admin/mfa/disable', mfaLimiter, requireRole('admin'), asyncHandle
   res.json({ message: 'MFA disabled.' });
 }));
 
+// Full picture of a single job — the main thing missing when
+// investigating a dispute: timeline, messages, payment and review in
+// one place rather than pieced together across sections.
+app.get('/api/admin/jobs/:id', requireRole('admin'), asyncHandler(async (req, res) => {
+  const jobResult = await pool.query(
+    `SELECT jr.*, p.name AS provider_name, p.phone AS provider_phone, p.id AS provider_id,
+            uc.email AS client_email, uc.name AS client_name, uc.phone AS client_phone
+     FROM job_requests jr
+     LEFT JOIN providers p ON p.id = jr.provider_id
+     JOIN users uc ON uc.id = jr.client_user_id
+     WHERE jr.id = $1`,
+    [req.params.id]
+  );
+  if (jobResult.rows.length === 0) return res.status(404).json({ error: 'Job not found.' });
+
+  const [events, messages, payment, review, priceChanges, offers] = await Promise.all([
+    pool.query('SELECT * FROM job_events WHERE job_id = $1 ORDER BY created_at ASC', [req.params.id]),
+    pool.query(
+      `SELECT m.id, m.body, m.attachment IS NOT NULL AS has_attachment, m.created_at,
+              m.flagged, m.flag_reason, u.email AS sender_email
+       FROM messages m JOIN users u ON u.id = m.sender_user_id
+       WHERE m.job_id = $1 ORDER BY m.created_at ASC LIMIT 200`,
+      [req.params.id]
+    ),
+    pool.query('SELECT * FROM payments WHERE job_id = $1', [req.params.id]),
+    pool.query('SELECT * FROM reviews WHERE job_id = $1', [req.params.id]),
+    pool.query('SELECT * FROM price_change_requests WHERE job_id = $1 ORDER BY created_at DESC', [req.params.id]),
+    pool.query(
+      `SELECT jo.*, p.name AS provider_name FROM job_offers jo
+       JOIN providers p ON p.id = jo.provider_id WHERE jo.job_id = $1 ORDER BY jo.total_amount ASC`,
+      [req.params.id]
+    )
+  ]);
+
+  res.json({
+    job: jobResult.rows[0],
+    events: events.rows,
+    messages: messages.rows,
+    payment: payment.rows[0] || null,
+    review: review.rows[0] || null,
+    priceChanges: priceChanges.rows,
+    offers: offers.rows
+  });
+}));
+
+// Bulk approve/reject. Routed through the same approval engine as single
+// decisions so audit logging and notifications stay consistent — a bulk
+// path that bypassed them would create untraceable admin actions.
+app.post('/api/admin/applications/bulk', requireRole('admin'), asyncHandler(async (req, res) => {
+  const { providerIds, decision, reason } = req.body;
+  if (!Array.isArray(providerIds) || providerIds.length === 0) {
+    return res.status(400).json({ error: 'Select at least one application.' });
+  }
+  if (providerIds.length > 50) {
+    return res.status(400).json({ error: 'Too many at once — select 50 or fewer.' });
+  }
+  if (!['approve', 'reject'].includes(decision)) {
+    return res.status(400).json({ error: 'Invalid decision.' });
+  }
+  if (decision === 'reject' && !isNonEmpty(reason)) {
+    return res.status(400).json({ error: 'A reason is required when rejecting.' });
+  }
+
+  const results = { succeeded: [], failed: [] };
+  for (const id of providerIds) {
+    const outcome = await processApprovalDecision({
+      entityType: 'provider_application',
+      entityId: id,
+      decision: decision === 'approve' ? 'APPROVED' : 'REJECTED',
+      reviewerId: req.session.userId,
+      reason: reason || ''
+    }).catch(err => ({ error: err.message }));
+    if (outcome && outcome.error) results.failed.push({ id, error: outcome.error });
+    else results.succeeded.push(id);
+  }
+  res.json({ ...results, message: `${results.succeeded.length} updated, ${results.failed.length} failed.` });
+}));
+
+// CSV export. Streams a capped result set rather than loading everything
+// into memory — an unbounded export is a reliable way to take the
+// server down once the table is large.
+app.get('/api/admin/export/:type', requireRole('admin'), asyncHandler(async (req, res) => {
+  const LIMIT = 5000;
+  let rows, headers, filename;
+
+  if (req.params.type === 'users') {
+    const r = await pool.query(
+      `SELECT u.id, u.email, u.name, u.phone, u.role, u.account_status, u.email_verified,
+              u.created_at, u.last_active_at, p.category, p.approval_status, p.rating
+       FROM users u LEFT JOIN providers p ON p.user_id = u.id
+       ORDER BY u.id DESC LIMIT $1`, [LIMIT]
+    );
+    rows = r.rows;
+    headers = ['id','email','name','phone','role','account_status','email_verified','created_at','last_active_at','category','approval_status','rating'];
+    filename = 'handylink-users.csv';
+  } else if (req.params.type === 'jobs') {
+    const r = await pool.query(
+      `SELECT jr.id, jr.category, jr.status, jr.urgency, jr.location, jr.estimate_amount,
+              jr.final_amount, jr.scheduled_for, jr.created_at,
+              uc.email AS client_email, p.name AS provider_name
+       FROM job_requests jr
+       JOIN users uc ON uc.id = jr.client_user_id
+       LEFT JOIN providers p ON p.id = jr.provider_id
+       ORDER BY jr.id DESC LIMIT $1`, [LIMIT]
+    );
+    rows = r.rows;
+    headers = ['id','category','status','urgency','location','estimate_amount','final_amount','scheduled_for','created_at','client_email','provider_name'];
+    filename = 'handylink-jobs.csv';
+  } else {
+    return res.status(400).json({ error: 'Unknown export type.' });
+  }
+
+  // Escape per RFC 4180, and neutralise leading =/+/-/@ which
+  // spreadsheet apps would otherwise execute as a formula — a real
+  // injection risk when exporting user-supplied text.
+  const escapeCsv = (value) => {
+    if (value === null || value === undefined) return '';
+    let s = String(value);
+    if (/^[=+\-@]/.test(s)) s = `'${s}`;
+    return `"${s.replace(/"/g, '""')}"`;
+  };
+
+  const csv = [
+    headers.join(','),
+    ...rows.map(row => headers.map(h => escapeCsv(row[h])).join(','))
+  ].join('\n');
+
+  await createAuditLog(req.session.userId, 'DATA_EXPORTED', 'export', null, `${req.params.type} (${rows.length} rows)`);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send('\ufeff' + csv); // BOM so Excel reads UTF-8 correctly
+}));
+
 // --- 404 and error handling (must be last, after all routes) ---
 
 app.use((req, res) => {
