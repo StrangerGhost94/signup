@@ -59,7 +59,7 @@
           <span id="pwLetter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>A letter</span>
           <span id="pwNumber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>A number</span>
         </div>
-        <div class="wizard-nav"><button type="button" onclick="goToStep(1)">Continue</button></div>
+        <div class="wizard-nav"><button type="button" onclick="validateStep0()">Continue</button></div>
       </div>
 
       <!-- Step 1: Basics — photo, professional type, location, radius -->
@@ -239,29 +239,44 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    function validateStep1() {
-      const errorEl = document.getElementById('error');
-      errorEl.textContent = '';
-
-      // Validate every required field on this step, not just location —
-      // previously a missing name passed silently and only the location
-      // check ran, so the real problem was never reported.
+    // Panel 0: account details. Previously this advanced with no checks
+    // at all, so an invalid email or weak password wasn't caught until
+    // the server rejected it — after the user had completed all six
+    // steps. Validating here fails fast, next to the actual field.
+    function validateStep0() {
       const name = document.getElementById('name');
-      const location = document.getElementById('location');
+      const email = document.getElementById('email');
+      const password = document.getElementById('password');
 
-      if (name && !name.value.trim()) {
-        return failStep1('Please enter your full name.', name);
+      if (!name.value.trim()) return failStep('Please enter your full name.', name);
+      if (!email.value.trim()) return failStep('Please enter your email address.', email);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) {
+        return failStep('That email address doesn\u2019t look right.', email);
       }
+      const pw = password.value;
+      if (pw.length < 8) return failStep('Password must be at least 8 characters.', password);
+      if (!/[a-zA-Z]/.test(pw)) return failStep('Password must include a letter.', password);
+      if (!/\d/.test(pw)) return failStep('Password must include a number.', password);
+
+      goToStep(1);
+    }
+
+    // Panel 1: location and service area. Only validates fields that are
+    // actually ON this panel — it previously also checked the name,
+    // which lives on panel 0, so the message could point at a field the
+    // user couldn't even see.
+    function validateStep1() {
+      const location = document.getElementById('location');
       if (!location.value.trim()) {
-        return failStep1('Please enter the area you serve.', location);
+        return failStep('Please enter the area you serve.', location);
       }
       goToStep(2);
     }
 
-    // The error banner sits at the top of the form. On a long step the
+    // The error banner sits at the top of the panel. On a long step the
     // user has scrolled past it, so pressing Continue appeared to do
     // nothing at all. Scroll it into view and focus the offending field.
-    function failStep1(message, field) {
+    function failStep(message, field) {
       const errorEl = document.getElementById('error');
       errorEl.textContent = message;
       errorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
