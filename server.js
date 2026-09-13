@@ -1170,7 +1170,10 @@ const CSRF_EXEMPT_PATHS = [
   // Google's identity callback can't carry our session-bound token —
   // it's an authentication entry point, same class as login/signup.
   // Its own security comes from verifying Google's signed ID token.
-  '/api/auth/google'
+  '/api/auth/google',
+  // Runs before any account exists, so there's no session to bind a
+  // token to. It's read-only and changes no state.
+  '/api/check-email'
 ];
 
 app.use((req, res, next) => {
@@ -5505,6 +5508,34 @@ app.get('/api/geocode/search', geocodeSearchLimiter, requireLogin, asyncHandler(
   }
 
   res.json({ results: merged });
+}));
+
+// Checks an email before the user completes a long signup. The same
+// checks run again at signup — this is purely to fail fast rather than
+// letting someone fill six steps and only then be told their address
+// is unusable. Rate-limited so it can't be used to enumerate accounts.
+const emailCheckLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many checks. Please wait a moment.' }
+});
+
+app.post('/api/check-email', emailCheckLimiter, asyncHandler(async (req, res) => {
+  const email = normalizeEmail(req.body.email);
+  if (!email || !EMAIL_RE.test(email)) {
+    return res.json({ ok: false, reason: 'That email address doesn\u2019t look right.' });
+  }
+  const deliverable = await domainCanReceiveMail(email);
+  if (!deliverable) {
+    return res.json({ ok: false, reason: 'We can\u2019t deliver email to that domain. Please check the spelling.' });
+  }
+  const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+  if (existing.rows.length > 0) {
+    return res.json({ ok: false, reason: 'An account already exists with this email. Try signing in instead.' });
+  }
+  res.json({ ok: true });
 }));
 
 // --- 404 and error handling (must be last, after all routes) ---

@@ -243,7 +243,7 @@
     // at all, so an invalid email or weak password wasn't caught until
     // the server rejected it — after the user had completed all six
     // steps. Validating here fails fast, next to the actual field.
-    function validateStep0() {
+    async function validateStep0() {
       const name = document.getElementById('name');
       const email = document.getElementById('email');
       const password = document.getElementById('password');
@@ -257,6 +257,30 @@
       if (pw.length < 8) return failStep('Password must be at least 8 characters.', password);
       if (!/[a-zA-Z]/.test(pw)) return failStep('Password must include a letter.', password);
       if (!/\d/.test(pw)) return failStep('Password must include a number.', password);
+
+      // Server-side check: is the domain real and is the address free?
+      // Both were previously only enforced at final submit, so someone
+      // with a typo'd or already-registered email completed all six
+      // steps before being told.
+      const btn = document.querySelector('[data-panel="0"] .wizard-nav button');
+      const original = btn ? btn.textContent : '';
+      if (btn) { btn.textContent = 'Checking…'; btn.disabled = true; }
+      try {
+        const res = await fetch('/api/check-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.value.trim() })
+        });
+        const data = await res.json().catch(() => ({ ok: true }));
+        if (res.ok && data.ok === false) {
+          return failStep(data.reason, email);
+        }
+      } catch (err) {
+        // A check outage must never block signup — the server validates
+        // again at submit, so proceeding is safe.
+      } finally {
+        if (btn) { btn.textContent = original; btn.disabled = false; }
+      }
 
       goToStep(1);
     }
