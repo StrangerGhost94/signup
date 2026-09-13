@@ -2609,3 +2609,30 @@ html, body { max-width: 100%; overflow-x: hidden; }
   stroke-width: 1.9;
   vector-effect: non-scaling-stroke;
 }
+
+/* Fix: text overrunning the amount in job cards (worker Earnings,
+   job lists, etc).
+   `overflow: hidden` and `text-overflow: ellipsis` have NO effect on
+   inline elements — and <strong> is inline by default. So the existing
+   truncation rule was silently doing nothing and long "Category —
+   client@email" strings simply ran over the price pill beside them.
+   Making it a block gives the ellipsis something to act on. */
+.job-top strong,
+.worker-name-block strong {
+  display: block;
+  min-width: 0;
+}
+/* The two sides must not fight for space: the text side may shrink,
+   the amount never does. */
+.job-top { align-items: flex-start; }
+.job-top > div:first-child { min-width: 0; flex: 1 1 auto; }
+.job-top > .amount,
+.job-top > span { flex: 0 0 auto; white-space: nowrap; margin-left: 0.5rem; }
+/* Meta lines under the title need the same treatment — a long email or
+   location wraps awkwardly under the amount otherwise. */
+.job-top .job-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
