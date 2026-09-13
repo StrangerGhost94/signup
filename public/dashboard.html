@@ -171,7 +171,9 @@
 
       pages.forEach(pageCats => {
         const page = document.createElement('div');
-        page.className = 'cat-pager-page' + (pageCats.length < 4 ? ' sparse' : '');
+        // Every page uses the same grid — no sparse special case — so a
+        // page with one service looks like a page with eight.
+        page.className = 'cat-pager-page';
         pageCats.forEach(cat => page.appendChild(makeCatTile(cat)));
         track.appendChild(page);
       });

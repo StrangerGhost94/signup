@@ -2125,12 +2125,14 @@ html, body { max-width: 100%; overflow-x: hidden; }
   flex: 0 0 100%;
   scroll-snap-align: start;
   display: grid;
+  /* auto-fill (not auto-fit) keeps the empty tracks, so a page with one
+     service renders that tile at exactly the same width as a full page's
+     tiles instead of stretching it. Every page therefore uses this one
+     grid — no special case — and added services simply fill the next
+     slot, keeping the pages visually identical. */
   grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
   gap: 0.65rem;
-}
-.cat-pager-page.sparse {
-  grid-template-columns: repeat(auto-fill, 90px);
-  justify-content: center;
+  align-content: start;
 }
 .cat-pager-dots { display: flex; justify-content: center; gap: 0.4rem; margin-top: 0.85rem; }
 .cat-pager-dot {
