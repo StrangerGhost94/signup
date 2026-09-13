@@ -1,3 +1,67 @@
+// --- CSRF token handling ---
+// Rather than editing every fetch() call across ~30 pages (and
+// inevitably missing some), this wraps fetch once. Every same-origin
+// mutating request transparently gains the token. Pages don't know or
+// care that CSRF exists, which also means future code is protected by
+// default instead of needing to remember.
+(function () {
+  const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+  let csrfToken = null;
+  let inFlight = null;
+
+  async function loadToken() {
+    // De-duplicate: if several requests fire at once on page load, they
+    // share one token fetch rather than racing.
+    if (inFlight) return inFlight;
+    inFlight = fetch('/api/csrf-token', { credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { csrfToken = d && d.csrfToken ? d.csrfToken : null; return csrfToken; })
+      .catch(() => null)
+      .finally(() => { inFlight = null; });
+    return inFlight;
+  }
+
+  const originalFetch = window.fetch.bind(window);
+
+  window.fetch = async function (input, init) {
+    init = init || {};
+    const method = (init.method || (typeof input !== 'string' && input && input.method) || 'GET').toUpperCase();
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    // Only same-origin API calls — never leak the token to third
+    // parties like the map tile or geocoding services.
+    const isSameOrigin = url.startsWith('/') || url.startsWith(window.location.origin);
+
+    if (!SAFE_METHODS.includes(method) && isSameOrigin) {
+      if (!csrfToken) await loadToken();
+      if (csrfToken) {
+        const headers = new Headers(init.headers || (typeof input !== 'string' && input ? input.headers : undefined) || {});
+        headers.set('X-CSRF-Token', csrfToken);
+        init = { ...init, headers, credentials: init.credentials || 'same-origin' };
+      }
+    }
+
+    let response = await originalFetch(input, init);
+
+    // A rotated session (e.g. after re-login) invalidates the cached
+    // token. Refresh once and retry transparently so the user never
+    // sees a spurious failure.
+    if (response.status === 403 && !SAFE_METHODS.includes(method) && isSameOrigin) {
+      const clone = response.clone();
+      const body = await clone.json().catch(() => null);
+      if (body && typeof body.error === 'string' && body.error.includes('couldn\u2019t be verified')) {
+        csrfToken = null;
+        await loadToken();
+        if (csrfToken) {
+          const headers = new Headers(init.headers || {});
+          headers.set('X-CSRF-Token', csrfToken);
+          response = await originalFetch(input, { ...init, headers, credentials: 'same-origin' });
+        }
+      }
+    }
+    return response;
+  };
+})();
+
 // Shared category metadata: color + icon, used on the client search page
 // and the provider dashboard so both stay in sync.
 window.CATEGORY_COLORS = {
@@ -704,11 +768,17 @@ window.renderTrustMeta = function (w) {
 };
 
 window.errorStateHtml = function (retryFnName) {
+  // A Retry button that calls nothing is worse than no button — the
+  // user taps it, nothing happens, and they conclude the app is broken.
+  // Only render it when there's a real retry to run.
+  const retryButton = retryFnName
+    ? `<div style="margin-top:0.75rem;"><button class="small-btn btn-outline" style="width:auto;" onclick="${retryFnName}">Retry</button></div>`
+    : `<div style="margin-top:0.75rem;"><button class="small-btn btn-outline" style="width:auto;" onclick="window.location.reload()">Reload</button></div>`;
   return `<div class="empty-state">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
     <strong>Something went wrong</strong>
     Check your connection and try again.
-    <div style="margin-top:0.75rem;"><button class="small-btn btn-outline" style="width:auto;" onclick="${retryFnName}">Retry</button></div>
+    ${retryButton}
   </div>`;
 };
 

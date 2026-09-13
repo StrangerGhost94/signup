@@ -1416,6 +1416,14 @@ html, body { max-width: 100%; overflow-x: hidden; }
   .dash-wrap { padding-left: 1rem; padding-right: 1rem; }
   .home-cat-grid { grid-template-columns: repeat(3, 1fr); }
   .stat-grid { grid-template-columns: 1fr 1fr; }
+  /* On a 320px screen the floating nav's side margins leave each item
+     under ~70px — enough for the icon but tight for labels like
+     "My Jobs", which would wrap to two lines and misalign the row. */
+  .bottom-nav { left: 0.5rem; right: 0.5rem; padding: 0.45rem 0.3rem; }
+  .nav-item { font-size: 0.62rem; padding: 0.3rem 0.2rem; }
+  .nav-item span, .nav-item { white-space: nowrap; }
+  .dash-header { padding: 0.75rem 0.9rem; }
+  .dash-header h1 { font-size: 1.2rem; }
 }
 
 /* Small-to-medium phones: tighten a few spacing choices that feel loose
@@ -2246,7 +2254,15 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .admin-main { flex: 1; min-width: 0; padding: 1.75rem 2rem; max-width: 1200px; }
 .admin-main h1 { font-size: 1.5rem; font-weight: 800; margin: 0 0 1.5rem; }
 @media (max-width: 860px) {
-  .admin-sidebar { width: 100%; height: auto; position: static; flex-direction: row; overflow-x: auto; padding: 0.75rem; }
+  .admin-sidebar {
+    width: 100%; height: auto;
+    /* Sticky rather than static: on a long Users or Audit list the nav
+       would otherwise scroll away entirely, stranding the admin with no
+       way to switch sections without scrolling back to the top. */
+    position: sticky; top: 0; z-index: 30;
+    flex-direction: row; overflow-x: auto; padding: 0.75rem;
+    border-right: none; border-bottom: 1px solid var(--glass-border);
+  }
   .admin-sidebar .brand { display: none; }
   .admin-nav-item { flex-direction: column; gap: 0.25rem; font-size: 0.68rem; padding: 0.5rem 0.6rem; white-space: nowrap; }
   .admin-shell { flex-direction: column; }
@@ -2279,7 +2295,17 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .admin-section-title { font-size: 0.95rem; font-weight: 800; margin: 0 0 0.85rem; }
 
 /* --- Live map --- */
-#adminMap { width: 100%; height: 480px; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); }
+#adminMap {
+  width: 100%;
+  /* Fixed 480px was both too tall on a short phone viewport (pushing
+     the legend off-screen) and needlessly small on desktop. Sizing
+     against the viewport keeps the map usable on both, with bounds so
+     it never collapses or dominates. */
+  height: clamp(320px, 60vh, 620px);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
 .map-legend { display: flex; gap: 1.1rem; margin-bottom: 1rem; flex-wrap: wrap; font-size: 0.8rem; color: var(--ink-soft); }
 .map-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
 .map-legend .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }

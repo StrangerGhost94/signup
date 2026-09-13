@@ -6,6 +6,8 @@ const { Pool } = require('pg');
 const rateLimit = require('express-rate-limit');
 const { OAuth2Client } = require('google-auth-library');
 const nodemailer = require('nodemailer');
+const helmet = require('helmet');
+const PgSession = require('connect-pg-simple')(require('express-session'));
 const webpush = require('web-push');
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || null;
@@ -48,9 +50,27 @@ function asyncHandler(fn) {
 app.set('trust proxy', 1);
 
 // --- Database ---
+// Set true once SIGTERM arrives so /readyz reports not-ready and the
+// platform drains traffic away before the process actually exits.
+let isShuttingDown = false;
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+  // Without limits, a burst of traffic or a single leaked client can
+  // exhaust Postgres connections and take the whole app down with
+  // errors that look random. These bound the blast radius.
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+  statement_timeout: 15000 // kill runaway queries rather than hanging requests
+});
+
+// A pool error (dropped connection, DB restart) is emitted on the pool
+// itself; unhandled, it crashes the process. Log and let the pool
+// recover instead.
+pool.on('error', (err) => {
+  console.error('Unexpected database pool error:', err.message);
 });
 
 // Rough estimate midpoints in UGX, mirroring the ranges shown to clients.
@@ -902,7 +922,73 @@ async function initDb() {
       console.error(`Failed to fix FK ${fix.table}.${fix.column}:`, err.message);
     }
   }
+
+  // --- Indexes ---
+  // Every one of these covers a column that a hot, frequently-run query
+  // filters or joins on. Without them Postgres does a full table scan
+  // each time — invisible at 50 rows, crippling at 50,000. The
+  // composite ones match the actual (column, column) filter pairs used
+  // by the job lists and matching queries, not just single columns.
+  const INDEXES = [
+    'CREATE INDEX IF NOT EXISTS idx_jobs_client_status ON job_requests (client_user_id, status)',
+    'CREATE INDEX IF NOT EXISTS idx_jobs_provider_status ON job_requests (provider_id, status)',
+    'CREATE INDEX IF NOT EXISTS idx_jobs_status_category ON job_requests (status, category)',
+    'CREATE INDEX IF NOT EXISTS idx_jobs_created ON job_requests (created_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_messages_job_created ON messages (job_id, created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications (user_id, read_at)',
+    'CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications (user_id, created_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_providers_user ON providers (user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_providers_approval_category ON providers (approval_status, category)',
+    'CREATE INDEX IF NOT EXISTS idx_providers_coords ON providers (latitude, longitude)',
+    'CREATE INDEX IF NOT EXISTS idx_worker_services_provider ON worker_services (provider_id)',
+    'CREATE INDEX IF NOT EXISTS idx_reviews_provider ON reviews (provider_id)',
+    'CREATE INDEX IF NOT EXISTS idx_reviews_job ON reviews (job_id)',
+    'CREATE INDEX IF NOT EXISTS idx_job_offers_job_status ON job_offers (job_id, status)',
+    'CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events (job_id, created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_job ON payments (job_id)',
+    'CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions (user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs (created_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_users_last_active ON users (last_active_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_reports_status ON reports (status)',
+    'CREATE INDEX IF NOT EXISTS idx_disputes_status ON disputes (status)'
+  ];
+  for (const sql of INDEXES) {
+    try {
+      await pool.query(sql);
+    } catch (err) {
+      // An index referencing a table/column missing from an older
+      // database shouldn't block startup — log and continue.
+      console.error('Index creation skipped:', err.message);
+    }
+  }
 }
+
+// Security headers. The CSP is deliberately scoped to the exact
+// external origins this app really uses — tightening it further would
+// break the map, fonts or AI assessment, and leaving it off entirely
+// leaves the app open to injected-script and clickjacking attacks.
+// 'unsafe-inline' for scripts/styles is required because this codebase
+// uses inline <script> blocks and inline style attributes throughout;
+// removing that is a larger refactor tracked in the plan below.
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://unpkg.com', 'https://accounts.google.com', 'https://apis.google.com'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://unpkg.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https://*.basemaps.cartocdn.com', 'https://*.tile.openstreetmap.org', 'https://unpkg.com', 'https://lh3.googleusercontent.com'],
+      connectSrc: ["'self'", 'https://nominatim.openstreetmap.org', 'https://openrouter.ai', 'https://accounts.google.com'],
+      frameSrc: ["'self'", 'https://accounts.google.com'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"] // clickjacking protection
+    }
+  },
+  crossOriginEmbedderPolicy: false, // would block the map tiles and Google auth
+  hsts: process.env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true } : false
+}));
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public'), {
@@ -918,15 +1004,87 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 app.use(session({
+  // The default express-session store keeps sessions in server memory.
+  // In production that means (a) every deploy or restart silently logs
+  // out every user, and (b) memory grows unbounded with each new
+  // session until the process dies. Persisting to the Postgres database
+  // that already exists fixes both, and lets sessions survive restarts
+  // and work across multiple instances if this ever scales horizontally.
+  store: new PgSession({
+    pool,
+    tableName: 'user_sessions',
+    createTableIfMissing: true,
+    pruneSessionInterval: 60 * 15 // clean out expired sessions every 15 min
+  }),
   secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
   resave: false,
   saveUninitialized: false,
+  rolling: true, // refresh expiry on activity so active users aren't logged out mid-session
   cookie: {
-    maxAge: 1000 * 60 * 60 * 24, // 1 day
+    maxAge: 1000 * 60 * 60 * 24 * 7,
     secure: process.env.NODE_ENV === 'production',
+    httpOnly: true, // explicit: JS must never be able to read the session cookie
     sameSite: 'lax'
   }
 }));
+
+// --- CSRF protection ---
+// sameSite:'lax' blocks the simplest cross-site POSTs, but it isn't
+// full protection: it doesn't cover every navigation case and depends
+// entirely on browser behaviour. This adds the real defence — a
+// per-session token an attacker's site cannot read (same-origin policy
+// stops them). Applied as middleware so all 60 mutating routes are
+// covered at once, rather than 60 hand edits that would miss some.
+function getOrCreateCsrfToken(req) {
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+  }
+  return req.session.csrfToken;
+}
+
+app.get('/api/csrf-token', (req, res) => {
+  // Only issue to authenticated users. Issuing to anonymous visitors
+  // would write a session row for every page load by every crawler and
+  // first-time visitor, bloating the session table for no benefit —
+  // the pre-login routes are CSRF-exempt precisely because there's no
+  // authenticated state to protect yet.
+  if (!req.session || !req.session.userId) {
+    return res.json({ csrfToken: null });
+  }
+  res.json({ csrfToken: getOrCreateCsrfToken(req) });
+});
+
+const CSRF_SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+// Reachable before a session exists, so they can't carry a
+// session-bound token — and they aren't state-changing actions against
+// an already-authenticated victim, which is what CSRF exploits.
+const CSRF_EXEMPT_PATHS = [
+  '/api/login', '/api/signup', '/api/logout',
+  '/api/forgot-password', '/api/reset-password'
+];
+
+app.use((req, res, next) => {
+  if (CSRF_SAFE_METHODS.includes(req.method)) return next();
+  if (!req.path.startsWith('/api/')) return next();
+  if (CSRF_EXEMPT_PATHS.includes(req.path)) return next();
+  // No session means no authenticated state to protect; the route's own
+  // requireLogin will reject it with a proper 401 anyway.
+  if (!req.session || !req.session.userId) return next();
+
+  const sent = String(req.get('X-CSRF-Token') || '');
+  const expected = String(req.session.csrfToken || '');
+  const sentBuf = Buffer.from(sent);
+  const expectedBuf = Buffer.from(expected);
+  // Constant-time compare so response timing can't leak the token.
+  const valid = expected.length > 0 &&
+    sentBuf.length === expectedBuf.length &&
+    crypto.timingSafeEqual(sentBuf, expectedBuf);
+
+  if (!valid) {
+    return res.status(403).json({ error: 'This request couldn\u2019t be verified. Please refresh the page and try again.' });
+  }
+  next();
+});
 
 // Basic brute-force protection on auth endpoints.
 const authLimiter = rateLimit({
@@ -4398,6 +4556,31 @@ app.post('/api/notifications/read', requireLogin, asyncHandler(async (req, res) 
   res.json({ message: 'Marked as read.' });
 }));
 
+// --- Health & readiness (before 404 handling) ---
+// Liveness: is the process up at all? Deliberately does NOT touch the
+// database — if the DB is down we want the platform to keep the process
+// alive (so it can recover) rather than restart-loop it.
+app.get('/healthz', (req, res) => {
+  res.json({ status: 'ok', uptimeSeconds: Math.round(process.uptime()) });
+});
+
+// Readiness: should this instance receive traffic? This DOES check the
+// database, because an instance that can't reach Postgres can't serve a
+// single useful request. Also reports not-ready while draining, so the
+// load balancer stops sending traffic before shutdown completes.
+app.get('/readyz', async (req, res) => {
+  if (isShuttingDown) {
+    return res.status(503).json({ status: 'shutting_down' });
+  }
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ready' });
+  } catch (err) {
+    console.error('Readiness check failed:', err.message);
+    res.status(503).json({ status: 'database_unavailable' });
+  }
+});
+
 // --- 404 and error handling (must be last, after all routes) ---
 
 app.use((req, res) => {
@@ -4415,9 +4598,34 @@ app.use((err, req, res, next) => {
 
 initDb()
   .then(() => {
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
+
+    // Graceful shutdown: on deploy, the platform sends SIGTERM. Without
+    // this, the process dies instantly and any request mid-flight —
+    // including a payment write or a multi-step transaction — is severed.
+    // This stops accepting new connections, lets in-flight work finish,
+    // then closes the DB pool cleanly.
+    let shuttingDown = false;
+    function shutdown(signal) {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`${signal} received — shutting down gracefully.`);
+      isShuttingDown = true; // readiness starts failing so traffic drains away
+      server.close(() => {
+        pool.end()
+          .then(() => { console.log('Shutdown complete.'); process.exit(0); })
+          .catch(() => process.exit(0));
+      });
+      // Don't hang forever if a connection refuses to close.
+      setTimeout(() => {
+        console.error('Forced shutdown after timeout.');
+        process.exit(1);
+      }, 15000).unref();
+    }
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
   })
   .catch(err => {
     console.error('Failed to initialize database:', err);
