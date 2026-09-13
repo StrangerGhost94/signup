@@ -352,18 +352,9 @@
         list.appendChild(wrap);
       });
 
-      // Home is a snapshot, not a second copy of the Jobs page. The old
-      // "Show all" button expanded the list inline — exactly the pile-up
-      // this was meant to stop — and competed with the "View all" link
-      // above it. Send people to Jobs, where filters and history live.
-      if (data.bookings.length >= 3) {
-        const moreBtn = document.createElement('button');
-        moreBtn.className = 'btn-outline';
-        moreBtn.style.marginTop = '0.25rem';
-        moreBtn.textContent = 'View all jobs';
-        moreBtn.onclick = () => { window.location.href = '/client-jobs.html'; };
-        list.appendChild(moreBtn);
-      }
+      // No "view all" button here — the link opposite the "Recent jobs"
+      // heading already does exactly this. Two controls for one action
+      // on the same screen is clutter, not convenience.
     }
 
     function showBookingDetail(b) {
