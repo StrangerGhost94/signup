@@ -465,6 +465,13 @@ async function initDb() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token TEXT`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_sent_at TIMESTAMP`);
 
+  // Admin MFA. The admin panel can delete accounts, approve providers
+  // and resolve disputes — a single password is not an adequate control
+  // for that. Secret stays NULL until an admin enrols.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_backup_codes TEXT`);
+
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE`);
 
   // Granular categories instead of one all-or-nothing switch, plus an
@@ -1755,6 +1762,72 @@ async function computePricingEngine({ serviceName, urgency, distanceKm }) {
   };
 }
 
+// --- TOTP (RFC 6238) for admin MFA ---
+// Implemented on Node's built-in crypto rather than pulling a
+// dependency: TOTP is a small, stable, well-specified algorithm and
+// this avoids adding a supply-chain surface to the most
+// security-sensitive part of the app. Compatible with Google
+// Authenticator, Authy, 1Password, etc.
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Encode(buffer) {
+  let bits = 0, value = 0, output = '';
+  for (const byte of buffer) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      output += BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) output += BASE32_ALPHABET[(value << (5 - bits)) & 31];
+  return output;
+}
+
+function base32Decode(str) {
+  let bits = 0, value = 0;
+  const output = [];
+  for (const char of str.replace(/=+$/, '').toUpperCase()) {
+    const idx = BASE32_ALPHABET.indexOf(char);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      output.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(output);
+}
+
+function generateTotpCode(secretBase32, counter) {
+  const key = base32Decode(secretBase32);
+  const buf = Buffer.alloc(8);
+  buf.writeBigInt64BE(BigInt(counter));
+  const hmac = crypto.createHmac('sha1', key).update(buf).digest();
+  const offset = hmac[hmac.length - 1] & 0xf;
+  const code = ((hmac[offset] & 0x7f) << 24) | (hmac[offset + 1] << 16) |
+               (hmac[offset + 2] << 8) | hmac[offset + 3];
+  return String(code % 1000000).padStart(6, '0');
+}
+
+// Accepts the current 30s window plus one either side, so a slightly
+// out-of-sync device clock doesn't lock an admin out.
+function verifyTotp(secretBase32, token) {
+  if (!secretBase32 || !/^\d{6}$/.test(String(token || '').trim())) return false;
+  const counter = Math.floor(Date.now() / 30000);
+  const candidate = String(token).trim();
+  for (let drift = -1; drift <= 1; drift++) {
+    const expected = generateTotpCode(secretBase32, counter + drift);
+    // Constant-time compare so timing can't be used to guess digits.
+    if (expected.length === candidate.length &&
+        crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(candidate))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function requireRole(role) {
   return async (req, res, next) => {
     if (!req.session.userId) {
@@ -1762,6 +1835,16 @@ function requireRole(role) {
     }
     if (req.session.role !== role) {
       return res.status(403).json({ error: 'Not authorized for this action.' });
+    }
+    // Admin MFA gate. Checked on EVERY admin request rather than only at
+    // login, so a session created before MFA was enrolled can't keep
+    // operating unverified. Exempt the MFA routes themselves, otherwise
+    // an admin could never complete the challenge.
+    if (role === 'admin' && !req.path.startsWith('/api/admin/mfa')) {
+      const mfa = await pool.query('SELECT mfa_enabled FROM users WHERE id = $1', [req.session.userId]).catch(() => null);
+      if (mfa && mfa.rows[0] && mfa.rows[0].mfa_enabled && !req.session.mfaVerified) {
+        return res.status(403).json({ error: 'MFA_REQUIRED', mfaRequired: true });
+      }
     }
     const result = await pool.query(
       'UPDATE users SET last_active_at = NOW() WHERE id = $1 RETURNING account_status',
@@ -5055,6 +5138,106 @@ app.post('/api/admin/test-email', requireRole('admin'), asyncHandler(async (req,
     // it names the exact problem (unverified domain, bad key, etc.).
     res.status(502).json({ ok: false, provider, from: MAIL_FROM, to, error: err.message });
   }
+}));
+
+// --- Admin MFA ---
+// Rate-limited hard: a 6-digit code is only a million possibilities, so
+// unlimited attempts would make brute force trivial.
+const mfaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please wait before trying again.' }
+});
+
+app.get('/api/admin/mfa/status', requireRole('admin'), asyncHandler(async (req, res) => {
+  const r = await pool.query('SELECT mfa_enabled FROM users WHERE id = $1', [req.session.userId]);
+  res.json({
+    enabled: !!(r.rows[0] && r.rows[0].mfa_enabled),
+    verified: !!req.session.mfaVerified
+  });
+}));
+
+// Generates a secret and returns it for the admin to scan. Not active
+// until they prove they can generate a valid code via /activate —
+// otherwise a mis-scanned QR would lock them out permanently.
+app.post('/api/admin/mfa/setup', requireRole('admin'), asyncHandler(async (req, res) => {
+  const existing = await pool.query('SELECT mfa_enabled FROM users WHERE id = $1', [req.session.userId]);
+  if (existing.rows[0] && existing.rows[0].mfa_enabled) {
+    return res.status(400).json({ error: 'MFA is already enabled. Disable it first to re-enrol.' });
+  }
+  const secret = base32Encode(crypto.randomBytes(20));
+  await pool.query('UPDATE users SET mfa_secret = $1 WHERE id = $2', [secret, req.session.userId]);
+  const label = encodeURIComponent(`HandyLink:${req.session.userEmail || 'admin'}`);
+  res.json({
+    secret,
+    otpauthUrl: `otpauth://totp/${label}?secret=${secret}&issuer=HandyLink&period=30&digits=6`
+  });
+}));
+
+app.post('/api/admin/mfa/activate', mfaLimiter, requireRole('admin'), asyncHandler(async (req, res) => {
+  const r = await pool.query('SELECT mfa_secret FROM users WHERE id = $1', [req.session.userId]);
+  const secret = r.rows[0] && r.rows[0].mfa_secret;
+  if (!secret) return res.status(400).json({ error: 'Start setup first.' });
+  if (!verifyTotp(secret, req.body.token)) {
+    return res.status(401).json({ error: 'That code isn\u2019t valid. Check your authenticator app and try again.' });
+  }
+  // Backup codes: without these, a lost phone means permanent lockout
+  // from the admin panel. Stored hashed — they're credentials.
+  const backupCodes = Array.from({ length: 8 }, () => crypto.randomBytes(4).toString('hex'));
+  const hashed = backupCodes.map(c => crypto.createHash('sha256').update(c).digest('hex'));
+  await pool.query(
+    'UPDATE users SET mfa_enabled = TRUE, mfa_backup_codes = $1 WHERE id = $2',
+    [JSON.stringify(hashed), req.session.userId]
+  );
+  req.session.mfaVerified = true;
+  await createAuditLog(req.session.userId, 'ADMIN_MFA_ENABLED', 'user', req.session.userId, '');
+  res.json({ message: 'MFA enabled.', backupCodes });
+}));
+
+app.post('/api/admin/mfa/verify', mfaLimiter, requireRole('admin'), asyncHandler(async (req, res) => {
+  const r = await pool.query('SELECT mfa_secret, mfa_backup_codes FROM users WHERE id = $1', [req.session.userId]);
+  const row = r.rows[0];
+  if (!row || !row.mfa_secret) return res.status(400).json({ error: 'MFA is not set up.' });
+
+  if (verifyTotp(row.mfa_secret, req.body.token)) {
+    req.session.mfaVerified = true;
+    return res.json({ message: 'Verified.' });
+  }
+
+  // Fall back to a backup code — single use, removed once consumed.
+  const submitted = String(req.body.token || '').trim().toLowerCase();
+  const codes = row.mfa_backup_codes ? JSON.parse(row.mfa_backup_codes) : [];
+  const submittedHash = crypto.createHash('sha256').update(submitted).digest('hex');
+  const idx = codes.indexOf(submittedHash);
+  if (idx !== -1) {
+    codes.splice(idx, 1);
+    await pool.query('UPDATE users SET mfa_backup_codes = $1 WHERE id = $2', [JSON.stringify(codes), req.session.userId]);
+    req.session.mfaVerified = true;
+    await createAuditLog(req.session.userId, 'ADMIN_MFA_BACKUP_CODE_USED', 'user', req.session.userId, `${codes.length} remaining`);
+    return res.json({ message: 'Verified with backup code.', backupCodesRemaining: codes.length });
+  }
+
+  await createAuditLog(req.session.userId, 'ADMIN_MFA_FAILED', 'user', req.session.userId, '');
+  res.status(401).json({ error: 'Invalid code.' });
+}));
+
+// Requires a valid current code — otherwise anyone who got hold of a
+// logged-in session could simply switch MFA off.
+app.post('/api/admin/mfa/disable', mfaLimiter, requireRole('admin'), asyncHandler(async (req, res) => {
+  const r = await pool.query('SELECT mfa_secret FROM users WHERE id = $1', [req.session.userId]);
+  const secret = r.rows[0] && r.rows[0].mfa_secret;
+  if (!secret || !verifyTotp(secret, req.body.token)) {
+    return res.status(401).json({ error: 'Enter a valid code from your authenticator to disable MFA.' });
+  }
+  await pool.query(
+    'UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL, mfa_backup_codes = NULL WHERE id = $1',
+    [req.session.userId]
+  );
+  req.session.mfaVerified = false;
+  await createAuditLog(req.session.userId, 'ADMIN_MFA_DISABLED', 'user', req.session.userId, '');
+  res.json({ message: 'MFA disabled.' });
 }));
 
 // --- 404 and error handling (must be last, after all routes) ---

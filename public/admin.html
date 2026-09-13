@@ -40,6 +40,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         Users
       </button>
+      <button class="admin-nav-item" data-section="security">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Security
+      </button>
       <div style="flex:1;"></div>
       <button id="logoutBtn" class="admin-nav-item" style="color:var(--danger);">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
@@ -97,7 +101,46 @@
         <h1>Users</h1>
         <div class="admin-list" id="usersList2"></div>
       </div>
+
+      <div id="securitySection" style="display:none;">
+        <h1>Security</h1>
+        <div class="job-card" style="max-width:520px;">
+          <strong style="display:block; margin-bottom:0.3rem;">Two-factor authentication</strong>
+          <p class="job-meta" style="margin-bottom:1rem;">The admin panel can delete accounts, approve professionals and resolve disputes. A password alone isn't enough protection for that.</p>
+          <div id="mfaStatus"></div>
+
+          <div id="mfaSetupPanel" style="display:none; margin-top:1rem; padding-top:1rem; border-top:1px solid var(--line);">
+            <p style="font-size:0.88rem; margin-bottom:0.75rem;"><strong>1.</strong> Scan this with Google Authenticator, Authy or 1Password:</p>
+            <div id="mfaQr" style="text-align:center; margin-bottom:0.75rem;"></div>
+            <p class="job-meta" style="margin-bottom:0.5rem;">Can't scan? Enter this key manually:</p>
+            <code id="mfaSecret" style="display:block; background:var(--surface); padding:0.6rem 0.8rem; border-radius:var(--radius-sm); font-size:0.85rem; word-break:break-all; margin-bottom:1rem;"></code>
+            <p style="font-size:0.88rem; margin-bottom:0.5rem;"><strong>2.</strong> Enter the 6-digit code it shows:</p>
+            <input type="text" id="mfaActivateCode" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+            <div class="error" id="mfaSetupError"></div>
+            <button type="button" id="mfaActivateBtn">Turn on two-factor</button>
+          </div>
+
+          <div id="mfaBackupPanel" style="display:none; margin-top:1rem; padding-top:1rem; border-top:1px solid var(--line);">
+            <strong style="display:block; margin-bottom:0.4rem;">Save your backup codes</strong>
+            <p class="job-meta" style="margin-bottom:0.75rem;">Each works once. Without these, losing your phone means losing admin access permanently. Store them somewhere safe now — they won't be shown again.</p>
+            <div id="mfaBackupCodes" style="background:var(--surface); padding:0.9rem; border-radius:var(--radius-sm); font-family:monospace; font-size:0.9rem; line-height:1.9; margin-bottom:0.75rem;"></div>
+            <button type="button" id="mfaBackupDone" class="btn-outline">I've saved them</button>
+          </div>
+        </div>
+      </div>
     </main>
+  </div>
+
+  <div class="modal-overlay" id="mfaChallengeModal" style="display:none;">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h2>Verify it's you</h2>
+      <p class="job-meta" style="margin-top:-0.5rem; margin-bottom:1rem;">Enter the 6-digit code from your authenticator app, or one of your backup codes.</p>
+      <div class="error" id="mfaChallengeError"></div>
+      <input type="text" id="mfaChallengeCode" inputmode="text" placeholder="000000" autocomplete="one-time-code">
+      <div class="modal-actions">
+        <button type="button" id="mfaChallengeSubmit">Verify</button>
+      </div>
+    </div>
   </div>
 
   <script src="js/categories.js"></script>
@@ -126,12 +169,14 @@
         document.getElementById('safetySection').style.display = section === 'safety' ? 'block' : 'none';
         document.getElementById('auditSection').style.display = section === 'audit' ? 'block' : 'none';
         document.getElementById('usersSection').style.display = section === 'users' ? 'block' : 'none';
+        document.getElementById('securitySection').style.display = section === 'security' ? 'block' : 'none';
         if (section === 'overview') loadOverview();
         if (section === 'map') loadMap();
         if (section === 'pricing') loadPricing();
         if (section === 'safety') loadSafety();
         if (section === 'audit') initAuditLog();
         if (section === 'users') initUsersDirectory();
+        if (section === 'security') loadMfaStatus();
       });
     });
 
@@ -158,6 +203,143 @@
       }
       e.target.disabled = false;
     });
+
+    // --- Admin MFA ---
+    async function loadMfaStatus() {
+      const el = document.getElementById('mfaStatus');
+      el.innerHTML = '<div class="skeleton skeleton-row"></div>';
+      const res = await fetch('/api/admin/mfa/status');
+      if (!res.ok) { el.innerHTML = errorStateHtml('loadMfaStatus()'); return; }
+      const { enabled } = await res.json();
+
+      if (enabled) {
+        el.innerHTML = `
+          <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.9rem;">
+            <span class="verif-badge" style="color:var(--primary-deep); background:var(--primary-tint);">✓ Enabled</span>
+            <span class="job-meta">Your admin account is protected.</span>
+          </div>
+          <input type="text" id="mfaDisableCode" inputmode="numeric" maxlength="6" placeholder="Enter code to turn off">
+          <div class="error" id="mfaDisableError"></div>
+          <button type="button" id="mfaDisableBtn" class="btn-outline" style="border-color:var(--danger); color:var(--danger);">Turn off two-factor</button>
+        `;
+        document.getElementById('mfaDisableBtn').addEventListener('click', disableMfa);
+      } else {
+        el.innerHTML = `
+          <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.9rem;">
+            <span class="verif-badge" style="color:var(--warning); background:#FEF3C7;">Not enabled</span>
+          </div>
+          <button type="button" id="mfaStartBtn">Set up two-factor</button>
+        `;
+        document.getElementById('mfaStartBtn').addEventListener('click', startMfaSetup);
+      }
+      document.getElementById('mfaSetupPanel').style.display = 'none';
+      document.getElementById('mfaBackupPanel').style.display = 'none';
+    }
+
+    async function startMfaSetup() {
+      const res = await fetch('/api/admin/mfa/setup', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+
+      document.getElementById('mfaSecret').textContent = data.secret;
+      document.getElementById('mfaSetupPanel').style.display = 'block';
+      document.getElementById('mfaSetupError').textContent = '';
+
+      // QR is generated in the browser — the secret is never sent to a
+      // third-party QR service, which would be handing over the key.
+      const qrEl = document.getElementById('mfaQr');
+      qrEl.innerHTML = '<span class="job-meta">Generating QR…</span>';
+      try {
+        if (!window.QRCode) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js';
+            s.onload = resolve; s.onerror = reject;
+            document.head.appendChild(s);
+          });
+        }
+        const canvas = document.createElement('canvas');
+        await window.QRCode.toCanvas(canvas, data.otpauthUrl, { width: 180, margin: 1 });
+        qrEl.innerHTML = '';
+        qrEl.appendChild(canvas);
+      } catch (err) {
+        // Manual key entry below still works, so this is a soft failure.
+        qrEl.innerHTML = '<span class="job-meta">QR unavailable — use the key below.</span>';
+      }
+    }
+
+    document.getElementById('mfaActivateBtn').addEventListener('click', async () => {
+      const errorEl = document.getElementById('mfaSetupError');
+      errorEl.textContent = '';
+      const token = document.getElementById('mfaActivateCode').value.trim();
+      const res = await fetch('/api/admin/mfa/activate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token })
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+
+      document.getElementById('mfaSetupPanel').style.display = 'none';
+      document.getElementById('mfaBackupCodes').innerHTML = data.backupCodes.map(escapeHtml).join('<br>');
+      document.getElementById('mfaBackupPanel').style.display = 'block';
+      showToast('Two-factor enabled.', 'success');
+    });
+
+    document.getElementById('mfaBackupDone').addEventListener('click', () => {
+      document.getElementById('mfaBackupPanel').style.display = 'none';
+      loadMfaStatus();
+    });
+
+    async function disableMfa() {
+      const errorEl = document.getElementById('mfaDisableError');
+      errorEl.textContent = '';
+      const token = document.getElementById('mfaDisableCode').value.trim();
+      const res = await fetch('/api/admin/mfa/disable', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token })
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      showToast('Two-factor disabled.', 'success');
+      loadMfaStatus();
+    }
+
+    // Global MFA challenge. Any admin request can come back demanding
+    // verification, so this wraps fetch once rather than adding a check
+    // to every call site — including future ones.
+    (function () {
+      const originalFetch = window.fetch.bind(window);
+      let challengeOpen = false;
+      window.fetch = async function (input, init) {
+        const response = await originalFetch(input, init);
+        const url = typeof input === 'string' ? input : (input && input.url) || '';
+        if (response.status === 403 && url.includes('/api/admin/') && !url.includes('/mfa/')) {
+          const body = await response.clone().json().catch(() => null);
+          if (body && body.mfaRequired && !challengeOpen) {
+            challengeOpen = true;
+            openModal(document.getElementById('mfaChallengeModal'));
+          }
+        }
+        return response;
+      };
+      document.getElementById('mfaChallengeSubmit').addEventListener('click', async () => {
+        const errorEl = document.getElementById('mfaChallengeError');
+        errorEl.textContent = '';
+        const token = document.getElementById('mfaChallengeCode').value.trim();
+        // Use the wrapped fetch so the CSRF token is attached
+        // automatically — /mfa/ URLs are excluded from the challenge
+        // check above, so this can't recurse.
+        const res = await fetch('/api/admin/mfa/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        });
+        const data = await res.json();
+        if (!res.ok) { errorEl.textContent = data.error; return; }
+        challengeOpen = false;
+        closeModal(document.getElementById('mfaChallengeModal'));
+        showToast('Verified.', 'success');
+        window.location.reload();
+      });
+    })();
 
     async function loadOverview() {
       const grid = document.getElementById('overviewStats');
