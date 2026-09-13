@@ -279,7 +279,6 @@
       startPostJob();
     });
 
-    let bookingsShowAll = false;
 
     async function loadBookings() {
       const list = document.getElementById('bookingsList');
@@ -287,7 +286,7 @@
 
       let res;
       try {
-        res = await fetch('/api/bookings/mine?activeOnly=true&limit=8');
+        res = await fetch('/api/bookings/mine?activeOnly=true&limit=6');
       } catch (err) {
         list.innerHTML = errorStateHtml('loadBookings()');
         return;
@@ -304,7 +303,9 @@
         return;
       }
 
-      const shown = bookingsShowAll ? data.bookings : data.bookings.slice(0, 8);
+      // A snapshot — three is enough to show "here's what's happening"
+      // without the home screen becoming a second Jobs page.
+      const shown = data.bookings.slice(0, 3);
       shown.forEach(b => {
         const meta = STATUS_META[b.status] || STATUS_META.requested;
         const color = categoryColor(b.category);
@@ -351,12 +352,16 @@
         list.appendChild(wrap);
       });
 
-      if (!bookingsShowAll && data.bookings.length > 8) {
+      // Home is a snapshot, not a second copy of the Jobs page. The old
+      // "Show all" button expanded the list inline — exactly the pile-up
+      // this was meant to stop — and competed with the "View all" link
+      // above it. Send people to Jobs, where filters and history live.
+      if (data.bookings.length >= 3) {
         const moreBtn = document.createElement('button');
         moreBtn.className = 'btn-outline';
         moreBtn.style.marginTop = '0.25rem';
-        moreBtn.textContent = `Show all ${data.bookings.length} bookings`;
-        moreBtn.onclick = () => { bookingsShowAll = true; loadBookings(); };
+        moreBtn.textContent = 'View all jobs';
+        moreBtn.onclick = () => { window.location.href = '/client-jobs.html'; };
         list.appendChild(moreBtn);
       }
     }
