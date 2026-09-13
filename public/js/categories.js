@@ -1216,3 +1216,40 @@ window.promptForCategory = function (category) {
     hint: 'The more detail you give, the more accurate the estimate.'
   };
 };
+
+// --- Auth flash guard ---
+// The CSS above hides authenticated content until this marks the page
+// ready. Without it, 22 pages rendered their full UI before /api/me
+// resolved — so you briefly saw the dashboard (or admin panel) before
+// being bounced to login, and on a role mismatch the wrong side of the
+// app flashed past first.
+(function () {
+  const reveal = () => document.documentElement.setAttribute('data-auth-ready', '1');
+
+  // Pages with no session check must never stay hidden — reveal at once.
+  const AUTH_FREE = /\/(login|signup|signup-customer|signup-worker|index|reset-password|terms|privacy|404)\.html$/;
+  if (AUTH_FREE.test(window.location.pathname) || window.location.pathname === '/') {
+    reveal();
+    return;
+  }
+
+  // Reveal as soon as any /api/me call resolves — that's the moment the
+  // page knows who the user is and whether it's about to redirect.
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const promise = originalFetch(input, init);
+    if (url.includes('/api/me')) {
+      // Reveal on the next frame so any redirect issued in the same tick
+      // wins the race and the user never sees the page at all.
+      promise.then(() => requestAnimationFrame(reveal)).catch(reveal);
+    }
+    return promise;
+  };
+
+  // Safety net: if a page never calls /api/me, or the request hangs,
+  // showing the content is far better than an app that appears blank.
+  setTimeout(reveal, 3000);
+  // Never leave it hidden if scripts fail outright.
+  window.addEventListener('error', reveal);
+})();

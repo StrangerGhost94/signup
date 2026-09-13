@@ -2796,3 +2796,27 @@ select[style*="margin-bottom:0"] { margin-bottom: 0; }
 
 .addr-ac-item, .addr-ac-item:hover, .addr-ac-item:focus { color: var(--ink); }
 .addr-ac-item:hover, .addr-ac-item.active { background: var(--surface); }
+
+/* ============================================================
+   AUTH FLASH GUARD
+   Authenticated pages were rendering their full content before
+   /api/me resolved — so you briefly saw the dashboard (or the admin
+   panel) before being redirected, and on role mismatch you saw the
+   wrong side of the app flash past. Content stays hidden until the
+   session is confirmed.
+
+   `visibility` rather than `display` so layout is already computed and
+   there's no reflow jump when it appears.
+   ============================================================ */
+html:not([data-auth-ready]) .app-shell,
+html:not([data-auth-ready]) .admin-shell,
+html:not([data-auth-ready]) body.app-body > .dash-wrap,
+html:not([data-auth-ready]) body.app-body > .bottom-nav {
+  visibility: hidden;
+}
+html[data-auth-ready] .app-shell,
+html[data-auth-ready] .admin-shell,
+html[data-auth-ready] body.app-body > .dash-wrap,
+html[data-auth-ready] body.app-body > .bottom-nav {
+  visibility: visible;
+}
