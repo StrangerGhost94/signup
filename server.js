@@ -1065,12 +1065,12 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", 'https://unpkg.com', 'https://accounts.google.com', 'https://apis.google.com'],
-      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://unpkg.com'],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://unpkg.com', 'https://accounts.google.com', 'https://apis.google.com', 'https://accounts.google.com/gsi/client'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://unpkg.com', 'https://accounts.google.com/gsi/style'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https://*.basemaps.cartocdn.com', 'https://*.tile.openstreetmap.org', 'https://unpkg.com', 'https://lh3.googleusercontent.com'],
-      connectSrc: ["'self'", 'https://nominatim.openstreetmap.org', 'https://openrouter.ai', 'https://accounts.google.com'],
-      frameSrc: ["'self'", 'https://accounts.google.com'],
+      connectSrc: ["'self'", 'https://nominatim.openstreetmap.org', 'https://openrouter.ai', 'https://accounts.google.com', 'https://accounts.google.com/gsi/'],
+      frameSrc: ["'self'", 'https://accounts.google.com', 'https://accounts.google.com/gsi/'],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
@@ -1078,6 +1078,14 @@ app.use(helmet({
     }
   },
   crossOriginEmbedderPolicy: false, // would block the map tiles and Google auth
+  // Helmet defaults Cross-Origin-Opener-Policy to 'same-origin', which
+  // severs a popup's link back to the window that opened it. Google
+  // Identity Services signs in via exactly that popup and then calls
+  // back to the opener — so the default silently breaks Google sign-in
+  // and leaves a blank page. 'same-origin-allow-popups' keeps the
+  // isolation benefit for the page itself while permitting the popup
+  // callback Google needs.
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   hsts: process.env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true } : false
 }));
 
@@ -1151,7 +1159,11 @@ const CSRF_SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS'];
 // an already-authenticated victim, which is what CSRF exploits.
 const CSRF_EXEMPT_PATHS = [
   '/api/login', '/api/signup', '/api/logout',
-  '/api/forgot-password', '/api/reset-password'
+  '/api/forgot-password', '/api/reset-password',
+  // Google's identity callback can't carry our session-bound token —
+  // it's an authentication entry point, same class as login/signup.
+  // Its own security comes from verifying Google's signed ID token.
+  '/api/auth/google'
 ];
 
 app.use((req, res, next) => {
