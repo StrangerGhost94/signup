@@ -142,24 +142,33 @@
       const approvedProviders = d.providersByStatus.APPROVED || 0;
 
       const cards = [
-        { label: 'Online right now', value: d.onlineNow, color: '#0B6E4F', bg: '#E6F4EC', icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>' },
-        { label: 'Active in last 30 min', value: d.recentlyActive, color: '#D97706', bg: '#FEF3C7', icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>' },
-        { label: 'Clients', value: clients, color: '#3B6FA0', bg: '#DBEAFE', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>' },
-        { label: 'Providers (approved)', value: `${approvedProviders} / ${providers}`, color: '#8B5E34', bg: '#F1E9E1', icon: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>' },
+        { label: 'Online right now', value: d.onlineNow, color: '#0B6E4F', bg: '#E6F4EC', icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>', goto: 'map' },
+        { label: 'Active in last 30 min', value: d.recentlyActive, color: '#D97706', bg: '#FEF3C7', icon: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>', goto: 'map' },
+        { label: 'Clients', value: clients, color: '#3B6FA0', bg: '#DBEAFE', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>', goto: 'users' },
+        { label: 'Providers (approved)', value: `${approvedProviders} / ${providers}`, color: '#8B5E34', bg: '#F1E9E1', icon: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>', goto: 'users' },
         { label: 'Jobs posted today', value: d.jobsToday, color: '#2F6169', bg: '#E1EEF0', icon: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/>' },
-        { label: 'Pending applications', value: d.pendingApplications, color: '#B45309', bg: '#FEF3C7', icon: '<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/>', alert: d.pendingApplications > 0 },
-        { label: 'Open reports', value: d.openReports, color: '#B91C1C', bg: '#FEE2E2', icon: '<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', alert: d.openReports > 0 },
-        { label: 'Open disputes', value: d.openDisputes, color: '#B91C1C', bg: '#FEE2E2', icon: '<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', alert: d.openDisputes > 0 },
+        { label: 'Pending applications', value: d.pendingApplications, color: '#B45309', bg: '#FEF3C7', icon: '<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/>', alert: d.pendingApplications > 0, goto: 'applications' },
+        { label: 'Open reports', value: d.openReports, color: '#B91C1C', bg: '#FEE2E2', icon: '<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', alert: d.openReports > 0, goto: 'safety' },
+        { label: 'Open disputes', value: d.openDisputes, color: '#B91C1C', bg: '#FEE2E2', icon: '<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>', alert: d.openDisputes > 0, goto: 'safety' },
         { label: 'Completed jobs (total value)', value: `UGX ${d.completedJobsValue.toLocaleString()}`, color: '#0B6E4F', bg: '#E6F4EC', icon: '<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>' }
       ];
 
       grid.innerHTML = cards.map(c => `
-        <div class="admin-stat-card${c.alert ? ' alert' : ''}">
+        <div class="admin-stat-card${c.alert ? ' alert' : ''}${c.goto ? ' clickable' : ''}" ${c.goto ? `data-goto="${c.goto}"` : ''}>
           <div class="stat-icon" style="background:${c.bg}; color:${c.color};"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${c.icon}</svg></div>
           <div class="stat-value">${c.value}</div>
-          <div class="stat-label">${c.label}</div>
+          <div class="stat-label">${c.label}${c.goto ? ' <span style="opacity:0.5;">›</span>' : ''}</div>
         </div>
       `).join('');
+
+      // A dashboard number you can't act on is just decoration — clicking
+      // a card jumps straight to the section it describes.
+      grid.querySelectorAll('[data-goto]').forEach(card => {
+        card.addEventListener('click', () => {
+          const target = document.querySelector(`.admin-nav-item[data-section="${card.dataset.goto}"]`);
+          if (target) target.click();
+        });
+      });
     }
 
     let adminMapInstance = null;
