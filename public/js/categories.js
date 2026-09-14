@@ -13,11 +13,26 @@
     // De-duplicate: if several requests fire at once on page load, they
     // share one token fetch rather than racing.
     if (inFlight) return inFlight;
-    inFlight = fetch('/api/csrf-token', { credentials: 'same-origin' })
+
+    // MUST have a deadline. The wrapper below awaits this before it
+    // issues the actual request, so without a timeout a stalled token
+    // call hangs every POST/PUT/DELETE in the app forever — buttons sit
+    // on "Saving…" with no error, and a caller's own AbortController
+    // can't help because its request hasn't started yet.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+
+    inFlight = fetch('/api/csrf-token', {
+      credentials: 'same-origin',
+      signal: controller.signal
+    })
       .then(r => (r.ok ? r.json() : null))
       .then(d => { csrfToken = d && d.csrfToken ? d.csrfToken : null; return csrfToken; })
+      // Fail open: proceed without a token rather than blocking. If the
+      // route needs one the server returns 403 and the retry below
+      // handles it — an error beats an infinite hang.
       .catch(() => null)
-      .finally(() => { inFlight = null; });
+      .finally(() => { clearTimeout(timer); inFlight = null; });
     return inFlight;
   }
 
