@@ -551,18 +551,39 @@
         acceptsSameDay: document.getElementById('acceptsSameDay').checked
       };
 
-      const res = await fetch('/api/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        errorEl.textContent = data.error;
+      const submitBtn = document.getElementById('submitBtn');
+      const originalSubmitText = submitBtn.textContent;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Submitting…';
+
+      try {
+        const res = await fetch('/api/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        const data = contentType.includes('application/json')
+          ? await res.json().catch(() => ({}))
+          : { error: await res.text().catch(() => '') };
+
+        if (!res.ok) {
+          console.error('HandyLink signup failed:', { status: res.status, data });
+          errorEl.textContent = data.error || `Signup failed (HTTP ${res.status}). Please try again.`;
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+
+        window.location.href = '/provider-dashboard.html';
+      } catch (err) {
+        console.error('HandyLink signup request failed:', err);
+        errorEl.textContent = 'We could not reach HandyLink. Please check your connection and try again.';
         window.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalSubmitText;
       }
-      window.location.href = '/provider-dashboard.html';
     });
   </script>
 </body>
