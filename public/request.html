@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Describe the job — HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B6E4F">
+<link rel="apple-touch-icon" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body">
+  <div class="form-page">
+    <a href="/dashboard.html" class="back-link" id="backLink">← Back</a>
+    <span class="brand" id="categoryLabel" style="display:block; margin-bottom:0.4rem;"></span>
+
+    <div id="formStep">
+      <h1>What needs to be fixed?</h1>
+      <div class="error" id="error"></div>
+
+      <form id="requestForm">
+        <textarea id="description" rows="4" required></textarea>
+        <p class="job-meta" id="descriptionHint" style="margin:-0.5rem 0 1rem;"></p>
+
+        <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.5rem;">Photos (optional)</label>
+        <div class="photo-upload-strip" id="photoStrip">
+          <label class="photo-add-btn" for="photoInput">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </label>
+          <input type="file" id="photoInput" accept="image/*" multiple style="display:none;">
+        </div>
+
+        <label style="display:block; font-weight:700; font-size:0.9rem; margin-bottom:0.6rem;">How urgent is this?</label>
+        <div class="urgency-grid" id="urgencyGrid"></div>
+
+        <div id="scheduleFields" style="display:none; background:var(--surface); border-radius:var(--radius-sm); padding:1rem; margin-bottom:1rem;">
+          <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:0.6rem;">When would you like this done?</label>
+          <div style="display:flex; gap:0.6rem;">
+            <input type="date" id="scheduleDate" style="margin-bottom:0;">
+            <input type="time" id="scheduleTime" style="margin-bottom:0;">
+          </div>
+          <p class="job-meta" id="scheduleError" style="color:var(--danger); margin:0.5rem 0 0;"></p>
+        </div>
+
+        <div class="location-input-wrap">
+          <input type="text" id="location" placeholder="Where is the job? (e.g. Ntinda, Kampala)" required>
+          <button type="button" class="location-autofill-btn" onclick="autofillLocation('location', this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            Use GPS
+          </button>
+        </div>
+        <textarea id="locationNotes" rows="2" placeholder="Additional directions (optional) — e.g. Apartment 4B, second floor"></textarea>
+
+        <button type="submit">Analyze job</button>
+      </form>
+    </div>
+
+    <div id="loadingStep" style="display:none;">
+      <div class="assess-loading">
+        <div class="spinner"></div>
+        <p>Analyzing your job...</p>
+      </div>
+    </div>
+
+    <div id="estimateStep" style="display:none;"></div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const category = params.get('category') || 'Other';
+    let selectedUrgency = sessionStorage.getItem('preferredUrgency') || 'today';
+    sessionStorage.removeItem('preferredUrgency');
+    let photos = [];
+
+    document.getElementById('categoryLabel').innerHTML =
+      `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(category)}" stroke-width="2" style="width:1.15em;height:1.15em;">${categoryIcon(category)}</svg> ${escapeHtml(category)}`;
+
+    // Match the example and guidance to the chosen service. A plumbing
+    // example on a Realtor request actively misleads — it prompts people
+    // to describe the wrong things, which then degrades the AI estimate.
+    const prompt = promptForCategory(category);
+    document.getElementById('description').placeholder = prompt.placeholder;
+    document.getElementById('descriptionHint').textContent = prompt.hint;
+
+    // "What needs to be fixed?" is wrong for services that aren't repairs
+    // — nothing is broken when you're hiring a realtor or a cleaner.
+    const NON_REPAIR_HEADINGS = {
+      'Realtor': 'What are you looking for?',
+      'Construction': 'What do you want built?',
+      'Cleaning': 'What needs cleaning?',
+      'Moving': 'What are you moving?',
+      'Painting': 'What needs painting?'
+    };
+    document.querySelector('#formStep h1').textContent =
+      NON_REPAIR_HEADINGS[category] || 'What needs to be fixed?';
+
+    const urgencyGrid = document.getElementById('urgencyGrid');
+    URGENCY_OPTIONS.forEach(opt => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'urgency-btn' + (opt.value === selectedUrgency ? ' active' : '');
+      btn.style.borderColor = opt.value === selectedUrgency ? opt.color : '';
+      btn.style.color = opt.value === selectedUrgency ? opt.color : '';
+      btn.innerHTML = `<strong>${opt.label}</strong><span>${opt.sub}</span>`;
+      btn.onclick = () => {
+        selectedUrgency = opt.value;
+        document.querySelectorAll('.urgency-btn').forEach(b => {
+          b.classList.remove('active');
+          b.style.borderColor = '';
+          b.style.color = '';
+        });
+        btn.classList.add('active');
+        btn.style.borderColor = opt.color;
+        btn.style.color = opt.color;
+        document.getElementById('scheduleFields').style.display = opt.value === 'schedule' ? 'block' : 'none';
+      };
+      urgencyGrid.appendChild(btn);
+    });
+    document.getElementById('scheduleFields').style.display = selectedUrgency === 'schedule' ? 'block' : 'none';
+
+    // Sensible defaults: today's date as the earliest selectable one, and
+    // a default time an hour from now so the field never starts invalid.
+    const scheduleDateInput = document.getElementById('scheduleDate');
+    const scheduleTimeInput = document.getElementById('scheduleTime');
+    const todayStr = new Date().toISOString().split('T')[0];
+    scheduleDateInput.min = todayStr;
+    if (!scheduleDateInput.value) scheduleDateInput.value = todayStr;
+    if (!scheduleTimeInput.value) {
+      const defaultTime = new Date(Date.now() + 60 * 60 * 1000);
+      scheduleTimeInput.value = defaultTime.toTimeString().slice(0, 5);
+    }
+
+    // Coordinates captured when an address is picked from the dropdown.
+    // Far more reliable than GPS indoors or on a weak signal, and gives
+    // the matching engine exact coordinates rather than a place name.
+    let pickedLocationCoords = null;
+    attachAddressAutocomplete('location', (r) => {
+      pickedLocationCoords = { latitude: r.latitude, longitude: r.longitude };
+    });
+    // Typing freely after a pick invalidates those coordinates — keeping
+    // stale ones would silently match against the wrong place.
+    document.getElementById('location').addEventListener('input', (e) => {
+      if (e.isTrusted) pickedLocationCoords = null;
+    });
+
+    function getScheduledForIso() {
+      if (selectedUrgency !== 'schedule') return null;
+      if (!scheduleDateInput.value || !scheduleTimeInput.value) return undefined; // missing
+      return new Date(`${scheduleDateInput.value}T${scheduleTimeInput.value}`).toISOString();
+    }
+
+    document.getElementById('photoInput').addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files).slice(0, 3 - photos.length);
+      for (const file of files) {
+        try {
+          const compressed = await compressImageFile(file, 900, 0.7);
+          photos.push(compressed);
+        } catch (err) { showToast(err.message, 'error'); }
+      }
+      renderPhotoStrip();
+    });
+
+    function renderPhotoStrip() {
+      const strip = document.getElementById('photoStrip');
+      strip.querySelectorAll('img').forEach(img => img.remove());
+      photos.forEach((p, i) => {
+        const img = document.createElement('img');
+        img.src = p;
+        img.className = 'photo-thumb';
+        img.style.cursor = 'pointer';
+        img.title = 'Tap to remove';
+        img.onclick = () => { photos.splice(i, 1); renderPhotoStrip(); };
+        strip.insertBefore(img, strip.firstChild);
+      });
+      document.getElementById('photoInput').parentElement.style.display = photos.length >= 3 ? 'none' : 'flex';
+    }
+
+    (async () => {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'client') { window.location.href = '/provider-dashboard.html'; return; }
+    })();
+
+    document.getElementById('requestForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = '';
+
+      const description = document.getElementById('description').value.trim();
+      const location = document.getElementById('location').value.trim();
+      if (!description || !location) {
+        errorEl.textContent = 'Please describe the job and where it is.';
+        return;
+      }
+
+      const scheduledForIso = getScheduledForIso();
+      if (scheduledForIso === undefined) {
+        errorEl.textContent = 'Please choose a date and time for your scheduled job.';
+        return;
+      }
+      if (scheduledForIso && new Date(scheduledForIso).getTime() <= Date.now()) {
+        errorEl.textContent = 'Please choose a time in the future.';
+        return;
+      }
+
+      document.getElementById('formStep').style.display = 'none';
+      document.getElementById('loadingStep').style.display = 'block';
+      document.getElementById('backLink').style.display = 'none';
+
+      const res = await fetch('/api/jobs/assess', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description, photos, category, urgency: selectedUrgency })
+      });
+      const data = await res.json();
+
+      document.getElementById('loadingStep').style.display = 'none';
+
+      if (!res.ok) {
+        document.getElementById('formStep').style.display = 'block';
+        document.getElementById('backLink').style.display = 'inline-block';
+        errorEl.textContent = data.error;
+        return;
+      }
+
+      sessionStorage.setItem('pendingJob', JSON.stringify({
+        category,
+        description,
+        urgency: selectedUrgency,
+        scheduledFor: scheduledForIso,
+        location,
+        locationNotes: document.getElementById('locationNotes').value.trim(),
+        locationCoords: pickedLocationCoords,
+        photos,
+        assessmentId: data.assessment.id,
+        estimateMin: data.assessment.total_min,
+        estimateMax: data.assessment.total_max
+      }));
+
+      renderEstimate(data.assessment);
+    });
+
+    const COMPLEXITY_COLORS = { EASY: '#0B6E4F', MEDIUM: '#D97706', COMPLEX: '#DC2626', UNKNOWN: '#6B7280' };
+    const CONFIDENCE_STYLE = {
+      HIGH: { bg: '#E6F4EC', color: '#0B6E4F', label: '🟢 High confidence' },
+      MEDIUM: { bg: '#FEF3C7', color: '#92400E', label: '🟡 Medium confidence' },
+      LOW: { bg: '#FEE2E2', color: '#B91C1C', label: '🔴 Low confidence — more info would help' }
+    };
+
+    function renderEstimate(a) {
+      const step = document.getElementById('estimateStep');
+      step.style.display = 'block';
+      const conf = CONFIDENCE_STYLE[a.confidence] || CONFIDENCE_STYLE.MEDIUM;
+      const materials = Array.isArray(a.likely_materials) ? a.likely_materials : JSON.parse(a.likely_materials || '[]');
+      const questions = Array.isArray(a.questions) ? a.questions : JSON.parse(a.questions || '[]');
+
+      step.innerHTML = `
+        <div class="estimate-card">
+          <div class="est-service"><svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(a.service)}" stroke-width="2" style="width:16px;height:16px;">${categoryIcon(a.service)}</svg>${escapeHtml(a.service)}</div>
+          <h2>${escapeHtml(a.job_type)}</h2>
+          <p class="est-summary">${escapeHtml(a.problem_summary)}</p>
+
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.85rem;">
+            <div class="est-complexity" style="margin-bottom:0;"><span class="dot" style="background:${COMPLEXITY_COLORS[a.complexity] || '#6B7280'};"></span>${escapeHtml(a.complexity)}</div>
+            <div class="est-confidence" style="background:${conf.bg}; color:${conf.color}; margin-bottom:0;">${conf.label}</div>
+          </div>
+
+          ${materials.length ? `<p class="job-meta" style="margin-bottom:0.85rem;"><strong>Likely materials:</strong> ${materials.map(m => escapeHtml(m)).join(', ')}</p>` : ''}
+
+          ${a.confidence === 'LOW' ? `
+            <div class="est-cost-box">
+              <span class="est-label">Estimate</span>
+              <div style="font-size:1rem; font-weight:700; color:var(--ink); margin:0.3rem 0;">More information is needed before we can give a useful cost estimate.</div>
+              <p style="font-size:0.85rem; color:var(--ink-soft); margin:0;">A pro will need to assess this in person to confirm pricing.</p>
+            </div>
+          ` : `
+            <div class="est-cost-box">
+              <span class="est-label">Estimated cost</span>
+              <div class="est-total">UGX ${a.total_min.toLocaleString()} – ${a.total_max.toLocaleString()}</div>
+              <div class="est-breakdown">
+                <div><strong>UGX ${a.labour_min.toLocaleString()} – ${a.labour_max.toLocaleString()}</strong>Labour</div>
+                <div><strong>UGX ${a.materials_min.toLocaleString()} – ${a.materials_max.toLocaleString()}</strong>Materials</div>
+              </div>
+            </div>
+          `}
+
+          ${a.requires_inspection ? `<p class="job-meta" style="margin-top:0.6rem;">ℹ️ A pro may need to inspect the job before confirming the final price — this is an estimate, not a final price.</p>` : ''}
+
+          ${questions.length ? `
+            <button type="button" class="switch" id="toggleQuestions" style="background:none; border:none; padding:0; margin-top:0.75rem; width:auto; min-height:auto; color:var(--primary); font-weight:700; text-decoration:underline; cursor:pointer;">
+              ${a.confidence === 'LOW' ? 'A few questions would help — tap to view' : 'A few quick questions could improve this — tap to view'}
+            </button>
+            <div class="est-questions" id="questionsBox" style="display:none;">
+              <ol>${questions.map(q => `<li>${escapeHtml(q)}</li>`).join('')}</ol>
+              <p style="margin:0.5rem 0 0; color:var(--ink-soft);">Feel free to add these details to your description and try again, or continue as-is.</p>
+            </div>` : ''}
+
+          <div class="decision-cards" id="decisionCards"></div>
+          <p class="switch" style="text-align:center; margin-top:0.85rem;"><a href="#" id="editDescLink">Edit description</a></p>
+        </div>
+      `;
+
+      renderDecisionCards(a);
+      const toggleBtn = document.getElementById('toggleQuestions');
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+          const box = document.getElementById('questionsBox');
+          const isHidden = box.style.display === 'none';
+          box.style.display = isHidden ? 'block' : 'none';
+          toggleBtn.textContent = isHidden ? 'Hide questions' : (a.confidence === 'LOW' ? 'A few questions would help — tap to view' : 'A few quick questions could improve this — tap to view');
+        });
+      }
+      document.getElementById('editDescLink').addEventListener('click', (e) => { e.preventDefault(); backToForm(); });
+    }
+
+    // Complex or higher-value jobs benefit more from comparing several
+    // quotes; quick, well-understood jobs benefit more from just booking
+    // a strong match fast. Recommend accordingly instead of presenting
+    // both options as if they're equally right for every job.
+    function renderDecisionCards(a) {
+      const recommendOffers = a.complexity === 'COMPLEX' || a.total_max >= 300000;
+      const container = document.getElementById('decisionCards');
+      container.innerHTML = `
+        <button type="button" class="decision-card${recommendOffers ? '' : ' recommended'}" id="bookDirectCard">
+          ${recommendOffers ? '' : '<span class="decision-card-badge">Recommended</span>'}
+          <div class="decision-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></div>
+          <strong>Book a specific pro</strong>
+          <p>Browse verified pros near you, ranked by fit, and book one directly.</p>
+          <span class="decision-cta">Browse pros →</span>
+        </button>
+        <button type="button" class="decision-card${recommendOffers ? ' recommended' : ''}" id="getOffersCard">
+          ${recommendOffers ? '<span class="decision-card-badge">Recommended</span>' : ''}
+          <div class="decision-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg></div>
+          <strong>Get multiple offers</strong>
+          <p>Post this job and compare quotes from several pros before choosing.</p>
+          <span class="decision-cta">Post & compare →</span>
+        </button>
+      `;
+      document.getElementById('bookDirectCard').addEventListener('click', proceedToMatches);
+      document.getElementById('getOffersCard').addEventListener('click', postOpenJob);
+    }
+
+    function proceedToMatches() {
+      window.location.href = `/matches.html?category=${encodeURIComponent(category)}`;
+    }
+
+    async function postOpenJob() {
+      const pendingJob = JSON.parse(sessionStorage.getItem('pendingJob') || 'null');
+      if (!pendingJob) { showToast('Something went wrong — please try again.', 'error'); return; }
+
+      const res = await fetch('/api/jobs/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: pendingJob.category,
+          description: pendingJob.description,
+          urgency: pendingJob.urgency,
+          location: pendingJob.location,
+          locationNotes: pendingJob.locationNotes,
+          assessmentId: pendingJob.assessmentId,
+          scheduledFor: pendingJob.scheduledFor
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) { showToast(data.error, 'error'); return; }
+      sessionStorage.removeItem('pendingJob');
+      showToast('Job posted — pros nearby can now send you quotes.', 'success');
+      window.location.href = '/client-jobs.html?tab=offers';
+    }
+
+    function backToForm() {
+      document.getElementById('estimateStep').style.display = 'none';
+      document.getElementById('formStep').style.display = 'block';
+      document.getElementById('backLink').style.display = 'inline-block';
+    }
+  </script>
+</body>
+</html>

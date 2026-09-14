@@ -266,30 +266,18 @@
       const original = btn ? btn.textContent : '';
       if (btn) { btn.textContent = 'Checking…'; btn.disabled = true; }
       try {
-        // A slow or stuck resolver on the server can otherwise leave this
-        // button showing "Checking…" indefinitely with no response ever
-        // arriving. Give up client-side after a few seconds so Continue
-        // always recovers even if the network never answers.
-        const controller = new AbortController();
-        const abortTimer = setTimeout(() => controller.abort(), 5000);
-        let res;
-        try {
-          res = await fetch('/api/check-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: email.value.trim() }),
-            signal: controller.signal
-          });
-        } finally {
-          clearTimeout(abortTimer);
-        }
+        const res = await fetch('/api/check-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.value.trim() })
+        });
         const data = await res.json().catch(() => ({ ok: true }));
         if (res.ok && data.ok === false) {
           return failStep(data.reason, email);
         }
       } catch (err) {
-        // A check outage (or a timeout) must never block signup — the
-        // server validates again at submit, so proceeding is safe.
+        // A check outage must never block signup — the server validates
+        // again at submit, so proceeding is safe.
       } finally {
         if (btn) { btn.textContent = original; btn.disabled = false; }
       }

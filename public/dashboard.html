@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HandyLink</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B6E4F">
+<link rel="apple-touch-icon" href="images/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="app-body has-bottom-nav">
+  <div class="app-shell" id="appShell" style="visibility:hidden;">
+    <nav class="sidebar-nav">
+      <a href="/dashboard.html" class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo"></a>
+      <a href="/dashboard.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
+      <a href="/client-jobs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+      <a href="/messages.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
+      <a href="/profile.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
+      <button type="button" class="sidebar-post" onclick="startPostJob()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Post a job</button>
+    </nav>
+
+    <div class="app-main">
+  <div class="dash-wrap">
+    <header class="app-topbar">
+      <div>
+        <a href="/dashboard.html" class="brand"><img src="images/logo.svg" alt="HandyLink" class="brand-logo"></a>
+        <button class="location-pill" id="locationBtn" style="background:none; border:none; cursor:pointer; width:auto; min-height:auto; padding:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          <span id="locationLabel">Set location</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+      </div>
+      <div class="topbar-right" style="position:relative;">
+        <button class="bell-btn" id="bellBtn" aria-label="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="bell-dot" id="bellDot" style="display:none;"></span>
+        </button>
+      </div>
+    </header>
+
+    <div id="locationBanner" style="display:none; border-radius:var(--radius); padding:0.9rem 1.1rem; margin-bottom:1.25rem; font-size:0.88rem; background:var(--primary-tint); align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+      <span>📍 Turn on location so we can find the nearest pros for you automatically.</span>
+      <button type="button" id="enableLocationBtn" class="small-btn" style="width:auto; flex-shrink:0;">Enable</button>
+    </div>
+
+    <div class="search-bar" style="position:relative;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input type="text" id="searchInput" placeholder="What do you need help with?" autocomplete="off">
+      <div id="searchSuggestions" class="search-suggestions" style="display:none;"></div>
+    </div>
+
+    <div id="homeContent">
+      <div class="cat-pager" id="catPager" style="margin-top:1.25rem;">
+        <div class="cat-pager-track" id="catPagerTrack"></div>
+      </div>
+      <div class="cat-pager-dots" id="catPagerDots"></div>
+
+      <div class="promo-card">
+        <div class="promo-text">
+          <strong>Need someone urgently?</strong>
+          <span>Get a verified professional near you.</span>
+        </div>
+        <button type="button" id="getHelpNowBtn">Get Help Now</button>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 class="section-title" id="recentJobs" style="margin-bottom:0;">Active jobs</h2>
+        <a href="/client-jobs.html" style="font-size:0.82rem; font-weight:700; color:var(--primary);">See all jobs</a>
+      </div>
+      <div id="bookingsList" class="stagger"></div>
+    </div>
+
+    <div id="searchResults" style="display:none;">
+      <div class="filters" id="filters"></div>
+      <p class="status-line" id="statusLine"></p>
+      <div class="worker-grid stagger" id="workerGrid"></div>
+    </div>
+  </div>
+    </div>
+  </div>
+
+  <nav class="bottom-nav">
+    <a href="/dashboard.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
+    <a href="/client-jobs.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v3h6V3M8 11h8M8 15h8"/></svg>Jobs</a>
+    <a href="/messages.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>Messages</a>
+    <a href="/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Profile</a>
+  </nav>
+
+  <div class="modal-overlay" id="rateModal" style="display:none;">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h2>How was it?</h2>
+      <div class="star-picker" id="starPicker">
+        <button type="button" data-v="1">★</button>
+        <button type="button" data-v="2">★</button>
+        <button type="button" data-v="3">★</button>
+        <button type="button" data-v="4">★</button>
+        <button type="button" data-v="5">★</button>
+      </div>
+
+      <div id="subRatings" style="margin-bottom:1rem;"></div>
+
+      <textarea id="reviewComment" rows="3" placeholder="Tell us about your experience (optional)"></textarea>
+      <div class="error" id="rateError"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelRate">Cancel</button>
+        <button type="button" id="submitRate">Submit review</button>
+      </div>
+      <p class="switch" style="margin-top:1rem;"><a href="#" id="fileDisputeLink" style="color:var(--danger); font-weight:600;">Something went seriously wrong? File a dispute instead</a></p>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="disputeModal" style="display:none;">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h2>File a dispute</h2>
+      <p class="subtext" style="margin-top:-0.5rem;">Our team will review this job and get back to you.</p>
+      <textarea id="disputeReason" rows="4" placeholder="What went wrong?"></textarea>
+      <div class="error" id="disputeError"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="cancelDispute">Cancel</button>
+        <button type="button" id="submitDispute">Submit dispute</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/categories.js"></script>
+  <script>
+    let activeCategory = '';
+    let ratingJobId = null;
+    let selectedStars = 0;
+
+    async function checkAuth() {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login.html'; return null; }
+      const me = await res.json();
+      if (me.role === 'provider') { window.location.href = '/provider-dashboard.html'; return null; }
+      return me;
+    }
+
+    // The 8 most commonly searched-for trade services stay on the first,
+    // always-visible page. Everything else (currently just Moving, but
+    // designed to hold more over time) lives on additional pages reached
+    // by swiping or the arrow buttons — chunked into pages of 8 so this
+    // never turns into one unwieldy row, however many services get added
+    // later.
+    const PRIMARY_CATEGORIES = ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Mechanical', 'Realtor', 'Construction'];
+    const PAGE_SIZE = 8;
+
+    function makeCatTile(cat) {
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'home-cat-tile';
+      tile.innerHTML = `<div class="icon-chip" style="background:color-mix(in srgb, ${categoryColor(cat)} 16%, white);"><svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="1.8">${categoryIcon(cat)}</svg></div><span>${cat}</span>`;
+      tile.onclick = () => window.location.href = `/request.html?category=${encodeURIComponent(cat)}`;
+      return tile;
+    }
+
+    function buildCategoryGrid() {
+      const allCats = Object.keys(CATEGORY_COLORS);
+      const primary = allCats.filter(c => PRIMARY_CATEGORIES.includes(c));
+      const more = allCats.filter(c => !PRIMARY_CATEGORIES.includes(c));
+
+      const pages = [primary];
+      for (let i = 0; i < more.length; i += PAGE_SIZE) {
+        pages.push(more.slice(i, i + PAGE_SIZE));
+      }
+
+      const track = document.getElementById('catPagerTrack');
+      const dotsWrap = document.getElementById('catPagerDots');
+
+      pages.forEach(pageCats => {
+        const page = document.createElement('div');
+        // Every page uses the same grid — no sparse special case — so a
+        // page with one service looks like a page with eight.
+        page.className = 'cat-pager-page';
+        pageCats.forEach(cat => page.appendChild(makeCatTile(cat)));
+        track.appendChild(page);
+      });
+
+      if (pages.length <= 1) {
+        dotsWrap.style.display = 'none';
+        return;
+      }
+
+      pages.forEach((_, i) => {
+        const dot = document.createElement('span');
+        dot.className = 'cat-pager-dot' + (i === 0 ? ' active' : '');
+        dotsWrap.appendChild(dot);
+      });
+
+      function updatePagerUI() {
+        const index = Math.round(track.scrollLeft / track.clientWidth);
+        [...dotsWrap.children].forEach((dot, i) => dot.classList.toggle('active', i === index));
+      }
+      track.addEventListener('scroll', updatePagerUI);
+      updatePagerUI();
+
+      // A brief, one-time peek toward page 2, then back — a silent hint
+      // that this slides, without needing a label or instructions.
+      setTimeout(() => {
+        track.scrollTo({ left: 36, behavior: 'smooth' });
+        setTimeout(() => track.scrollTo({ left: 0, behavior: 'smooth' }), 700);
+      }, 900);
+    }
+
+    async function saveMyLocation() {
+      return new Promise((resolve) => {
+        if (!navigator.geolocation) {
+          showToast('Location isn\u2019t available on this device.', 'error');
+          resolve(null);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          async (pos) => {
+            const { latitude, longitude, accuracy } = pos.coords;
+            myLat = latitude;
+            myLng = longitude;
+            const res = await fetch('/api/me/location', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ latitude, longitude, accuracy })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              showToast(data.error || 'Couldn\u2019t save your location.', 'error');
+              resolve(null);
+              return;
+            }
+            document.getElementById('locationLabel').textContent = data.city || data.district || 'Location set';
+            showToast('Location updated.', 'success');
+            resolve(data);
+          },
+          () => {
+            showToast('Location permission was denied.', 'error');
+            resolve(null);
+          },
+          { timeout: 10000 }
+        );
+      });
+    }
+
+    document.getElementById('locationBtn').addEventListener('click', async () => {
+      document.getElementById('locationLabel').textContent = 'Locating...';
+      const result = await saveMyLocation();
+      if (result) loadWorkers();
+    });
+
+    async function loadSavedLocation() {
+      const res = await fetch('/api/me');
+      if (!res.ok) return;
+      const me = await res.json();
+      if (me.city || me.district) {
+        document.getElementById('locationLabel').textContent = me.city || me.district;
+      }
+      if (me.latitude != null && me.longitude != null) {
+        myLat = me.latitude;
+        myLng = me.longitude;
+      }
+    }
+
+    const refreshNotifications = initNotificationBell();
+
+    // Shared entry point for starting a job post. Both the desktop
+    // sidebar button and "Get Help Now" route here, so there's one
+    // definition rather than duplicated scroll logic.
+    window.startPostJob = function () {
+      const pager = document.getElementById('catPager');
+      if (!pager) return;
+      pager.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      pager.style.outline = '2px solid var(--primary)';
+      pager.style.outlineOffset = '6px';
+      pager.style.borderRadius = 'var(--radius)';
+      setTimeout(() => { pager.style.outline = 'none'; }, 1500);
+    };
+
+    document.getElementById('getHelpNowBtn').addEventListener('click', () => {
+      sessionStorage.setItem('preferredUrgency', 'now');
+      startPostJob();
+    });
+
+
+    async function loadBookings() {
+      const list = document.getElementById('bookingsList');
+      list.innerHTML = `<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>`;
+
+      let res;
+      try {
+        res = await fetch('/api/bookings/mine?activeOnly=true&limit=6');
+      } catch (err) {
+        list.innerHTML = errorStateHtml('loadBookings()');
+        return;
+      }
+      if (!res.ok) {
+        list.innerHTML = errorStateHtml('loadBookings()');
+        return;
+      }
+      const data = await res.json();
+      list.innerHTML = '';
+
+      if (data.bookings.length === 0) {
+        list.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>Nothing active right now</strong>Pick a category above to book a pro, or see all jobs for your past bookings.</div>`;
+        return;
+      }
+
+      // A snapshot — three is enough to show "here's what's happening"
+      // without the home screen becoming a second Jobs page.
+      const shown = data.bookings.slice(0, 3);
+      shown.forEach(b => {
+        const meta = STATUS_META[b.status] || STATUS_META.requested;
+        const color = categoryColor(b.category);
+        const currentAmount = b.final_amount != null ? b.final_amount : b.estimate_amount;
+        const wrap = document.createElement('div');
+
+        const item = document.createElement('div');
+        item.className = 'recent-job-item';
+        item.style.setProperty('--cat-color', color);
+        item.innerHTML = `
+          <div class="recent-job-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${categoryIcon(b.category)}</svg></div>
+          <div class="recent-job-info">
+            <strong>${escapeHtml(b.category)} — ${escapeHtml(b.description.slice(0, 40))}${b.description.length > 40 ? '…' : ''}</strong>
+            <span>${escapeHtml(b.provider_name)} · UGX ${currentAmount.toLocaleString()} · ${new Date(b.created_at).toLocaleDateString()}</span>
+          </div>
+          <div class="recent-job-right">
+            <span class="status-badge" style="color:${meta.color}; background:${meta.bg};">${meta.label}</span>
+            <button class="small-btn" style="width:auto; padding:0.35rem; margin-top:0.4rem; background:var(--surface); color:var(--ink);" onclick="event.stopPropagation(); window.location.href='/message-thread.html?jobId=${b.id}';" aria-label="Message">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 20l-4.3-1.1a8.4 8.4 0 1 1 4.3-7.4z"/></svg>
+            </button>
+            <button class="small-btn" style="width:auto; padding:0.35rem; margin-top:0.3rem; background:var(--surface); color:var(--danger);" onclick="event.stopPropagation(); openReportModal(${b.provider_user_id}, ${b.id}, false);" aria-label="Report">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+            </button>
+          </div>
+        `;
+        item.style.cursor = 'pointer';
+        item.addEventListener('click', () => showBookingDetail(b));
+        wrap.appendChild(item);
+
+        if (b.pending_price_change_id) {
+          const alertBox = document.createElement('div');
+          alertBox.style.cssText = 'background:#FEF3C7; border-radius:var(--radius-sm); padding:0.85rem 1rem; margin:-0.4rem 0 0.65rem;';
+          alertBox.innerHTML = `
+            <p style="font-size:0.86rem; font-weight:700; margin:0 0 0.2rem; color:#92400E;">Price change requested</p>
+            <p style="font-size:0.84rem; margin:0 0 0.6rem; color:#92400E;">New total: UGX ${b.pending_new_amount.toLocaleString()} — ${escapeHtml(b.pending_price_reason || '')}</p>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="small-btn" style="width:auto; padding:0.4rem 0.8rem; font-size:0.8rem;" onclick="decidePriceChange(${b.pending_price_change_id}, 'ACCEPTED')">Accept UGX ${b.pending_new_amount.toLocaleString()}</button>
+              <button class="small-btn btn-decline" style="width:auto; padding:0.4rem 0.8rem; font-size:0.8rem;" onclick="decidePriceChange(${b.pending_price_change_id}, 'DECLINED')">Decline</button>
+            </div>
+          `;
+          wrap.appendChild(alertBox);
+        }
+
+        list.appendChild(wrap);
+      });
+
+      // No "view all" button here — the link opposite the "Recent jobs"
+      // heading already does exactly this. Two controls for one action
+      // on the same screen is clutter, not convenience.
+    }
+
+    function showBookingDetail(b) {
+      if (b.status === 'accepted') {
+        window.location.href = `tel:${b.provider_phone}`;
+      } else if (b.status === 'completed' && !b.reviewed) {
+        openRateModal(b.id);
+      }
+    }
+
+    window.decidePriceChange = async function (priceChangeId, decision) {
+      const res = await fetch(`/api/price-changes/${priceChangeId}/decide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error('Price change decision failed:', res.status, data.error);
+        showToast(data.error || `Couldn't ${decision === 'ACCEPTED' ? 'accept' : 'decline'} (error ${res.status}).`, 'error');
+        return;
+      }
+      showToast(decision === 'ACCEPTED' ? 'Price change accepted.' : 'Price change declined.', 'success');
+      loadBookings();
+    };
+
+    const SUB_RATING_FIELDS = [
+      ['qualityRating', 'Work quality'],
+      ['punctualityRating', 'Punctuality'],
+      ['professionalismRating', 'Professionalism'],
+      ['communicationRating', 'Communication'],
+      ['priceFairnessRating', 'Price fairness']
+    ];
+    let subRatingValues = {};
+
+    function buildSubRatings() {
+      const container = document.getElementById('subRatings');
+      if (container.dataset.built) return;
+      container.dataset.built = '1';
+      SUB_RATING_FIELDS.forEach(([key]) => { subRatingValues[key] = 0; });
+      container.innerHTML = SUB_RATING_FIELDS.map(([key, label]) => `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+          <span style="font-size:0.82rem; color:var(--ink-soft);">${label}</span>
+          <div class="star-picker" data-key="${key}" style="gap:0.15rem;">
+            ${[1,2,3,4,5].map(n => `<button type="button" data-v="${n}" style="font-size:1.2rem;">★</button>`).join('')}
+          </div>
+        </div>
+      `).join('');
+      container.querySelectorAll('.star-picker').forEach(picker => {
+        const key = picker.dataset.key;
+        picker.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            subRatingValues[key] = parseInt(btn.dataset.v, 10);
+            picker.querySelectorAll('button').forEach(b => b.classList.toggle('selected', parseInt(b.dataset.v, 10) <= subRatingValues[key]));
+          });
+        });
+      });
+    }
+
+    window.openRateModal = function (jobId) {
+      ratingJobId = jobId;
+      selectedStars = 0;
+      buildSubRatings();
+      SUB_RATING_FIELDS.forEach(([key]) => { subRatingValues[key] = 0; });
+      document.querySelectorAll('#subRatings .star-picker button').forEach(b => b.classList.remove('selected'));
+      document.querySelectorAll('#starPicker button').forEach(b => b.classList.remove('selected'));
+      document.getElementById('reviewComment').value = '';
+      document.getElementById('rateError').textContent = '';
+      openModal(document.getElementById('rateModal'));
+    };
+
+    document.querySelectorAll('#starPicker button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedStars = parseInt(btn.dataset.v, 10);
+        document.querySelectorAll('#starPicker button').forEach(b => {
+          b.classList.toggle('selected', parseInt(b.dataset.v, 10) <= selectedStars);
+        });
+      });
+    });
+
+    document.getElementById('cancelRate').addEventListener('click', () => {
+      closeModal(document.getElementById('rateModal'));
+    });
+
+    document.getElementById('submitRate').addEventListener('click', async () => {
+      const errorEl = document.getElementById('rateError');
+      if (selectedStars < 1) {
+        errorEl.textContent = 'Please choose a star rating.';
+        return;
+      }
+      const payload = { jobId: ratingJobId, rating: selectedStars, comment: document.getElementById('reviewComment').value };
+      SUB_RATING_FIELDS.forEach(([key]) => { if (subRatingValues[key] > 0) payload[key] = subRatingValues[key]; });
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      closeModal(document.getElementById('rateModal'));
+      loadBookings();
+    });
+
+    document.getElementById('fileDisputeLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      closeModal(document.getElementById('rateModal'));
+      document.getElementById('disputeReason').value = '';
+      document.getElementById('disputeError').textContent = '';
+      openModal(document.getElementById('disputeModal'));
+    });
+
+    document.getElementById('cancelDispute').addEventListener('click', () => {
+      closeModal(document.getElementById('disputeModal'));
+    });
+
+    document.getElementById('submitDispute').addEventListener('click', async () => {
+      const errorEl = document.getElementById('disputeError');
+      const reason = document.getElementById('disputeReason').value.trim();
+      if (!reason) { errorEl.textContent = 'Please explain what went wrong.'; return; }
+      const res = await fetch('/api/disputes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: ratingJobId, reason })
+      });
+      const data = await res.json();
+      if (!res.ok) { errorEl.textContent = data.error; return; }
+      closeModal(document.getElementById('disputeModal'));
+      showToast('Dispute filed. Our team will review it.', 'success');
+    });
+
+    function setMode(searching) {
+      document.getElementById('homeContent').style.display = searching ? 'none' : 'block';
+      document.getElementById('searchResults').style.display = searching ? 'block' : 'none';
+    }
+
+    async function loadCategories() {
+      const res = await fetch('/api/categories');
+      const data = await res.json();
+      const filtersEl = document.getElementById('filters');
+      filtersEl.innerHTML = '';
+      const allBtn = document.createElement('button');
+      allBtn.className = 'filter-btn active';
+      allBtn.textContent = 'All';
+      allBtn.onclick = () => selectCategory('', allBtn);
+      filtersEl.appendChild(allBtn);
+      data.categories.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.className = 'filter-btn';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="2">${categoryIcon(cat)}</svg>${cat}`;
+        btn.onclick = () => selectCategory(cat, btn);
+        filtersEl.appendChild(btn);
+      });
+    }
+
+    function selectCategory(cat, btnEl) {
+      activeCategory = cat;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btnEl.classList.add('active');
+      loadWorkers();
+    }
+
+    let myLat = null;
+    let myLng = null;
+    let locationRequested = false;
+
+    function captureMyLocation() {
+      return new Promise((resolve) => {
+        window.promptForLocation((lat, lng) => {
+          myLat = lat;
+          myLng = lng;
+          resolve();
+        });
+      });
+    }
+
+    async function loadWorkers() {
+      const search = document.getElementById('searchInput').value;
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (activeCategory) params.set('category', activeCategory);
+      if (myLat !== null) { params.set('lat', myLat); params.set('lng', myLng); }
+      document.getElementById('statusLine').textContent = '';
+      document.getElementById('workerGrid').innerHTML = `<div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div>`;
+
+      if (!locationRequested) {
+        locationRequested = true;
+        captureMyLocation().then(() => {
+          if (myLat !== null) loadWorkers(); // re-fetch with real distance once available
+        });
+      }
+
+      let res;
+      try {
+        res = await fetch('/api/workers?' + params.toString());
+      } catch (err) {
+        document.getElementById('workerGrid').innerHTML = errorStateHtml('loadWorkers()');
+        return;
+      }
+      if (!res.ok) {
+        document.getElementById('workerGrid').innerHTML = errorStateHtml('loadWorkers()');
+        return;
+      }
+      const data = await res.json();
+      // Distance is already computed server-side (from coordinates that
+      // never left the server) — just sort on the field it returned.
+      let workers = data.workers;
+      if (myLat !== null) {
+        workers.sort((a, b) => {
+          if (a.distanceKm === null && b.distanceKm === null) return 0;
+          if (a.distanceKm === null) return 1;
+          if (b.distanceKm === null) return -1;
+          return a.distanceKm - b.distanceKm;
+        });
+      }
+      renderWorkers(workers);
+    }
+
+    function renderWorkers(workers) {
+      const grid = document.getElementById('workerGrid');
+      const statusLine = document.getElementById('statusLine');
+      grid.innerHTML = '';
+      if (workers.length === 0) {
+        statusLine.textContent = '';
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l2-3h14l2 3M3 7v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7M3 7h18M9 11h6"/></svg><strong>No pros match that search</strong>Try a different trade or clear your filters.</div>`;
+        return;
+      }
+      statusLine.textContent = `${workers.length} pro${workers.length === 1 ? '' : 's'} available${myLat !== null ? ' · nearest first' : ''}`;
+      workers.forEach(w => {
+        const color = categoryColor(w.category);
+        const card = document.createElement('div');
+        card.className = 'worker-card';
+        card.style.setProperty('--cat-color', color);
+        const distanceLabel = (w.distanceKm !== null && w.distanceKm !== undefined) ? `${w.distanceKm.toFixed(1)} km away` : null;
+        card.innerHTML = `
+          <div class="worker-head">
+            <div class="avatar">${w.photo ? `<img class="avatar-img" src="${w.photo}" alt="">` : initials(w.name)}</div>
+            <div class="worker-name-block">
+              <strong>${escapeHtml(w.name)}</strong>
+              <span class="worker-cat"><svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${categoryIcon(w.category)}</svg>${escapeHtml(w.category)}</span>
+            </div>
+            <span class="rating"><span class="star">★</span> ${w.rating}</span>
+          </div>
+          <p class="location">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+            ${escapeHtml(w.location)}${distanceLabel ? ` · ${distanceLabel}` : ''}
+          </p>
+          <p class="trust-meta-line">${renderTrustMeta(w)}</p>
+          ${renderTrustBadges(w)}
+          <p class="bio">${escapeHtml(w.bio)}</p>
+          <a href="tel:${w.phone}"><button class="small-btn contact-btn">Contact ${w.phone}</button></a>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    let debounceTimer;
+    let categoriesLoaded = false;
+    const searchInput = document.getElementById('searchInput');
+    const suggestionsBox = document.getElementById('searchSuggestions');
+
+    function renderSuggestions(query) {
+      const q = query.trim().toLowerCase();
+      const matches = Object.keys(CATEGORY_COLORS).filter(cat => cat.toLowerCase().includes(q));
+      if (matches.length === 0) {
+        suggestionsBox.style.display = 'none';
+        return;
+      }
+      suggestionsBox.innerHTML = matches.map(cat => `
+        <div class="suggestion-row" data-cat="${cat}">
+          <div class="icon-chip" style="background:color-mix(in srgb, ${categoryColor(cat)} 16%, white);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="${categoryColor(cat)}" stroke-width="1.8">${categoryIcon(cat)}</svg>
+          </div>
+          <span>${cat}</span>
+        </div>
+      `).join('');
+      suggestionsBox.querySelectorAll('.suggestion-row').forEach(row => {
+        row.addEventListener('click', () => {
+          searchInput.value = row.dataset.cat;
+          suggestionsBox.style.display = 'none';
+          setMode(true);
+          if (!categoriesLoaded) { categoriesLoaded = true; loadCategories(); }
+          activeCategory = row.dataset.cat;
+          loadWorkers();
+        });
+      });
+      suggestionsBox.style.display = 'block';
+    }
+
+    searchInput.addEventListener('focus', () => renderSuggestions(searchInput.value));
+    searchInput.addEventListener('input', () => {
+      const val = searchInput.value;
+      renderSuggestions(val);
+      setMode(val.length > 0);
+      if (val.length > 0) {
+        if (!categoriesLoaded) { categoriesLoaded = true; loadCategories(); }
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(loadWorkers, 250);
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.search-bar')) suggestionsBox.style.display = 'none';
+    });
+
+    (async () => {
+      const me = await checkAuth();
+      if (!me) return;
+      document.getElementById('appShell').style.visibility = 'visible';
+      buildCategoryGrid();
+      await loadSavedLocation();
+      await loadBookings();
+
+      const locationState = await startAutoLocationIfPermitted();
+      const locationBanner = document.getElementById('locationBanner');
+      if (locationState === 'prompt') {
+        locationBanner.style.display = 'flex';
+        document.getElementById('enableLocationBtn').addEventListener('click', async (e) => {
+          const ok = await enableAutoLocationTracking(e.target);
+          if (ok) { locationBanner.style.display = 'none'; showToast('Location enabled — you\u2019re all set.', 'success'); loadSavedLocation(); }
+          else { showToast('Couldn\u2019t get your location. Please allow the permission prompt.', 'error'); }
+        });
+      } else if (locationState === 'denied') {
+        locationBanner.style.display = 'flex';
+        locationBanner.querySelector('span').textContent = '📍 Location is blocked in your browser settings — enable it there to find pros near you automatically.';
+        document.getElementById('enableLocationBtn').style.display = 'none';
+      }
+
+      setInterval(() => refreshNotifications(), 20000);
+      setInterval(() => loadBookings(), 15000);
+      refreshOnResume(() => { loadBookings(); refreshNotifications(); });
+    })();
+  </script>
+</body>
+</html>
