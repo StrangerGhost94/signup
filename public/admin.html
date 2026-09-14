@@ -726,6 +726,12 @@
       const data = await res.json();
       const p = data.provider;
 
+      // Clear any panel that's already open before adding another.
+      // Clicking a second row — or clicking again while the first
+      // fetch was still in flight — stacked two full-screen overlays,
+      // so closing one revealed the other sitting behind it.
+      document.querySelectorAll('.admin-detail-overlay').forEach(el => el.remove());
+
       const overlay = document.createElement('div');
       overlay.className = 'admin-detail-overlay';
       overlay.innerHTML = `<div class="admin-detail-panel" id="detailPanel"></div>`;
@@ -840,7 +846,7 @@
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast('Updated.', 'success');
-      document.querySelector('.admin-detail-overlay')?.remove();
+      document.querySelectorAll('.admin-detail-overlay').forEach(el => el.remove());
       loadApplications();
     }
 
@@ -857,7 +863,7 @@
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast('Updated.', 'success');
-      document.querySelector('.admin-detail-overlay')?.remove();
+      document.querySelectorAll('.admin-detail-overlay').forEach(el => el.remove());
       loadApplications();
     }
 
@@ -866,7 +872,7 @@
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast(data.message, 'success');
-      document.querySelector('.admin-detail-overlay')?.remove();
+      document.querySelectorAll('.admin-detail-overlay').forEach(el => el.remove());
       loadApplications();
     }
 
@@ -879,7 +885,7 @@
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast('Application rejected.', 'success');
-      document.querySelector('.admin-detail-overlay')?.remove();
+      document.querySelectorAll('.admin-detail-overlay').forEach(el => el.remove());
       loadApplications();
     }
 
@@ -892,7 +898,7 @@
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast('Provider suspended.', 'success');
-      document.querySelector('.admin-detail-overlay')?.remove();
+      document.querySelectorAll('.admin-detail-overlay').forEach(el => el.remove());
       loadApplications();
     }
 
@@ -905,7 +911,7 @@
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast('Request sent.', 'success');
-      document.querySelector('.admin-detail-overlay')?.remove();
+      document.querySelectorAll('.admin-detail-overlay').forEach(el => el.remove());
     }
 
     async function loadPricing() {
@@ -1111,7 +1117,7 @@
       const data = await res.json();
       if (!res.ok) { showToast(data.error, 'error'); return; }
       showToast('Account deleted.', 'success');
-      document.querySelector('.admin-detail-overlay')?.remove();
+      document.querySelectorAll('.admin-detail-overlay').forEach(el => el.remove());
       loadApplications();
       loadSafety();
       if (usersBuilt) loadUsers(false);

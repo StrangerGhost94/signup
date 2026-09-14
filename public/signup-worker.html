@@ -266,11 +266,18 @@
       const original = btn ? btn.textContent : '';
       if (btn) { btn.textContent = 'Checking…'; btn.disabled = true; }
       try {
+        // Backstop: even with the server-side DNS timeout, a stalled
+        // connection would leave this button on "Checking…" forever.
+        // Abort and proceed rather than trapping the user.
+        const controller = new AbortController();
+        const abortTimer = setTimeout(() => controller.abort(), 5000);
         const res = await fetch('/api/check-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email.value.trim() })
+          body: JSON.stringify({ email: email.value.trim() }),
+          signal: controller.signal
         });
+        clearTimeout(abortTimer);
         const data = await res.json().catch(() => ({ ok: true }));
         if (res.ok && data.ok === false) {
           return failStep(data.reason, email);

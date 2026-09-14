@@ -1875,17 +1875,35 @@ async function domainCanReceiveMail(email) {
   if (!domain) return false;
   if (domainCheckCache.has(domain)) return domainCheckCache.get(domain);
 
+  // Node's DNS resolver has NO default timeout — if the resolver is slow
+  // or unreachable the promise never settles, so the signup request
+  // hangs forever and the Continue button sits on "Checking…" with no
+  // error ever arriving. Cap it and fail OPEN: a deliverability check is
+  // a convenience, and blocking signup because our own DNS is having a
+  // bad minute is far worse than letting a bad address through (the
+  // verification email catches those anyway).
+  const withTimeout = (promise, ms) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('dns_timeout')), ms))
+  ]);
+
   let ok = false;
   try {
-    const mxRecords = await dns.resolveMx(domain);
+    const mxRecords = await withTimeout(dns.resolveMx(domain), 3000);
     ok = mxRecords && mxRecords.length > 0;
   } catch (err) {
+    if (err.message === 'dns_timeout') {
+      // Don't cache a timeout — the domain may be perfectly fine and
+      // caching a transient failure would reject it for everyone after.
+      return true;
+    }
     // No MX records — fall back to checking the domain resolves at all
     // (some small domains route mail through their A record).
     try {
-      await dns.resolve4(domain);
+      await withTimeout(dns.resolve4(domain), 3000);
       ok = true;
     } catch (err2) {
+      if (err2.message === 'dns_timeout') return true;
       ok = false;
     }
   }
