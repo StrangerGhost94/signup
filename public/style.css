@@ -2820,13 +2820,15 @@ select[style*="margin-bottom:0"] { margin-bottom: 0; }
 html:not([data-auth-ready]) .app-shell,
 html:not([data-auth-ready]) .admin-shell,
 html:not([data-auth-ready]) body.app-body > .dash-wrap,
-html:not([data-auth-ready]) body.app-body > .bottom-nav {
+html:not([data-auth-ready]) body.app-body > .bottom-nav,
+html:not([data-auth-ready]) body.app-body > .form-page {
   visibility: hidden;
 }
 html[data-auth-ready] .app-shell,
 html[data-auth-ready] .admin-shell,
 html[data-auth-ready] body.app-body > .dash-wrap,
-html[data-auth-ready] body.app-body > .bottom-nav {
+html[data-auth-ready] body.app-body > .bottom-nav,
+html[data-auth-ready] body.app-body > .form-page {
   visibility: visible;
 }
 

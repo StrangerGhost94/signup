@@ -1870,25 +1870,48 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const dns = require('dns').promises;
 const domainCheckCache = new Map(); // avoid repeat DNS lookups for common domains
 
+// DNS lookups have no built-in cap here — if the resolver is slow or
+// unreachable, dns.resolveMx/resolve4 can hang far longer than a signup
+// form should ever wait, leaving the client's "Checking…" button stuck
+// with no response ever coming back. Race every lookup against a short
+// timeout so a stalled resolver fails fast instead of hanging the request.
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('dns-timeout')), ms);
+    promise.then(
+      (val) => { clearTimeout(timer); resolve(val); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
 async function domainCanReceiveMail(email) {
   const domain = email.split('@')[1];
   if (!domain) return false;
   if (domainCheckCache.has(domain)) return domainCheckCache.get(domain);
 
   let ok = false;
+  let timedOut = false;
   try {
-    const mxRecords = await dns.resolveMx(domain);
+    const mxRecords = await withTimeout(dns.resolveMx(domain), 3000);
     ok = mxRecords && mxRecords.length > 0;
   } catch (err) {
+    if (err.message === 'dns-timeout') timedOut = true;
     // No MX records — fall back to checking the domain resolves at all
     // (some small domains route mail through their A record).
     try {
-      await dns.resolve4(domain);
+      await withTimeout(dns.resolve4(domain), 3000);
       ok = true;
+      timedOut = false;
     } catch (err2) {
+      if (err2.message === 'dns-timeout') timedOut = true;
       ok = false;
     }
   }
+  // A timeout means we don't actually know — treat it like the outage
+  // case below rather than a confirmed-bad domain, and don't cache an
+  // unknown result as if it were a real answer.
+  if (timedOut) return true;
   domainCheckCache.set(domain, ok);
   return ok;
 }
